@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Setup dependensi native: build whisper.cpp + unduh model, build worker C++.
+# Jalankan sekali. Butuh: git, cmake, g++, curl/wget. Butuh internet.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+MODEL="${1:-small}"            # tiny|base|small|medium|large-v3
+THIRD="$ROOT/third_party"
+WHISPER_DIR="$THIRD/whisper.cpp"
+
+mkdir -p "$ROOT/bin" "$ROOT/models" "$THIRD"
+
+echo "==> 1/3 whisper.cpp"
+if [ ! -d "$WHISPER_DIR" ]; then
+  git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$WHISPER_DIR"
+fi
+cmake -S "$WHISPER_DIR" -B "$WHISPER_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$WHISPER_DIR/build" -j --config Release --target whisper-cli
+# Salin binary (lokasi bisa berbeda antar versi)
+BIN="$(find "$WHISPER_DIR/build" -name whisper-cli -type f | head -1)"
+cp "$BIN" "$ROOT/bin/whisper-cli"
+# Salin shared library (.so) ke bin/ agar portabel (engine set LD_LIBRARY_PATH
+# ke folder binary; tahan pemindahan folder & untuk distribusi).
+cp -a "$WHISPER_DIR/build/bin/"*.so* "$ROOT/bin/" 2>/dev/null || true
+echo "    whisper-cli + .so -> bin/"
+
+echo "==> 2/3 model: $MODEL"
+MODEL_PATH="$ROOT/models/ggml-$MODEL.bin"
+if [ ! -f "$MODEL_PATH" ]; then
+  URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$MODEL.bin"
+  if command -v curl >/dev/null; then
+    curl -L --fail -o "$MODEL_PATH" "$URL"
+  else
+    wget -O "$MODEL_PATH" "$URL"
+  fi
+fi
+echo "    model -> $MODEL_PATH"
+
+echo "==> 3/4 worker C++"
+cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$ROOT/worker/build" >/dev/null
+echo "    clipper-worker -> bin/clipper-worker"
+
+echo "==> 4/4 font subtitle"
+mkdir -p "$ROOT/assets/fonts"
+gf="https://github.com/google/fonts/raw/main/ofl"
+dl() { [ -f "$2" ] || curl -sL --fail "$1" -o "$2" || echo "    (lewati $2)"; }
+dl "$gf/montserrat/Montserrat%5Bwght%5D.ttf" "$ROOT/assets/fonts/Montserrat.ttf"
+dl "$gf/anton/Anton-Regular.ttf"             "$ROOT/assets/fonts/Anton.ttf"
+dl "$gf/bebasneue/BebasNeue-Regular.ttf"     "$ROOT/assets/fonts/BebasNeue.ttf"
+echo "    font -> assets/fonts/"
+
+echo "Selesai. Lanjut: ./build.sh && ./bin/clipper run <video>"

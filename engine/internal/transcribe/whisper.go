@@ -1,0 +1,154 @@
+// Package transcribe membungkus whisper.cpp (whisper-cli) untuk transkripsi.
+package transcribe
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"github.com/gemgum/clipper/engine/internal/types"
+)
+
+// Whisper memanggil binary whisper-cli.
+type Whisper struct {
+	Bin   string
+	Model string
+}
+
+func New(bin, model string) *Whisper {
+	return &Whisper{Bin: bin, Model: model}
+}
+
+// Available memastikan binary & model ada.
+func (w *Whisper) Available() error {
+	if _, err := exec.LookPath(w.Bin); err != nil {
+		if _, err2 := os.Stat(w.Bin); err2 != nil {
+			return fmt.Errorf("whisper binary tidak ditemukan (%s) — jalankan ./setup.sh", w.Bin)
+		}
+	}
+	if _, err := os.Stat(w.Model); err != nil {
+		return fmt.Errorf("model whisper tidak ditemukan (%s) — jalankan: ./setup.sh %s",
+			w.Model, modelName(w.Model))
+	}
+	return nil
+}
+
+// modelName mengambil nama model dari path (ggml-small.bin → small).
+func modelName(p string) string {
+	base := p
+	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+		base = p[i+1:]
+	}
+	base = strings.TrimPrefix(base, "ggml-")
+	base = strings.TrimSuffix(base, ".bin")
+	if base == "" {
+		return "small"
+	}
+	return base
+}
+
+// jsonOut adalah struktur output -oj dari whisper.cpp.
+type jsonOut struct {
+	Transcription []struct {
+		Offsets struct {
+			From int `json:"from"` // milidetik
+			To   int `json:"to"`
+		} `json:"offsets"`
+		Text string `json:"text"`
+	} `json:"transcription"`
+}
+
+// Transcribe mentranskripsi WAV 16kHz mono → Transcript. onProgress (boleh nil)
+// dipanggil dengan fraksi 0..1 selama proses (diparse dari output whisper).
+func (w *Whisper) Transcribe(ctx context.Context, wavPath, outBase, language string, threads int, onProgress func(float64)) (types.Transcript, error) {
+	if threads <= 0 {
+		threads = 4
+	}
+	args := []string{
+		"-m", w.Model,
+		"-f", wavPath,
+		"-l", language,
+		"-t", fmt.Sprintf("%d", threads),
+		"-oj",          // output JSON
+		"-of", outBase, // output file prefix
+		"-pp",          // print progress (ke stderr)
+	}
+	cmd := exec.CommandContext(ctx, w.Bin, args...)
+	// Agar library whisper (.so) ditemukan walau folder dipindah: cari .so di
+	// folder yang sama dengan binary (kita salin ke bin/ saat setup).
+	cmd.Env = append(os.Environ(),
+		"LD_LIBRARY_PATH="+filepath.Dir(w.Bin)+string(os.PathListSeparator)+os.Getenv("LD_LIBRARY_PATH"))
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return types.Transcript{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return types.Transcript{}, fmt.Errorf("mulai whisper: %w", err)
+	}
+
+	// Baca stderr: parse progress + simpan beberapa baris terakhir untuk pesan error.
+	var tail []string
+	last := -1
+	sc := bufio.NewScanner(stderr)
+	for sc.Scan() {
+		line := sc.Text()
+		tail = append(tail, line)
+		if len(tail) > 8 {
+			tail = tail[1:]
+		}
+		if p, ok := parseProgress(line); ok && p != last {
+			last = p
+			if onProgress != nil {
+				onProgress(float64(p) / 100.0)
+			}
+		}
+	}
+	if err := cmd.Wait(); err != nil {
+		return types.Transcript{}, fmt.Errorf("whisper gagal: %w: %s", err, strings.Join(tail, " | "))
+	}
+
+	raw, err := os.ReadFile(outBase + ".json")
+	if err != nil {
+		return types.Transcript{}, fmt.Errorf("baca output whisper: %w", err)
+	}
+	var parsed jsonOut
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return types.Transcript{}, fmt.Errorf("parse output whisper: %w", err)
+	}
+
+	tr := types.Transcript{Language: language}
+	for _, s := range parsed.Transcription {
+		text := strings.TrimSpace(s.Text)
+		if text == "" {
+			continue
+		}
+		tr.Segments = append(tr.Segments, types.TranscriptSegment{
+			Start: float64(s.Offsets.From) / 1000.0,
+			End:   float64(s.Offsets.To) / 1000.0,
+			Text:  text,
+		})
+	}
+	return tr, nil
+}
+
+// parseProgress mengambil persen dari baris "...progress =  20%".
+func parseProgress(line string) (int, bool) {
+	i := strings.Index(line, "progress =")
+	if i < 0 {
+		return 0, false
+	}
+	rest := strings.TrimSpace(line[i+len("progress ="):])
+	rest = strings.TrimSuffix(strings.TrimSpace(rest), "%")
+	rest = strings.TrimSpace(rest)
+	n, err := strconv.Atoi(rest)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
