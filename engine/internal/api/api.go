@@ -9,11 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/job"
+	"github.com/gemgum/clipper/engine/internal/score/ollama"
 )
 
 // Server membungkus manager job.
@@ -40,6 +42,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/config", s.config)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("POST /api/settings", s.postSettings)
+	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)
+	mux.HandleFunc("POST /api/ollama/pull", s.ollamaPull)
 	mux.HandleFunc("GET /api/fonts", s.listFonts)
 	mux.HandleFunc("GET /api/font-file", s.fontFile)
 	mux.HandleFunc("GET /api/probe", s.probe)
@@ -140,6 +146,75 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 		"duration_presets": []string{"auto", "30", "60", "90", "120", "180"},
 		"defaults":         config.DefaultOptions(),
 	})
+}
+
+// getSettings melaporkan status setelan (apakah API key sudah ada).
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]interface{}{"has_key": s.mgr.HasAPIKey()})
+}
+
+// postSettings menyimpan API key Claude (dari GUI) — di memori + .env.
+func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AnthropicAPIKey string `json:"anthropic_api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "body JSON tidak valid")
+		return
+	}
+	key := strings.TrimSpace(req.AnthropicAPIKey)
+	s.mgr.SetAPIKey(key)
+	if key != "" {
+		_ = writeEnvKey(filepath.Join(s.root, ".env"), "ANTHROPIC_API_KEY", key)
+	}
+	writeJSON(w, 200, map[string]interface{}{"ok": true, "has_key": s.mgr.HasAPIKey()})
+}
+
+// ollamaStatus memeriksa apakah Ollama jalan & model yang terpasang.
+func (s *Server) ollamaStatus(w http.ResponseWriter, r *http.Request) {
+	info := ollama.Status(r.Context(), r.URL.Query().Get("url"))
+	writeJSON(w, 200, info)
+}
+
+// ollamaPull mengunduh model via Ollama (bisa lama). Notifikasi bila gagal.
+func (s *Server) ollamaPull(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL   string `json:"url"`
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "body JSON tidak valid")
+		return
+	}
+	if req.Model == "" {
+		writeErr(w, 400, "field 'model' wajib")
+		return
+	}
+	if err := ollama.Pull(r.Context(), req.URL, req.Model); err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]interface{}{"ok": true})
+}
+
+// writeEnvKey menambah/mengganti satu KEY=value di berkas .env.
+func writeEnvKey(path, key, val string) error {
+	var lines []string
+	found := false
+	if raw, err := os.ReadFile(path); err == nil {
+		for _, ln := range strings.Split(string(raw), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(ln), key+"=") {
+				lines = append(lines, key+"="+val)
+				found = true
+			} else {
+				lines = append(lines, ln)
+			}
+		}
+	}
+	if !found {
+		lines = append(lines, key+"="+val)
+	}
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
 // listFonts melaporkan font yang tersedia di folder assets/fonts.

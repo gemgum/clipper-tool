@@ -8,6 +8,9 @@ echo "==> engine (Go)"
 echo "    bin/clipper"
 
 echo "==> worker (C++)"
+# Clean build: cache CMake menyimpan path absolut, jadi hapus dulu agar kebal
+# pemindahan/rename folder (build dir CMake tidak bisa dipindah).
+rm -rf "$ROOT/worker/build"
 cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$ROOT/worker/build" >/dev/null
 echo "    bin/clipper-worker"

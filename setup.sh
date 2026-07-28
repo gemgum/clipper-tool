@@ -14,6 +14,12 @@ echo "==> 1/3 whisper.cpp"
 if [ ! -d "$WHISPER_DIR" ]; then
   git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$WHISPER_DIR"
 fi
+# Bersihkan cache whisper HANYA bila basi (folder dipindah/rename) — agar tak
+# recompile whisper sia-sia setiap setup, tapi kebal pemindahan folder.
+if [ -f "$WHISPER_DIR/build/CMakeCache.txt" ] && ! grep -q "$WHISPER_DIR/" "$WHISPER_DIR/build/CMakeCache.txt" 2>/dev/null; then
+  echo "    (cache CMake basi karena folder pindah — bersihkan)"
+  rm -rf "$WHISPER_DIR/build"
+fi
 cmake -S "$WHISPER_DIR" -B "$WHISPER_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$WHISPER_DIR/build" -j --config Release --target whisper-cli
 # Salin binary (lokasi bisa berbeda antar versi)
@@ -37,6 +43,7 @@ fi
 echo "    model -> $MODEL_PATH"
 
 echo "==> 3/4 worker C++"
+rm -rf "$ROOT/worker/build" # clean build: cache CMake simpan path absolut
 cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$ROOT/worker/build" >/dev/null
 echo "    clipper-worker -> bin/clipper-worker"

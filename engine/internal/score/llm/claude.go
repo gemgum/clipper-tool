@@ -118,13 +118,24 @@ func (c *Client) Judge(ctx context.Context, cand types.Candidate) (Judgment, err
 }
 
 // Moment adalah momen menarik yang dipilih LLM dari transkrip (batas ditentukan LLM).
+// Angka memakai float64 agar toleran terhadap model lokal yang membalas desimal
+// (mis. qwen membalas "score": 7.0). Dikonversi ke int saat jadi klip.
 type Moment struct {
 	Start    float64       `json:"start"`
 	End      float64       `json:"end"`
-	Score    int           `json:"score"`
-	Reasons  types.Reasons `json:"reasons"`
+	Score    float64       `json:"score"`
+	Reasons  MomentReasons `json:"reasons"`
 	Title    string        `json:"title"`
 	Hashtags []string      `json:"hashtags"`
+}
+
+// MomentReasons rincian skor (float agar toleran output model lokal).
+type MomentReasons struct {
+	Hook         float64 `json:"hook"`
+	Emotion      float64 `json:"emotion"`
+	Clarity      float64 `json:"clarity"`
+	Shareability float64 `json:"shareability"`
+	Standalone   float64 `json:"standalone"`
 }
 
 const selectSystem = `Kamu kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).

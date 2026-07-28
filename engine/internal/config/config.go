@@ -79,7 +79,10 @@ type Options struct {
 	TargetMin      float64     `json:"target_min"`
 	TargetMax      float64     `json:"target_max"`
 	ScoreEngine    ScoreEngine `json:"score_engine"`
-	LLMModel       string      `json:"llm_model"`
+	Provider       string      `json:"provider"`     // claude | ollama (mesin scoring)
+	LLMModel       string      `json:"llm_model"`    // model Claude (mode hybrid)
+	OllamaModel    string      `json:"ollama_model"` // model lokal (mode offline)
+	OllamaURL      string      `json:"ollama_url"`   // default http://localhost:11434
 	MinScore       int         `json:"min_score"`
 	OutputDir      string      `json:"output_dir"`
 }
@@ -100,7 +103,10 @@ func DefaultOptions() Options {
 		MaxClips:       10,
 		DurationPreset: "auto",
 		ScoreEngine:    ScoreHeuristic,
+		Provider:       "claude",
 		LLMModel:       "claude-haiku-4-5",
+		OllamaModel:    "qwen2.5",
+		OllamaURL:      "http://localhost:11434",
 		MinScore:       0,
 	}
 }
@@ -188,14 +194,22 @@ func (o *Options) Validate() error {
 	if o.TargetMin <= 0 || o.TargetMax <= 0 {
 		o.TargetMin, o.TargetMax = durationRange(o.DurationPreset)
 	}
-	if o.ScoreEngine == "" {
-		o.ScoreEngine = d.ScoreEngine
-	}
 	if o.LLMModel == "" {
 		o.LLMModel = d.LLMModel
 	}
-	if o.Mode == ModeHybrid && o.ScoreEngine == ScoreHeuristic {
-		o.ScoreEngine = ScoreHeuristicLLM
+	if o.OllamaModel == "" {
+		o.OllamaModel = d.OllamaModel
+	}
+	if o.OllamaURL == "" {
+		o.OllamaURL = d.OllamaURL
+	}
+	// Provider default menurut mode (pipeline yang memakainya).
+	if o.Provider == "" {
+		if o.Mode == ModeHybrid || o.Mode == ModeOnline {
+			o.Provider = "claude"
+		} else {
+			o.Provider = "ollama"
+		}
 	}
 	return nil
 }

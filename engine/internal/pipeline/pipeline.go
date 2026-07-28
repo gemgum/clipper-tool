@@ -16,6 +16,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/score/heuristic"
 	"github.com/gemgum/clipper/engine/internal/score/llm"
+	"github.com/gemgum/clipper/engine/internal/score/ollama"
 	"github.com/gemgum/clipper/engine/internal/segment"
 	"github.com/gemgum/clipper/engine/internal/subtitle"
 	"github.com/gemgum/clipper/engine/internal/transcribe"
@@ -113,12 +114,24 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// 4-5. Pemilihan momen. Bila LLM tersedia, LLM menentukan batas momen
 	// (start/end) sehingga durasi bervariasi sesuai isi. Jika tidak, heuristik.
 	var selected []types.Clip
-	if p.useLLM() {
-		emit(onProgress, Progress{Stage: "scoring", Value: 0.58, Message: "AI memilih momen terbaik dari transkrip"})
-		clips, err := p.selectMomentsLLM(ctx, tr)
+	var sel momentSelector
+	label := ""
+	switch p.Opts.Provider {
+	case "claude":
+		if p.Paths.APIKey != "" {
+			sel = llm.New(p.Paths.APIKey, p.Opts.LLMModel)
+			label = "AI (Claude) memilih momen dari transkrip"
+		}
+	case "ollama":
+		sel = ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
+		label = "AI lokal (Ollama: " + p.Opts.OllamaModel + ") memilih momen"
+	}
+	if sel != nil {
+		emit(onProgress, Progress{Stage: "scoring", Value: 0.58, Message: label})
+		clips, err := p.selectWith(ctx, tr, sel)
 		if err != nil {
 			emit(onProgress, Progress{Stage: "scoring", Value: 0.6,
-				Message: "AI gagal (" + err.Error() + "), memakai heuristik"})
+				Message: "LLM gagal (" + err.Error() + "), memakai heuristik"})
 			selected = p.heuristicSelect(tr, rms)
 		} else {
 			selected = clips
@@ -165,21 +178,18 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	return selected, nil
 }
 
-// useLLM menentukan apakah scoring memakai LLM (butuh engine LLM + API key).
-func (p *Pipeline) useLLM() bool {
-	return (p.Opts.ScoreEngine == config.ScoreHeuristicLLM || p.Opts.ScoreEngine == config.ScoreLLM) &&
-		p.Paths.APIKey != ""
+// momentSelector adalah mesin yang memilih momen dari transkrip (Claude/Ollama).
+type momentSelector interface {
+	SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64) ([]llm.Moment, error)
 }
 
-// selectMomentsLLM meminta LLM memilih batas momen dari transkrip.
-func (p *Pipeline) selectMomentsLLM(ctx context.Context, tr types.Transcript) ([]types.Clip, error) {
-	client := llm.New(p.Paths.APIKey, p.Opts.LLMModel)
-	moments, err := client.SelectMoments(ctx, tr, p.Opts.MaxClips, p.Opts.TargetMin, p.Opts.TargetMax)
+// selectWith menjalankan selektor → klip (batas dirapikan & di-topN).
+func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel momentSelector) ([]types.Clip, error) {
+	moments, err := sel.SelectMoments(ctx, tr, p.Opts.MaxClips, p.Opts.TargetMin, p.Opts.TargetMax)
 	if err != nil {
 		return nil, err
 	}
-	clips := momentsToClips(moments, tr)
-	return topN(clips, p.Opts.MaxClips, p.Opts.MinScore), nil
+	return topN(momentsToClips(moments, tr), p.Opts.MaxClips, p.Opts.MinScore), nil
 }
 
 // heuristicSelect memilih klip via segmentasi window + skor heuristik (fallback).
@@ -204,9 +214,21 @@ func momentsToClips(moments []llm.Moment, tr types.Transcript) []types.Clip {
 		if end-start < 3 { // buang yang terlalu pendek/aneh
 			continue
 		}
+		sc := int(math.Round(m.Score))
+		reasons := types.Reasons{
+			Hook:         int(math.Round(m.Reasons.Hook)),
+			Emotion:      int(math.Round(m.Reasons.Emotion)),
+			Clarity:      int(math.Round(m.Reasons.Clarity)),
+			Shareability: int(math.Round(m.Reasons.Shareability)),
+			Standalone:   int(math.Round(m.Reasons.Standalone)),
+		}
+		// Model lokal (prompt sederhana) tak mengisi reasons → ratakan dari skor.
+		if reasons == (types.Reasons{}) && sc > 0 {
+			reasons = types.Reasons{Hook: sc, Emotion: sc, Clarity: sc, Shareability: sc, Standalone: sc}
+		}
 		clips = append(clips, types.Clip{
 			Start: start, End: end, Duration: end - start,
-			Score: m.Score, Reasons: m.Reasons, Title: m.Title, Hashtags: m.Hashtags,
+			Score: sc, Reasons: reasons, Title: m.Title, Hashtags: m.Hashtags,
 			Transcript: joinRange(tr, start, end), Status: "scored",
 		})
 	}

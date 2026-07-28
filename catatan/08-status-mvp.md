@@ -152,6 +152,52 @@ Untuk hasil paling tajam pada video landscape: pakai mode **fit**.
 - Fase 2: GUI atur API key + pilih/ganti model LLM dinamis.
 - Fase 3: integrasi Ollama/Qwen (deteksi, unduh dari app, notifikasi, gonta-ganti).
 
+## Update ronde 8 (Fase 2+3: UI mode-adaptif + Ollama) — SELESAI
+
+- [x] **UI berubah menurut mode**:
+  - hybrid → input **API Key Claude** + tombol Simpan + pilih model (Haiku/Sonnet/Opus).
+  - offline → pilih mesin (Ollama / Heuristik) + model lokal (Qwen/Llama/Gemma) +
+    status Ollama + tombol **unduh model** + notifikasi bila Ollama tak ada/gagal.
+- [x] **Backend Ollama** (`score/ollama`): SelectMoments via /api/chat (format json),
+  `Status()` (deteksi jalan + daftar model), `Pull()` (unduh model).
+- [x] **Provider dinamis** di pipeline: claude | ollama | heuristik (interface
+  `momentSelector`; keduanya SelectMoments). Fallback heuristik bila LLM gagal.
+- [x] **API key dari GUI**: POST /api/settings → simpan di memori + tulis .env
+  (menimpa env). GET /api/settings → has_key.
+- [x] Endpoint: /api/settings (GET/POST), /api/ollama/status, /api/ollama/pull.
+- [x] Config: field `provider`, `ollama_model`, `ollama_url`. Preset LLM disimpan
+  di localStorage (kecuali key — key di server).
+
+Teruji: settings simpan/baca, ollama status (running:false anggun), pull gagal
+→ notifikasi. Build engine+GUI bersih, vet bersih.
+**Belum teruji live:** jalur Claude (perlu key asli) & Ollama (perlu install +
+model). Plumbing + fallback terverifikasi.
+
+### Catatan LLM lokal (Ollama)
+- Qwen2.5 disarankan untuk Indonesia. Di CPU: lambat, num_ctx dibatasi 8192 →
+  video panjang perlu chunking (penyempurnaan berikutnya).
+
+## Update ronde 9 (Ollama live + fix) — TERVALIDASI
+
+- [x] **Fix CMake rename**: build dir CMake simpan path absolut → rename folder
+      bikin error. build.sh/setup.sh kini CLEAN build worker; setup bersihkan
+      cache whisper hanya bila basi. Kebal pindah folder.
+- [x] **GUI model Ollama dinamis**: dropdown tampilkan model yang benar-benar
+      terpasang (mis. qwen:latest) + auto-pilih; opsi lain ditandai "perlu unduh".
+- [x] **Fix bug Ollama #1**: model lokal balas skor desimal ("score":7.0) →
+      struct int crash. Moment kini float64, dikonversi int saat jadi klip.
+- [x] **Fix bug Ollama #2**: prompt kompleks (reasons+hashtags) bikin model lemah
+      KEBABLASAN mengulang → JSON rusak. Prompt Ollama disederhanakan
+      (start/end/score/title saja) + num_predict cap. Reasons diratakan dari skor.
+- [x] **TERVALIDASI LIVE**: offline+Ollama(qwen) → memilih momen (judul+skor),
+      bukan heuristik. Seluruh pipeline LLM-driven bekerja dgn model lokal.
+
+### Catatan kualitas
+- `qwen:latest` = Qwen 1.x (lama & lemah) → hasil terbatas (kadang halusinasi,
+  durasi tak sesuai panduan). **Saran: `ollama pull qwen2.5`** (jauh lebih baik
+  untuk Indonesia & ikuti instruksi). Uji dgn konten Indonesia asli.
+- Video panjang tetap perlu chunking (num_ctx 8192) — penyempurnaan berikut.
+
 ## Belum / berikutnya (urут prioritas)
 
 1. **Model Indonesia**: unduh `small`/`medium`, uji dengan audio Indonesia asli.

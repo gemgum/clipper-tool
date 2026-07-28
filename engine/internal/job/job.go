@@ -51,10 +51,35 @@ type Job struct {
 type Manager struct {
 	paths config.Paths
 	root  string
-	mu    sync.RWMutex
-	jobs  map[string]*Job
-	seq   int
-	queue chan *Job
+	mu     sync.RWMutex
+	jobs   map[string]*Job
+	seq    int
+	queue  chan *Job
+	apiKey string // API key Claude yang diset dari GUI (menimpa env bila ada)
+}
+
+// SetAPIKey menyimpan API key Claude (dari GUI) di memori.
+func (m *Manager) SetAPIKey(key string) {
+	m.mu.Lock()
+	m.apiKey = key
+	m.mu.Unlock()
+}
+
+// HasAPIKey melaporkan apakah key tersedia (dari GUI atau env).
+func (m *Manager) HasAPIKey() bool {
+	m.mu.RLock()
+	k := m.apiKey
+	m.mu.RUnlock()
+	return k != "" || m.paths.APIKey != ""
+}
+
+func (m *Manager) getAPIKey() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.apiKey != "" {
+		return m.apiKey
+	}
+	return m.paths.APIKey
 }
 
 // NewManager membuat manager dengan batas konkurensi (default 1 = antrian).
@@ -123,6 +148,9 @@ func (m *Manager) run(j *Job) {
 
 	// Resolve path per-job agar model whisper sesuai opsi job (mis. base vs small).
 	paths := config.ResolvePaths(m.root, j.Options)
+	if k := m.getAPIKey(); k != "" {
+		paths.APIKey = k // key dari GUI menimpa env
+	}
 	workDir := filepath.Join(paths.DataDir, j.Dir)
 	outDir := workDir
 	if j.Options.OutputDir != "" {
