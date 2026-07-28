@@ -198,11 +198,53 @@ model). Plumbing + fallback terverifikasi.
   untuk Indonesia & ikuti instruksi). Uji dgn konten Indonesia asli.
 - Video panjang tetap perlu chunking (num_ctx 8192) — penyempurnaan berikut.
 
+## Update ronde 10 (perbaikan v2 dari uji pakai) — SELESAI & teruji
+
+Rincian & akar masalah: `catatan/11-perbaikan-v2.md`.
+
+- [x] **Timestamp per kata**: whisper dipanggil `-ojf`, token digabung jadi kata
+      + waktunya (`TranscriptSegment.Words`). Fallback bagi rata bila kosong.
+- [x] **Durasi klip tak lagi mentok 30 detik**: segmentasi mengincar durasi
+      ideal (tengah rentang), potong di akhir kalimat / jeda diam panjang.
+      Preset auto 30–180 → **45–120**. Teruji: preset 60 → klip 60/59/60 dtk.
+- [x] **Warna subtitle tidak dipaksa kuning** saat efek per-kata aktif.
+- [x] **Gaya subtitle jadi 3 mode**: normal · karaoke (kata aktif disorot,
+      1 Dialogue per kata + `\c` inline) · word (satu kata per layar).
+- [x] **Kecepatan subtitle**: tampilan dibangun dari aliran kata seluruh klip
+      (bukan per segmen), durasi minimum 1,2 dtk, maks 2–3 baris, setelan
+      Lambat/Normal/Padat. Teruji: tampilan terpendek 0,45 → 1,23 detik.
+- [x] **Pembatas area aman sosmed** di GUI: TikTok/Reels/Shorts/Umum, arsiran
+      zona tertutup UI di preview + tombol "Taruh di area aman" + peringatan.
+- [x] **Opsi simpan klip**: `burn` / `clean` / `both` (+ ekspor `.srt`).
+      CLI `-save`, GUI dropdown, API `?varian=polos|srt`.
+- [x] **Fix**: mode offline di CLI tak lagi memanggil Claude (provider default
+      kosong → ditentukan mode); flag baru `-provider`.
+- [x] Uji otomatis pertama di repo: `segment_test.go`, `subtitle_test.go`.
+
+## Update ronde 11 (kebijakan mesin skor) — SELESAI & teruji
+
+Rincian: `catatan/12-kebijakan-mesin-skor.md`.
+
+- [x] **Tanpa fallback**: mesin pilihan pengguna dipakai apa adanya; gagal =
+      job gagal dengan pesan akar masalah (key ditolak, model belum diunduh,
+      Ollama mati, JSON tak terbaca, isian kosong, batas waktu ngawur).
+- [x] **Prompt detail & identik** untuk Claude + Ollama; bentuk balasan Ollama
+      dijamin **JSON Schema** (`format`), bukan lagi disederhanakan.
+- [x] **Chunking bertumpang-tindih** (12 mnt Ollama / 25 mnt Claude, overlap 2
+      mnt) + tanda `"berlanjut"` untuk menyambung momen yang terbelah batas.
+      Menutup bahaya video >30 menit terpotong diam-diam oleh num_ctx.
+- [x] **Cache transkrip** (hash isi video + model + bahasa): 71 dtk → 0,4 dtk.
+- [x] **Kode mati dihapus**: `llm.Judge()`/`Judgment` peninggalan desain lama.
+- [x] CLI: `-provider`, `-ollama-model`. Uji baru: `pipeline/chunk_test.go`.
+- [!] **Temuan**: `qwen:latest` (4B) terlalu kecil untuk prompt detail — membalas
+      isian kosong. Perlu `ollama pull qwen2.5` untuk jalur Ollama.
+
 ## Belum / berikutnya (urут prioritas)
 
 1. **Model Indonesia**: unduh `small`/`medium`, uji dengan audio Indonesia asli.
 2. **Mode hybrid**: uji scoring + judul/hashtag via Claude (set ANTHROPIC_API_KEY).
-3. **Subtitle viral per-kata** (karaoke) — butuh word-level timestamp whisper.
+3. **Kalibrasi zona sosmed**: angka pembatas TikTok/Reels/Shorts masih perkiraan
+   — cocokkan dengan screenshot aplikasi asli.
 4. **Face-follow 9:16** di worker C++ (OpenCV) — perintah `reframe` mode face_follow.
 5. **Cache transkrip** (hash video → skip transkripsi ulang).
 6. **Editor subtitle** di GUI sebelum render (endpoint PATCH sudah direncanakan).

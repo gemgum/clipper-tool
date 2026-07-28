@@ -366,10 +366,22 @@ func (s *Server) clipFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clipID := r.PathValue("clip")
+	// ?varian=polos → berkas tanpa subtitle (bila dibuat); ?varian=srt → subtitle.
+	varian := r.URL.Query().Get("varian")
 	snap := j.Snapshot()
 	for _, cl := range snap.Clips {
-		if cl.ID == clipID && cl.VideoPath != "" {
-			http.ServeFile(w, r, cl.VideoPath)
+		if cl.ID != clipID {
+			continue
+		}
+		path := cl.VideoPath
+		switch varian {
+		case "polos":
+			path = cl.VideoPathRaw
+		case "srt":
+			path = cl.SubtitleSRT
+		}
+		if path != "" {
+			http.ServeFile(w, r, path)
 			return
 		}
 	}

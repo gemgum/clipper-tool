@@ -55,6 +55,12 @@ Flag 'run':
   -model       model whisper: tiny|base|small|medium|large-v3 (default small)
   -reframe     center|face_follow (default center)
   -style       plain|viral (default plain)
+  -sub-mode    normal|karaoke|word — gaya subtitle (default normal)
+  -sub-speed   lambat|normal|padat — kecepatan tampil subtitle (default normal)
+  -save        burn|clean|both — simpan bersubtitle / polos / keduanya (default burn)
+  -duration    auto|30|60|90|120|180 — panjang klip (default auto)
+  -provider    claude|ollama|heuristic — pemilih momen (default ikut mode)
+  -ollama-model  model lokal untuk provider ollama (default qwen2.5)
   -max         jumlah maksimum klip (default 10)
   -min-score   skor minimum 0-100 (default 0)
   -llm-model   model Claude (default claude-haiku-4-5)
@@ -79,6 +85,12 @@ func cmdRun(root string, args []string) {
 	resolution := fs.String("resolution", opts.Resolution, "")
 	quality := fs.String("quality", opts.Quality, "")
 	style := fs.String("style", opts.SubtitleStyle, "")
+	subMode := fs.String("sub-mode", opts.Subtitle.Mode, "")
+	subSpeed := fs.String("sub-speed", opts.Subtitle.Speed, "")
+	save := fs.String("save", opts.SubtitleOutput, "")
+	provider := fs.String("provider", opts.Provider, "")
+	ollamaModel := fs.String("ollama-model", opts.OllamaModel, "")
+	duration := fs.String("duration", opts.DurationPreset, "")
 	maxClips := fs.Int("max", opts.MaxClips, "")
 	minScore := fs.Int("min-score", opts.MinScore, "")
 	llmModel := fs.String("llm-model", opts.LLMModel, "")
@@ -97,6 +109,12 @@ func cmdRun(root string, args []string) {
 	opts.Resolution = *resolution
 	opts.Quality = *quality
 	opts.SubtitleStyle = *style
+	opts.Subtitle.Mode = *subMode
+	opts.Subtitle.Speed = *subSpeed
+	opts.SubtitleOutput = *save
+	opts.Provider = *provider
+	opts.OllamaModel = *ollamaModel
+	opts.DurationPreset = *duration
 	opts.MaxClips = *maxClips
 	opts.MinScore = *minScore
 	opts.LLMModel = *llmModel
@@ -178,6 +196,8 @@ func splitInput(args []string) (input string, flagArgs []string) {
 		"-mode": true, "-model": true, "-reframe": true, "-style": true,
 		"-max": true, "-min-score": true, "-llm-model": true, "-out": true, "-fps": true,
 		"-resolution": true, "-quality": true,
+		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,
+		"-provider": true, "-ollama-model": true,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]

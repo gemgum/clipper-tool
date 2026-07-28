@@ -39,11 +39,11 @@ type chatMsg struct {
 	Content string `json:"content"`
 }
 type chatReq struct {
-	Model    string                 `json:"model"`
-	Messages []chatMsg              `json:"messages"`
-	Stream   bool                   `json:"stream"`
-	Format   string                 `json:"format,omitempty"`
-	Options  map[string]interface{} `json:"options,omitempty"`
+	Model    string         `json:"model"`
+	Messages []chatMsg      `json:"messages"`
+	Stream   bool           `json:"stream"`
+	Format   any            `json:"format,omitempty"` // "json" atau JSON Schema
+	Options  map[string]any `json:"options,omitempty"`
 }
 type chatResp struct {
 	Message struct {
@@ -52,28 +52,20 @@ type chatResp struct {
 	Error string `json:"error"`
 }
 
-// Prompt SEDERHANA (tanpa reasons/hashtags): model lokal lemah cenderung
-// kebablasan/mengulang bila skema terlalu rumit. Cukup start/end/score/title.
-const selectSystem = `Kamu kurator klip video viral konten Indonesia. Dari transkrip bertimestamp, PILIH momen terbaik untuk klip pendek.
-Aturan: tiap momen berdiri sendiri (hook + isi + penutup, bukan potongan acak); tentukan 'start' & 'end' (detik) dari timestamp; durasi sekitar %.0f-%.0f detik (boleh menyimpang demi momen utuh).
-Balas HANYA JSON objek ini, tanpa teks lain:
-{"moments":[{"start":<detik>,"end":<detik>,"score":<0-100>,"title":"<judul singkat Indonesia>"}]}`
-
-// SelectMoments meminta model lokal memilih momen dari transkrip.
-func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64) ([]llm.Moment, error) {
-	var b strings.Builder
-	for _, s := range tr.Segments {
-		fmt.Fprintf(&b, "[%.1f-%.1f] %s\n", s.Start, s.End, s.Text)
-	}
-	system := fmt.Sprintf(selectSystem, targetMin, targetMax)
-	user := fmt.Sprintf("Transkrip:\n%s\nPilih maksimal %d momen terbaik.", b.String(), maxClips)
-
+// SelectMoments meminta model lokal memilih momen dari satu potongan transkrip.
+// Prompt-nya SAMA DETAILNYA dengan Claude: bentuk balasan dijamin oleh JSON
+// Schema di parameter "format", sehingga prompt panjang tidak lagi membuat
+// model lokal membalas JSON rusak (masalah lama yang memaksa prompt disederhanakan).
+func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error) {
 	reqBody := chatReq{
-		Model:    c.Model,
-		Messages: []chatMsg{{Role: "system", Content: system}, {Role: "user", Content: user}},
-		Stream:   false,
-		Format:   "json",
-		Options:  map[string]interface{}{"temperature": 0.4, "num_ctx": 8192, "num_predict": 1536},
+		Model: c.Model,
+		Messages: []chatMsg{
+			{Role: "system", Content: llm.SystemPrompt(targetMin, targetMax, ch)},
+			{Role: "user", Content: llm.UserPrompt(tr, maxClips)},
+		},
+		Stream:  false,
+		Format:  llm.ResponseSchema(),
+		Options: map[string]any{"temperature": 0.4, "num_ctx": 8192, "num_predict": 3072},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
@@ -84,25 +76,46 @@ func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClip
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Ollama tidak terjangkau di %s (jalan? `ollama serve`): %w", c.URL, err)
+		return nil, fmt.Errorf("Ollama tidak terjangkau di %s — pastikan sudah dipasang & jalankan `ollama serve`: %w", c.URL, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var cr chatResp
 	if err := json.Unmarshal(raw, &cr); err != nil {
-		return nil, fmt.Errorf("parse respons Ollama: %w", err)
+		return nil, fmt.Errorf("respons Ollama tidak bisa dibaca (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
 	}
 	if cr.Error != "" {
-		return nil, fmt.Errorf("Ollama error: %s", cr.Error)
+		return nil, ollamaError(c.Model, cr.Error)
 	}
-	var wrap struct {
-		Moments []llm.Moment `json:"moments"`
-	}
+	var wrap llm.MomentsWrapper
 	if err := json.Unmarshal([]byte(cr.Message.Content), &wrap); err != nil {
-		return nil, fmt.Errorf("parse JSON momen dari model lokal: %w", err)
+		return nil, fmt.Errorf("model lokal %s membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
+			c.Model, err, trunc(cr.Message.Content, 300))
 	}
 	return wrap.Moments, nil
+}
+
+// ollamaError menerjemahkan pesan Ollama jadi petunjuk yang bisa ditindaklanjuti.
+func ollamaError(model, msg string) error {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "not found") || strings.Contains(low, "no such model"):
+		return fmt.Errorf("model %q belum terpasang di Ollama — klik \"unduh model\" di GUI atau jalankan `ollama pull %s`", model, model)
+	case strings.Contains(low, "format"):
+		return fmt.Errorf("Ollama menolak skema JSON — perbarui Ollama ke versi yang mendukung structured output (%s)", msg)
+	case strings.Contains(low, "memory") || strings.Contains(low, "out of"):
+		return fmt.Errorf("RAM/VRAM tidak cukup untuk model %q — pakai model lebih kecil (%s)", model, msg)
+	}
+	return fmt.Errorf("Ollama gagal memproses: %s", msg)
+}
+
+func trunc(s string, n int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 // StatusInfo hasil pengecekan Ollama.

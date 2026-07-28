@@ -77,71 +77,95 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		return nil, fmt.Errorf("folder output %q: %w", outDir, err)
 	}
 
-	// 1. Ekstrak audio.
-	emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Mengekstrak audio"})
-	wav := filepath.Join(workDir, "audio.wav")
-	if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
-		return nil, err
+	// 1. Cache transkrip: kunci dari isi video + model + bahasa. Transkripsi
+	// adalah tahap termahal (bisa puluhan menit), jadi percobaan ulang setelah
+	// job gagal tidak perlu mengulanginya.
+	var tr types.Transcript
+	cacheHit := false
+	cachePath := ""
+	if key, err := transcriptCacheKey(input, p.Opts.WhisperModel, p.Opts.Language); err == nil {
+		cachePath = transcriptCachePath(p.Paths.DataDir, key)
+		if cached, ok := loadTranscriptCache(cachePath); ok {
+			tr, cacheHit = cached, true
+			emit(onProgress, Progress{Stage: "transcribing", Value: 0.53,
+				Message: "Transkrip diambil dari cache (tidak perlu transkripsi ulang)"})
+		}
 	}
 
-	// 2. Fitur audio (opsional, dari worker C++).
+	// Audio hanya perlu diekstrak bila masih harus transkripsi, atau bila
+	// heuristik butuh fitur energi dari worker C++.
+	needAudio := !cacheHit || p.Opts.Provider == "heuristic"
+	wav := filepath.Join(workDir, "audio.wav")
 	var rms worker.FeaturesResult
-	if p.wk.Available() {
-		emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analisis energi audio (worker C++)"})
-		if r, err := p.wk.Features(ctx, wav, 100); err == nil {
-			rms = r
+	if needAudio {
+		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Mengekstrak audio"})
+		if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
+			return nil, err
+		}
+		// 2. Fitur audio (opsional, dari worker C++).
+		if p.wk.Available() {
+			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analisis energi audio (worker C++)"})
+			if r, err := p.wk.Features(ctx, wav, 100); err == nil {
+				rms = r
+			}
 		}
 	}
 
 	// 3. Transkripsi (bagian paling lama; progress diparse dari whisper).
-	emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transkripsi (whisper.cpp)"})
-	outBase := filepath.Join(workDir, "transcript")
-	tr, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
-		// Petakan 0..1 transkripsi ke pita 0.20..0.53 dari total.
-		emit(onProgress, Progress{
-			Stage:   "transcribing",
-			Value:   0.20 + 0.33*f,
-			Message: fmt.Sprintf("Transkripsi %.0f%%", f*100),
+	if !cacheHit {
+		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transkripsi (whisper.cpp)"})
+		outBase := filepath.Join(workDir, "transcript")
+		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
+			// Petakan 0..1 transkripsi ke pita 0.20..0.53 dari total.
+			emit(onProgress, Progress{
+				Stage:   "transcribing",
+				Value:   0.20 + 0.33*f,
+				Message: fmt.Sprintf("Transkripsi %.0f%%", f*100),
+			})
 		})
-	})
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		tr = got
+		if cachePath != "" {
+			// Gagal menyimpan cache tidak boleh menggagalkan job.
+			_ = saveTranscriptCache(cachePath, tr)
+		}
 	}
 	if len(tr.Segments) == 0 {
 		return nil, fmt.Errorf("transkrip kosong — cek audio/bahasa")
 	}
 
-	// 4-5. Pemilihan momen. Bila LLM tersedia, LLM menentukan batas momen
-	// (start/end) sehingga durasi bervariasi sesuai isi. Jika tidak, heuristik.
+	// 4-5. Pemilihan momen. Mesin dipilih pengguna dan TIDAK diganti diam-diam:
+	// bila mesin yang dipilih gagal, job ikut gagal dengan pesan akar masalah.
 	var selected []types.Clip
 	var sel momentSelector
-	label := ""
+	engineName := ""
 	switch p.Opts.Provider {
 	case "claude":
-		if p.Paths.APIKey != "" {
-			sel = llm.New(p.Paths.APIKey, p.Opts.LLMModel)
-			label = "AI (Claude) memilih momen dari transkrip"
-		}
+		sel = llm.New(p.Paths.APIKey, p.Opts.LLMModel)
+		engineName = "Claude (" + p.Opts.LLMModel + ")"
 	case "ollama":
 		sel = ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
-		label = "AI lokal (Ollama: " + p.Opts.OllamaModel + ") memilih momen"
+		engineName = "Ollama (" + p.Opts.OllamaModel + ")"
+	case "heuristic":
+		engineName = "heuristik"
+	default:
+		return nil, fmt.Errorf("mesin skor %q tidak dikenal — pilih claude, ollama, atau heuristic", p.Opts.Provider)
 	}
+
 	if sel != nil {
-		emit(onProgress, Progress{Stage: "scoring", Value: 0.58, Message: label})
-		clips, err := p.selectWith(ctx, tr, sel)
+		clips, err := p.selectWith(ctx, tr, sel, engineName, onProgress)
 		if err != nil {
-			emit(onProgress, Progress{Stage: "scoring", Value: 0.6,
-				Message: "LLM gagal (" + err.Error() + "), memakai heuristik"})
-			selected = p.heuristicSelect(tr, rms)
-		} else {
-			selected = clips
+			return nil, fmt.Errorf("%s gagal memilih momen: %w", engineName, err)
 		}
+		selected = clips
 	} else {
 		emit(onProgress, Progress{Stage: "segmenting", Value: 0.55, Message: "Memilih klip (heuristik)"})
 		selected = p.heuristicSelect(tr, rms)
 	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("tidak ada klip terpilih — cek transkrip/opsi")
+		return nil, fmt.Errorf("%s tidak menghasilkan klip — coba longgarkan preset durasi atau turunkan skor minimum", engineName)
 	}
 
 	// 6. Render klip.
@@ -160,16 +184,39 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle); err != nil {
 			return nil, err
 		}
-		outMP4 := filepath.Join(outDir, cl.ID+".mp4") // klip final ke folder output
+		cl.SubtitlePath = assPath
+
 		enc := ffmpeg.EncodeOpts{
-			CRF: crf, Preset: preset, AssPath: assPath, FontsDir: p.Paths.FontsDir,
+			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
 			Mode: string(p.Opts.Reframe), FPS: p.Opts.FPS,
 		}
-		if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
-			return nil, err
+		// Varian polos (tanpa subtitle) — untuk mode clean & both.
+		if p.Opts.SubtitleOutput == config.OutputClean || p.Opts.SubtitleOutput == config.OutputBoth {
+			name := cl.ID + ".mp4"
+			if p.Opts.SubtitleOutput == config.OutputBoth {
+				name = cl.ID + "_polos.mp4"
+			}
+			raw := filepath.Join(outDir, name)
+			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, raw); err != nil {
+				return nil, err
+			}
+			cl.VideoPathRaw = raw
+			cl.VideoPath = raw // dipakai GUI bila tidak ada varian bersubtitle
+			// Sertakan .srt agar klip polos bisa disubtitle di editor lain.
+			srt := filepath.Join(outDir, cl.ID+".srt")
+			if err := subtitle.WriteSRT(srt, segs, cl.Start, p.Opts.Subtitle); err == nil {
+				cl.SubtitleSRT = srt
+			}
 		}
-		cl.SubtitlePath = assPath
-		cl.VideoPath = outMP4
+		// Varian bersubtitle (dibakar) — untuk mode burn & both.
+		if p.Opts.SubtitleOutput != config.OutputClean {
+			enc.AssPath = assPath
+			outMP4 := filepath.Join(outDir, cl.ID+".mp4")
+			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
+				return nil, err
+			}
+			cl.VideoPath = outMP4
+		}
 		cl.Status = "rendered"
 		emit(onProgress, Progress{Stage: "rendering", Value: frac, Clip: cl})
 	}
@@ -180,16 +227,117 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 
 // momentSelector adalah mesin yang memilih momen dari transkrip (Claude/Ollama).
 type momentSelector interface {
-	SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64) ([]llm.Moment, error)
+	SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error)
 }
 
-// selectWith menjalankan selektor → klip (batas dirapikan & di-topN).
-func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel momentSelector) ([]types.Clip, error) {
-	moments, err := sel.SelectMoments(ctx, tr, p.Opts.MaxClips, p.Opts.TargetMin, p.Opts.TargetMax)
+// selectWith menjalankan selektor per potongan transkrip lalu menggabungkan
+// hasilnya. Kegagalan potongan mana pun menggagalkan seluruh job (tanpa
+// fallback), agar pengguna tahu persis mesin mana yang bermasalah.
+func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel momentSelector, engineName string, onProgress ProgressFunc) ([]types.Clip, error) {
+	parts := chunkTranscript(tr, chunkSeconds(p.Opts.Provider), chunkOverlap)
+	if len(parts) == 0 {
+		return nil, fmt.Errorf("transkrip kosong")
+	}
+	// Tiap potongan diminta secukupnya; penyaringan akhir tetap di topN.
+	perChunk := p.Opts.MaxClips/len(parts) + 1
+	if perChunk < 2 {
+		perChunk = 2
+	}
+
+	var moments []llm.Moment
+	for i, part := range parts {
+		msg := fmt.Sprintf("%s memilih momen", engineName)
+		if len(parts) > 1 {
+			msg = fmt.Sprintf("%s memilih momen — bagian %d/%d (menit %.0f–%.0f)",
+				engineName, i+1, len(parts), part.info.Start/60, part.info.End/60)
+		}
+		emit(onProgress, Progress{
+			Stage:   "scoring",
+			Value:   0.55 + 0.17*float64(i)/float64(len(parts)),
+			Message: msg,
+		})
+		ms, err := sel.SelectMoments(ctx, part.tr, perChunk, p.Opts.TargetMin, p.Opts.TargetMax, part.info)
+		if err != nil {
+			if len(parts) > 1 {
+				return nil, fmt.Errorf("bagian %d dari %d (menit %.0f–%.0f): %w",
+					i+1, len(parts), part.info.Start/60, part.info.End/60, err)
+			}
+			return nil, err
+		}
+		moments = append(moments, ms...)
+	}
+
+	merged := mergeMoments(moments)
+	valid, ditolak, err := validateMoments(merged, tr, engineName)
 	if err != nil {
 		return nil, err
 	}
-	return topN(momentsToClips(moments, tr), p.Opts.MaxClips, p.Opts.MinScore), nil
+	if len(ditolak) > 0 {
+		emit(onProgress, Progress{Stage: "scoring", Value: 0.73,
+			Message: fmt.Sprintf("%d momen dibuang karena batas waktunya tidak valid", len(ditolak))})
+	}
+
+	clips := momentsToClips(valid, tr)
+	fitDuration(clips, tr, p.Opts.TargetMin, p.Opts.TargetMax)
+	return topN(clips, p.Opts.MaxClips, p.Opts.MinScore), nil
+}
+
+// fitDuration merapikan momen pilihan LLM agar masuk rentang durasi: yang
+// terlalu pendek diperpanjang ke batas segmen berikutnya (lalu ke belakang bila
+// perlu), yang terlalu panjang dipangkas ke batas segmen sebelum targetMax.
+// Model lokal sering mengabaikan instruksi durasi, jadi ini jaring pengaman.
+func fitDuration(clips []types.Clip, tr types.Transcript, targetMin, targetMax float64) {
+	if len(tr.Segments) == 0 {
+		return
+	}
+	first := tr.Segments[0].Start
+	last := tr.Segments[len(tr.Segments)-1].End
+
+	for i := range clips {
+		c := &clips[i]
+		// Terlalu pendek → majukan akhir ke ujung segmen berikutnya.
+		for c.End-c.Start < targetMin && c.End < last {
+			next := last
+			for _, s := range tr.Segments {
+				if s.End > c.End {
+					next = s.End
+					break
+				}
+			}
+			if next <= c.End {
+				break
+			}
+			c.End = next
+		}
+		// Masih pendek → mundurkan awal ke pangkal segmen sebelumnya.
+		for c.End-c.Start < targetMin && c.Start > first {
+			prev := first
+			for _, s := range tr.Segments {
+				if s.Start < c.Start {
+					prev = s.Start
+				}
+			}
+			if prev >= c.Start {
+				break
+			}
+			c.Start = prev
+		}
+		// Terlalu panjang → pangkas ke batas segmen terakhir sebelum targetMax.
+		if c.End-c.Start > targetMax {
+			limit := c.Start + targetMax
+			cut := 0.0
+			for _, s := range tr.Segments {
+				if s.End > c.Start && s.End <= limit {
+					cut = s.End
+				}
+			}
+			if cut > c.Start+targetMin {
+				c.End = cut
+			}
+		}
+		c.Duration = c.End - c.Start
+		c.Transcript = joinRange(tr, c.Start, c.End)
+	}
 }
 
 // heuristicSelect memilih klip via segmentasi window + skor heuristik (fallback).
@@ -313,9 +461,3 @@ func segmentsInRange(tr types.Transcript, start, end float64) []types.Transcript
 	return out
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

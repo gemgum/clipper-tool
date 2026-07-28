@@ -23,7 +23,9 @@ gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
 ```bash
 ./setup.sh [base|small|medium]   # build whisper.cpp + unduh model + build worker (sekali)
 ./build.sh                       # build engine (Go) + worker (C++)
-./bin/clipper run <video> [-mode -model -style -max -min-score]  # CLI
+./bin/clipper run <video> [-mode -model -duration -max -min-score \
+                           -sub-mode normal|karaoke|word -sub-speed lambat|normal|padat \
+                           -save burn|clean|both]                # CLI
 ./bin/clipper serve              # HTTP API di 127.0.0.1:8787
 cd gui && npm run dev            # GUI di 3000
 ```
@@ -39,20 +41,30 @@ segmentasi kandidat → scoring (heuristik ± Claude) → render klip 9:16 + bur
 |---|---|
 | config | Options, mode, ResolvePaths |
 | ffmpeg | ekstrak audio, clip+reframe center, burn subtitle |
-| transcribe | wrapper whisper-cli (-oj), parse segmen |
+| transcribe | wrapper whisper-cli (-ojf), parse segmen + kata bertimestamp |
 | worker | client subprocess ke clipper-worker (NDJSON) |
-| segment | bangun kandidat klip dari transkrip |
+| segment | bangun kandidat klip (incar durasi ideal, potong di kalimat/jeda) |
 | score/heuristic | aturan Indonesia (emosi, hook, energi, durasi) |
-| score/llm | Claude API (skor + judul + hashtag) |
-| subtitle | tulis .ass (plain/viral) |
+| score/llm | Claude API (pilih momen, skor + judul + hashtag) |
+| score/ollama | LLM lokal via Ollama (pilih momen, mode offline) |
+| subtitle | tulis .ass (normal/karaoke/word) & .srt |
 | pipeline | orkestrasi + progress callback |
 | job | store job in-memory + SSE broadcast |
 | api | HTTP handlers + SSE |
 
-## Mode
+## Mode & mesin skor
 
-offline (whisper+heuristik, gratis) · hybrid (whisper+Claude) · online (belum).
-Mode hybrid/online butuh `ANTHROPIC_API_KEY` di `.env`.
+offline (gratis: Ollama lokal atau heuristik) · hybrid (Claude) · online (belum).
+Mode hybrid butuh `ANTHROPIC_API_KEY` di `.env` atau lewat GUI.
+
+**Tanpa fallback**: mesin yang dipilih pengguna dipakai apa adanya. Bila gagal,
+job berhenti dengan pesan akar masalah — engine TIDAK diam-diam pindah ke
+heuristik. Lihat `catatan/12-kebijakan-mesin-skor.md`.
+
+Transkrip panjang dipecah bertumpang-tindih sebelum dikirim ke LLM (12 mnt
+Ollama / 25 mnt Claude); momen yang terbelah batas disambung lewat tanda
+`"berlanjut"`. Transkrip di-cache di `data/cache/transcripts` (kunci = sidik
+jari isi video + model + bahasa).
 
 ## Konvensi
 

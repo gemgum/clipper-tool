@@ -25,6 +25,13 @@ const (
 	ReframeFaceFollow Reframe = "face_follow" // ikut wajah (tahap lanjut)
 )
 
+// Pilihan berkas keluaran klip.
+const (
+	OutputBurn  = "burn"  // 1 file: video dengan subtitle dibakar
+	OutputClean = "clean" // 1 file: video polos tanpa subtitle
+	OutputBoth  = "both"  // 2 file: polos + bersubtitle
+)
+
 // ScoreEngine menentukan mesin penilaian.
 type ScoreEngine string
 
@@ -58,7 +65,36 @@ type Subtitle struct {
 	Outline      int    `json:"outline"`       // ketebalan garis tepi (0=tanpa)
 	OutlineColor string `json:"outline_color"` // warna tepi (default hitam)
 	Box          bool   `json:"box"`           // latar kotak di belakang teks
-	Karaoke      bool   `json:"karaoke"`       // sorot per kata (efek viral)
+
+	// Mode tampilan: "normal" (kalimat utuh), "karaoke" (kata aktif disorot,
+	// sisa kalimat tetap terlihat), "word" (satu kata per layar).
+	Mode           string `json:"mode"`
+	HighlightColor string `json:"highlight_color"` // warna sorot untuk karaoke/word
+	Speed          string `json:"speed"`           // lambat | normal | padat
+
+	// Karaoke: field lama, dipertahankan agar preset tersimpan tidak rusak.
+	// Diterjemahkan ke Mode="karaoke" saat Validate.
+	Karaoke bool `json:"karaoke"`
+}
+
+// Mode subtitle yang dikenali.
+const (
+	SubNormal  = "normal"
+	SubKaraoke = "karaoke"
+	SubWord    = "word"
+)
+
+// Pacing menerjemahkan Speed ke durasi minimum satu tampilan (detik) dan
+// maksimum baris per tampilan. Makin lambat = makin sedikit teks sekaligus.
+func (s Subtitle) Pacing() (minDur float64, maxLines int) {
+	switch s.Speed {
+	case "lambat":
+		return 1.6, 2
+	case "padat":
+		return 0.9, 3
+	default: // normal
+		return 1.2, 2
+	}
 }
 
 // Options untuk satu job clipping.
@@ -74,6 +110,7 @@ type Options struct {
 	Reframe        Reframe     `json:"reframe"`
 	SubtitleStyle  string      `json:"subtitle_style"` // plain | viral (fallback warna)
 	Subtitle       Subtitle    `json:"subtitle"`
+	SubtitleOutput string      `json:"subtitle_output"` // burn | clean | both
 	MaxClips       int         `json:"max_clips"`
 	DurationPreset string      `json:"duration_preset"` // auto | 30 | 60 | 90 | 120 | 180
 	TargetMin      float64     `json:"target_min"`
@@ -100,10 +137,14 @@ func DefaultOptions() Options {
 		Reframe:        ReframeCenter,
 		SubtitleStyle:  "plain",
 		Subtitle:       DefaultSubtitle(),
+		SubtitleOutput: OutputBurn,
 		MaxClips:       10,
 		DurationPreset: "auto",
 		ScoreEngine:    ScoreHeuristic,
-		Provider:       "claude",
+		// Provider sengaja kosong: Validate memilih menurut mode (offline →
+		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
+		// pun ikut memanggil API Claude.
+		Provider: "",
 		LLMModel:       "claude-haiku-4-5",
 		OllamaModel:    "qwen2.5",
 		OllamaURL:      "http://localhost:11434",
@@ -118,12 +159,14 @@ func DefaultSubtitle() Subtitle {
 		Size:         72,
 		X:            540,
 		Y:            960,
-		Color:        "white",
-		Bold:         true,
-		Outline:      4,
-		OutlineColor: "black",
-		Box:          false,
-		Karaoke:      false,
+		Color:          "white",
+		Bold:           true,
+		Outline:        4,
+		OutlineColor:   "black",
+		Box:            false,
+		Mode:           SubNormal,
+		HighlightColor: "yellow",
+		Speed:          "normal",
 	}
 }
 
@@ -184,6 +227,27 @@ func (o *Options) Validate() error {
 	if o.Subtitle.OutlineColor == "" {
 		o.Subtitle.OutlineColor = ds.OutlineColor
 	}
+	// Mode: kosong → ikut field lama "karaoke" bila diset, selain itu normal.
+	switch o.Subtitle.Mode {
+	case SubNormal, SubKaraoke, SubWord:
+	default:
+		if o.Subtitle.Karaoke {
+			o.Subtitle.Mode = SubKaraoke
+		} else {
+			o.Subtitle.Mode = SubNormal
+		}
+	}
+	if o.Subtitle.HighlightColor == "" {
+		o.Subtitle.HighlightColor = ds.HighlightColor
+	}
+	if o.Subtitle.Speed == "" {
+		o.Subtitle.Speed = ds.Speed
+	}
+	switch o.SubtitleOutput {
+	case OutputBurn, OutputClean, OutputBoth:
+	default:
+		o.SubtitleOutput = d.SubtitleOutput
+	}
 	if o.MaxClips <= 0 {
 		o.MaxClips = d.MaxClips
 	}
@@ -218,7 +282,9 @@ func (o *Options) Validate() error {
 func durationRange(preset string) (min, max float64) {
 	switch preset {
 	case "auto", "":
-		return 30, 180
+		// Rentang lebar sebelumnya (30–180) tak pernah terpakai: segmentasi
+		// selalu berhenti di batas bawah. 45–120 memberi variasi yang wajar.
+		return 45, 120
 	case "30":
 		return 24, 40
 	case "60":

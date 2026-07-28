@@ -1,4 +1,4 @@
-// Package llm memanggil Claude API untuk menilai & memberi judul klip.
+// Package llm memanggil Claude API untuk memilih & menilai momen klip.
 package llm
 
 import (
@@ -30,24 +30,16 @@ func New(apiKey, model string) *Client {
 	return &Client{
 		APIKey: apiKey,
 		Model:  model,
-		HTTP:   &http.Client{Timeout: 90 * time.Second},
+		HTTP:   &http.Client{Timeout: 120 * time.Second},
 	}
-}
-
-// Judgment hasil penilaian LLM untuk satu klip.
-type Judgment struct {
-	Score    int           `json:"score"`
-	Reasons  types.Reasons `json:"reasons"`
-	Title    string        `json:"title"`
-	Hashtags []string      `json:"hashtags"`
 }
 
 // anthropic request/response shapes.
 type msgReq struct {
-	Model     string       `json:"model"`
-	MaxTokens int          `json:"max_tokens"`
-	System    string       `json:"system"`
-	Messages  []anthMsg    `json:"messages"`
+	Model     string    `json:"model"`
+	MaxTokens int       `json:"max_tokens"`
+	System    string    `json:"system"`
+	Messages  []anthMsg `json:"messages"`
 }
 type anthMsg struct {
 	Role    string `json:"role"`
@@ -63,63 +55,9 @@ type msgResp struct {
 	} `json:"error"`
 }
 
-const systemPrompt = `Kamu adalah kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).
-Nilai satu segmen transkrip. Balas HANYA JSON valid tanpa penjelasan, dengan bentuk persis:
-{"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<judul catchy bahasa Indonesia, maks 60 karakter>","hashtags":["#..","#.."]}
-Kriteria: hook (3 detik pertama menarik?), emotion (muatan emosi), clarity (mudah dipahami), shareability (layak dibagikan), standalone (bisa dimengerti tanpa konteks).`
-
-// Judge menilai satu kandidat via Claude.
-func (c *Client) Judge(ctx context.Context, cand types.Candidate) (Judgment, error) {
-	if c.APIKey == "" {
-		return Judgment{}, fmt.Errorf("ANTHROPIC_API_KEY kosong")
-	}
-	user := fmt.Sprintf("Durasi: %.0f detik.\nTranskrip:\n%s", cand.Duration(), cand.Text)
-	reqBody := msgReq{
-		Model:     c.Model,
-		MaxTokens: 400,
-		System:    systemPrompt,
-		Messages:  []anthMsg{{Role: "user", Content: user}},
-	}
-	buf, _ := json.Marshal(reqBody)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
-	if err != nil {
-		return Judgment{}, err
-	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return Judgment{}, fmt.Errorf("panggil Claude: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-
-	var parsed msgResp
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return Judgment{}, fmt.Errorf("parse respons Claude: %w", err)
-	}
-	if parsed.Error != nil {
-		return Judgment{}, fmt.Errorf("Claude error: %s", parsed.Error.Message)
-	}
-	if len(parsed.Content) == 0 {
-		return Judgment{}, fmt.Errorf("respons Claude kosong (status %d)", resp.StatusCode)
-	}
-
-	text := parsed.Content[0].Text
-	jsonStr := extractJSON(text)
-	var j Judgment
-	if err := json.Unmarshal([]byte(jsonStr), &j); err != nil {
-		return Judgment{}, fmt.Errorf("parse JSON penilaian: %w (teks: %s)", err, truncate(text, 200))
-	}
-	return j, nil
-}
-
-// Moment adalah momen menarik yang dipilih LLM dari transkrip (batas ditentukan LLM).
-// Angka memakai float64 agar toleran terhadap model lokal yang membalas desimal
-// (mis. qwen membalas "score": 7.0). Dikonversi ke int saat jadi klip.
+// Moment adalah momen menarik yang dipilih LLM dari transkrip (batas ditentukan
+// LLM). Angka memakai float64 agar toleran terhadap model lokal yang membalas
+// desimal (mis. qwen membalas "score": 7.0). Dikonversi ke int saat jadi klip.
 type Moment struct {
 	Start    float64       `json:"start"`
 	End      float64       `json:"end"`
@@ -127,6 +65,9 @@ type Moment struct {
 	Reasons  MomentReasons `json:"reasons"`
 	Title    string        `json:"title"`
 	Hashtags []string      `json:"hashtags"`
+	// Berlanjut menandai momen yang masih bersambung ke potongan transkrip
+	// berikutnya (lihat penggabungan di paket pipeline).
+	Berlanjut bool `json:"berlanjut"`
 }
 
 // MomentReasons rincian skor (float agar toleran output model lokal).
@@ -138,32 +79,18 @@ type MomentReasons struct {
 	Standalone   float64 `json:"standalone"`
 }
 
-const selectSystem = `Kamu kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).
-Kamu diberi transkrip video LENGKAP dengan timestamp (detik). Tugasmu MEMILIH momen-momen terbaik untuk dijadikan klip pendek vertikal.
-Aturan:
-- Tiap momen harus BERDIRI SENDIRI: ada hook menarik di awal, isi yang jelas, dan penutup yang memuaskan. BUKAN potongan acak di tengah kalimat.
-- Tentukan sendiri 'start' dan 'end' (detik) tiap momen dari timestamp transkrip — panjang boleh BERVARIASI sesuai isi.
-- Incar durasi sekitar %.0f-%.0f detik, TAPI boleh menyimpang demi momen yang utuh & kuat.
-- Pilih momen dengan potensi viral tertinggi (hook kuat, emosi, kejutan, nilai, layak dibagikan).
-Balas HANYA JSON array valid tanpa penjelasan, bentuk persis:
-[{"start":<detik>,"end":<detik>,"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<judul catchy Indonesia, maks 60 karakter>","hashtags":["#..","#.."]}]`
-
-// SelectMoments mengirim transkrip bertimestamp & meminta LLM memilih momen terbaik.
-func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64) ([]Moment, error) {
+// SelectMoments mengirim satu potongan transkrip bertimestamp & meminta Claude
+// memilih momen terbaik. Semua kegagalan dikembalikan apa adanya — pemanggil
+// TIDAK boleh diam-diam berpindah ke mesin lain.
+func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch Chunk) ([]Moment, error) {
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY kosong")
+		return nil, fmt.Errorf("API key Claude kosong — isi di panel Mesin AI (GUI) atau ANTHROPIC_API_KEY di .env")
 	}
-	var b strings.Builder
-	for _, s := range tr.Segments {
-		fmt.Fprintf(&b, "[%.1f-%.1f] %s\n", s.Start, s.End, s.Text)
-	}
-	user := fmt.Sprintf("Transkrip:\n%s\nPilih maksimal %d momen terbaik. Balas JSON array.", b.String(), maxClips)
-
 	reqBody := msgReq{
 		Model:     c.Model,
-		MaxTokens: 4096,
-		System:    fmt.Sprintf(selectSystem, targetMin, targetMax),
-		Messages:  []anthMsg{{Role: "user", Content: user}},
+		MaxTokens: 8192,
+		System:    SystemPrompt(targetMin, targetMax, ch),
+		Messages:  []anthMsg{{Role: "user", Content: UserPrompt(tr, maxClips)}},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
@@ -176,52 +103,80 @@ func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClip
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("panggil Claude: %w", err)
+		return nil, fmt.Errorf("Claude tidak terjangkau (cek koneksi internet): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var parsed msgResp
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("parse respons Claude: %w", err)
+		return nil, fmt.Errorf("respons Claude tidak bisa dibaca (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	if parsed.Error != nil {
-		return nil, fmt.Errorf("Claude error: %s", parsed.Error.Message)
+		return nil, claudeError(resp.StatusCode, parsed.Error.Message)
 	}
 	if len(parsed.Content) == 0 {
-		return nil, fmt.Errorf("respons Claude kosong (status %d)", resp.StatusCode)
+		return nil, fmt.Errorf("Claude membalas kosong (status %d)", resp.StatusCode)
 	}
-	jsonStr := extractArray(parsed.Content[0].Text)
-	var moments []Moment
-	if err := json.Unmarshal([]byte(jsonStr), &moments); err != nil {
-		return nil, fmt.Errorf("parse JSON momen: %w", err)
+
+	text := parsed.Content[0].Text
+	moments, err := parseMoments(text)
+	if err != nil {
+		return nil, fmt.Errorf("Claude (%s) membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
+			c.Model, err, truncate(text, 300))
 	}
 	return moments, nil
 }
 
-// extractArray mengambil blok [...] pertama dari teks.
-func extractArray(s string) string {
-	i := strings.Index(s, "[")
-	j := strings.LastIndex(s, "]")
-	if i >= 0 && j > i {
-		return s[i : j+1]
+// claudeError menerjemahkan pesan API jadi petunjuk yang bisa ditindaklanjuti.
+func claudeError(status int, msg string) error {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "x-api-key") || status == 401:
+		return fmt.Errorf("API key Claude ditolak — perbarui key di panel Mesin AI (%s)", msg)
+	case status == 429:
+		return fmt.Errorf("kuota/rate limit Claude terlampaui — tunggu sebentar lalu ulangi (%s)", msg)
+	case strings.Contains(low, "model"):
+		return fmt.Errorf("model Claude tidak dikenali — pilih model lain di GUI (%s)", msg)
+	case status == 400 && strings.Contains(low, "credit"):
+		return fmt.Errorf("saldo API Claude habis (%s)", msg)
 	}
-	return s
+	return fmt.Errorf("Claude menolak permintaan (status %d): %s", status, msg)
 }
 
-// extractJSON mengambil blok {...} pertama dari teks.
-func extractJSON(s string) string {
-	i := strings.Index(s, "{")
-	j := strings.LastIndex(s, "}")
+// parseMoments menerima bentuk {"moments":[...]} maupun array telanjang [...].
+func parseMoments(text string) ([]Moment, error) {
+	if obj := extractBlock(text, '{', '}'); obj != "" {
+		var wrap MomentsWrapper
+		if err := json.Unmarshal([]byte(obj), &wrap); err == nil && wrap.Moments != nil {
+			return wrap.Moments, nil
+		}
+	}
+	arr := extractBlock(text, '[', ']')
+	if arr == "" {
+		return nil, fmt.Errorf("tidak ada blok JSON dalam balasan")
+	}
+	var moments []Moment
+	if err := json.Unmarshal([]byte(arr), &moments); err != nil {
+		return nil, err
+	}
+	return moments, nil
+}
+
+// extractBlock mengambil blok pertama..terakhir di antara pembuka & penutup.
+func extractBlock(s string, open, close byte) string {
+	i := strings.IndexByte(s, open)
+	j := strings.LastIndexByte(s, close)
 	if i >= 0 && j > i {
 		return s[i : j+1]
 	}
-	return s
+	return ""
 }
 
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) <= n {
+		return s
 	}
-	return s
+	return s[:n] + "…"
 }
