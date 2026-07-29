@@ -83,7 +83,8 @@ type Clip struct {
 	Title        string   `json:"title"`
 	Hashtags     []string `json:"hashtags"`
 	Transcript   string   `json:"transcript"`
-	SubtitlePath string   `json:"subtitle_path"`
+	// Tidak ada subtitle_path: .ass hanya berkas antara di tmp/ yang dihapus
+	// setelah dibakar. Yang bertahan adalah .srt (mode clean/both).
 	VideoPath    string   `json:"video_path"`       // varian utama (dibuka GUI)
 	VideoPathRaw string   `json:"video_path_raw"`   // varian polos, bila diminta
 	SubtitleSRT  string   `json:"subtitle_srt"`     // .srt di folder output (opsional)

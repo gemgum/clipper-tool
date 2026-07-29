@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +18,16 @@ import (
 )
 
 const defaultURL = "http://localhost:11434"
+
+// numCtx = jendela konteks yang diminta engine per potongan transkrip. Dipakai
+// juga saat menilai model terpasang: model dengan konteks maksimum di bawah ini
+// akan memotong prompt diam-diam.
+const numCtx = 8192
+
+// minParams = batas bawah ukuran model (miliar parameter) yang masih sanggup
+// mengerjakan prompt pemilihan momen. Dari uji di catatan/12: model 4B membalas
+// JSON valid tapi isian kosong, sedangkan 7B mengerjakannya dengan benar.
+const minParams = 6.5
 
 // Client memanggil Ollama.
 type Client struct {
@@ -65,7 +77,7 @@ func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClip
 		},
 		Stream:  false,
 		Format:  llm.ResponseSchema(),
-		Options: map[string]any{"temperature": 0.4, "num_ctx": 8192, "num_predict": 3072},
+		Options: map[string]any{"temperature": 0.4, "num_ctx": numCtx, "num_predict": 3072},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
@@ -118,13 +130,29 @@ func trunc(s string, n int) string {
 	return s[:n] + "…"
 }
 
-// StatusInfo hasil pengecekan Ollama.
-type StatusInfo struct {
-	Running bool     `json:"running"`
-	Models  []string `json:"models"`
+// ModelInfo satu model terpasang di Ollama, sudah dinilai kelayakannya untuk
+// tugas pemilihan momen — supaya GUI tinggal menampilkan, bukan menebak.
+type ModelInfo struct {
+	Name    string `json:"name"`    // nama lengkap dengan tag, mis. "qwen2.5:latest"
+	Base    string `json:"base"`    // nama tanpa tag, mis. "qwen2.5"
+	Params  string `json:"params"`  // mis. "7.6B" (apa adanya dari Ollama)
+	Quant   string `json:"quant"`   // mis. "Q4_K_M"
+	Bytes   int64  `json:"bytes"`   // ukuran berkas model
+	Context int    `json:"context"` // konteks maksimum yang didukung model
+	Ready   bool   `json:"ready"`   // sanggup mengerjakan prompt pemilihan momen
+	Note    string `json:"note"`    // alasan bila tidak siap
 }
 
-// Status memeriksa apakah Ollama jalan & daftar model terpasang.
+// StatusInfo hasil pengecekan Ollama.
+type StatusInfo struct {
+	Running bool `json:"running"`
+	// Models = daftar nama lengkap; dipertahankan agar pemakai lama tetap jalan.
+	Models    []string    `json:"models"`
+	Installed []ModelInfo `json:"installed"`
+}
+
+// Status memeriksa apakah Ollama jalan & daftar model terpasang, lengkap dengan
+// penilaian siap/tidaknya tiap model.
 func Status(ctx context.Context, url string) StatusInfo {
 	if url == "" {
 		url = defaultURL
@@ -139,16 +167,78 @@ func Status(ctx context.Context, url string) StatusInfo {
 	defer resp.Body.Close()
 	var parsed struct {
 		Models []struct {
-			Name string `json:"name"`
+			Name    string `json:"name"`
+			Size    int64  `json:"size"`
+			Details struct {
+				ParameterSize     string `json:"parameter_size"`
+				QuantizationLevel string `json:"quantization_level"`
+				ContextLength     int    `json:"context_length"`
+			} `json:"details"`
+			Capabilities []string `json:"capabilities"`
 		} `json:"models"`
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &parsed)
 	info := StatusInfo{Running: true}
 	for _, m := range parsed.Models {
+		mi := ModelInfo{
+			Name:    m.Name,
+			Base:    BaseName(m.Name),
+			Params:  m.Details.ParameterSize,
+			Quant:   m.Details.QuantizationLevel,
+			Bytes:   m.Size,
+			Context: m.Details.ContextLength,
+		}
+		mi.Ready, mi.Note = judge(m.Details.ParameterSize, m.Details.ContextLength, m.Capabilities)
 		info.Models = append(info.Models, m.Name)
+		info.Installed = append(info.Installed, mi)
 	}
 	return info
+}
+
+// BaseName membuang tag Ollama: "qwen2.5:latest" → "qwen2.5".
+func BaseName(name string) string {
+	if i := strings.IndexByte(name, ':'); i > 0 {
+		return name[:i]
+	}
+	return name
+}
+
+// judge menilai apakah sebuah model terpasang layak dipakai memilih momen.
+func judge(paramSize string, ctxLen int, caps []string) (bool, string) {
+	if len(caps) > 0 && !slices.Contains(caps, "completion") {
+		return false, "model ini bukan untuk membuat teks (mis. embedding)"
+	}
+	if ctxLen > 0 && ctxLen < numCtx {
+		return false, fmt.Sprintf("konteks maksimum %d token, di bawah %d yang dibutuhkan potongan transkrip", ctxLen, numCtx)
+	}
+	if b := parseParams(paramSize); b > 0 && b < minParams {
+		return false, fmt.Sprintf("hanya %s parameter — dari pengujian, model di bawah %.0fB membalas isian kosong untuk prompt ini", paramSize, minParams)
+	}
+	return true, ""
+}
+
+// parseParams mengubah "7.6B" → 7.6 dan "270M" → 0.27. Bentuk MoE seperti
+// "8x7B" diambil angka setelah "x" (yang aktif per token). 0 = tak diketahui.
+func parseParams(s string) float64 {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	if i := strings.LastIndexByte(s, 'X'); i >= 0 {
+		s = s[i+1:]
+	}
+	mult := 1.0
+	switch {
+	case strings.HasSuffix(s, "B"):
+		s = strings.TrimSuffix(s, "B")
+	case strings.HasSuffix(s, "M"):
+		s, mult = strings.TrimSuffix(s, "M"), 0.001
+	default:
+		return 0
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	return v * mult
 }
 
 // Pull mengunduh model lewat Ollama (bisa lama). Mengembalikan error bila gagal.

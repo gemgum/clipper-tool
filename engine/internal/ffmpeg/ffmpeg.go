@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -94,6 +96,29 @@ type EncodeOpts struct {
 	FPS      int    // 0 = ikut sumber
 }
 
+// ReframeFilter membangun rantai filter penyesuai rasio.
+//
+// Dipakai bersama oleh render klip DAN preview satu frame — sengaja satu
+// sumber, sebab dulu keduanya menyusun filter sendiri-sendiri dan preview
+// tertinggal (selalu crop tengah) ketika mode "fit" ditambahkan ke render.
+//
+// "fit"  : frame utuh di atas latar blur, tanpa zoom (paling tajam).
+// selain : crop tengah, isi penuh (ada zoom).
+func ReframeFilter(mode string, targetW, targetH int) string {
+	if mode == "fit" {
+		// Latar: frame dibesarkan penuh lalu di-blur. Depan: frame utuh (fit).
+		return fmt.Sprintf(
+			"split=2[bg][fg];"+
+				"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
+				"[fg]scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[fgb];"+
+				"[bgb][fgb]overlay=(W-w)/2:(H-h)/2",
+			targetW, targetH, targetW, targetH, targetW, targetH)
+	}
+	// Center: cover lalu crop tengah (lanczos untuk pembesaran lebih tajam).
+	return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
+		targetW, targetH, targetW, targetH)
+}
+
 // ClipReframe memotong [start,end], menyesuaikan ke rasio target, dan membakar
 // subtitle .ass bila diisi. Mode "fit" menampilkan frame utuh di atas latar blur
 // (tanpa zoom, paling tajam); selain itu crop tengah (isi penuh, ada zoom).
@@ -101,6 +126,15 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 	dur := end - start
 	if dur <= 0 {
 		return fmt.Errorf("durasi klip tidak valid: %.2f", dur)
+	}
+	// Pastikan folder tujuan ada. Render satu job bisa berjalan puluhan menit;
+	// bila foldernya sempat terhapus atau dipindah di tengah jalan, ffmpeg baru
+	// gagal setelah selesai meng-encode (ENOENT, exit 254) dan seluruh kerjanya
+	// terbuang. Ini folder kerja job sendiri, jadi membuatnya ulang aman.
+	if dir := filepath.Dir(out); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("folder keluaran %q: %w", dir, err)
+		}
 	}
 	// Filter subtitle (ditempel di akhir rantai).
 	sub := ""
@@ -111,20 +145,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		}
 	}
 
-	var vf string
-	if enc.Mode == "fit" {
-		// Latar: frame dibesarkan penuh lalu di-blur. Depan: frame utuh (fit).
-		vf = fmt.Sprintf(
-			"split=2[bg][fg];"+
-				"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
-				"[fg]scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[fgb];"+
-				"[bgb][fgb]overlay=(W-w)/2:(H-h)/2",
-			targetW, targetH, targetW, targetH, targetW, targetH)
-	} else {
-		// Center: cover lalu crop tengah (lanczos untuk pembesaran lebih tajam).
-		vf = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
-			targetW, targetH, targetW, targetH)
-	}
+	vf := ReframeFilter(enc.Mode, targetW, targetH)
 	if enc.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", enc.FPS)
 	}
@@ -161,11 +182,12 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 	return c.run(ctx, "clip+reframe", args)
 }
 
-// ExtractFrame mengambil 1 frame pada detik t, di-crop ke rasio target,
-// dikembalikan sebagai JPEG (untuk preview subtitle di GUI).
-func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int) ([]byte, error) {
-	vf := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d",
-		targetW, targetH, targetW, targetH)
+// ExtractFrame mengambil 1 frame pada detik t, disesuaikan ke rasio target
+// memakai mode reframe yang sama dengan render, dikembalikan sebagai JPEG
+// (untuk preview subtitle di GUI). Hasilnya = satu frame dari klip jadi,
+// jadi koordinat subtitle yang diatur di preview berlaku apa adanya.
+func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int, mode string) ([]byte, error) {
+	vf := ReframeFilter(mode, targetW, targetH)
 	args := []string{
 		"-y",
 		"-ss", fmt.Sprintf("%.3f", t),
@@ -191,13 +213,81 @@ func (c *Client) run(ctx context.Context, label string, args []string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		tail := stderr.String()
-		if len(tail) > 500 {
-			tail = tail[len(tail)-500:]
-		}
-		return fmt.Errorf("%s gagal: %w: %s", label, err, tail)
+		return fmt.Errorf("%s gagal: %w: %s", label, err, ringkasGalat(stderr.String()))
 	}
 	return nil
+}
+
+// kataGalat = penanda baris stderr yang benar-benar menjelaskan kegagalan.
+var kataGalat = []string{
+	"error", "invalid", "no such", "permission", "unable",
+	"not found", "denied", "no space", "cannot", "failed",
+}
+
+// ringkasGalat menyaring baris stderr ffmpeg yang menjelaskan sebab kegagalan.
+//
+// Dulu bagian ini hanya memotong 500 karakter TERAKHIR — padahal ekor keluaran
+// ffmpeg selalu berisi blok statistik x264, bagian yang paling tidak berguna,
+// sementara baris sebabnya tercetak jauh lebih awal dan ikut terbuang. Kasus
+// nyatanya: "exit status 254" yang ternyata "No such file or directory" karena
+// folder keluaran hilang saat render, tapi pesan itu tidak pernah terlihat.
+func ringkasGalat(stderr string) string {
+	var penting []string
+	terlihat := map[string]bool{}
+	for _, ln := range strings.Split(stderr, "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" || terlihat[ln] {
+			continue
+		}
+		low := strings.ToLower(ln)
+		// "Conversion failed!" selalu muncul dan tidak menjelaskan apa pun —
+		// dipakai hanya kalau tak ada baris lain yang lebih berguna.
+		if low == "conversion failed!" {
+			continue
+		}
+		for _, k := range kataGalat {
+			if strings.Contains(low, k) {
+				penting = append(penting, ln)
+				terlihat[ln] = true
+				break
+			}
+		}
+	}
+	if len(penting) == 0 {
+		// Tak ada baris yang cocok: kembali ke ekor keluaran seadanya.
+		tail := strings.TrimSpace(stderr)
+		if len(tail) > 300 {
+			tail = "…" + tail[len(tail)-300:]
+		}
+		return tail
+	}
+	// Baris terakhir yang cocok biasanya sebab paling dekat dengan kegagalan;
+	// dua baris sebelumnya ikut dibawa sebagai konteks.
+	if len(penting) > 3 {
+		penting = penting[len(penting)-3:]
+	}
+	pesan := strings.Join(penting, " | ")
+	if p := petunjukGalat(pesan); p != "" {
+		pesan += " — " + p
+	}
+	return pesan
+}
+
+// petunjukGalat menerjemahkan galat ffmpeg yang sering muncul jadi langkah
+// yang bisa ditindaklanjuti pengguna.
+func petunjukGalat(msg string) string {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "no such file or directory"):
+		return "folder atau berkas keluaran tidak ada (mungkin terhapus/dipindah saat render)"
+	case strings.Contains(low, "permission denied"):
+		return "izin tulis ditolak untuk folder keluaran"
+	case strings.Contains(low, "no space left"):
+		return "ruang disk habis"
+	case strings.Contains(low, "invalid data found"):
+		return "berkas sumber rusak atau formatnya tidak didukung"
+	}
+	return ""
 }
 
 // escapeFilterPath meng-escape karakter khusus dalam path untuk filter ffmpeg.

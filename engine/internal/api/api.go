@@ -2,12 +2,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/ollama/pull", s.ollamaPull)
 	mux.HandleFunc("GET /api/fonts", s.listFonts)
 	mux.HandleFunc("GET /api/font-file", s.fontFile)
+	mux.HandleFunc("GET /api/font-check", s.fontCheck)
 	mux.HandleFunc("GET /api/probe", s.probe)
 	mux.HandleFunc("GET /api/frame", s.frame)
 	mux.HandleFunc("POST /api/upload", s.upload)
@@ -217,19 +221,36 @@ func writeEnvKey(path, key, val string) error {
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o600)
 }
 
+// fontCatalog = font bawaan proyek. Nama harus cocok dengan family internal
+// font, sebab nama itulah yang ditulis ke .ass dan dicari libass.
+var fontCatalog = []struct{ file, name string }{
+	{"Montserrat.ttf", "Montserrat"},
+	{"Anton.ttf", "Anton"},
+	{"BebasNeue.ttf", "Bebas Neue"},
+}
+
+// fontNameOK = format nama font yang diterima: diawali huruf/angka, lalu
+// huruf, angka, spasi, titik, kutip satu, "&", atau "-". Maksimal 64 karakter.
+// Sengaja ketat — nama ini masuk ke berkas .ass dan ke argumen fc-match.
+var fontNameOK = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 .'&-]{0,63}$`)
+
+// fontResult hasil pengecekan satu nama font.
+type fontResult struct {
+	Valid  bool   `json:"valid"`
+	Name   string `json:"name"`   // nama yang diminta
+	Family string `json:"family"` // family yang benar-benar akan dipakai libass
+	Source string `json:"source"` // "bawaan" | "sistem"
+	Error  string `json:"error"`  // alasan bila tidak valid
+	file   string // lokasi berkas (tidak dikirim ke GUI)
+}
+
 // listFonts melaporkan font yang tersedia di folder assets/fonts.
 func (s *Server) listFonts(w http.ResponseWriter, r *http.Request) {
-	// Nama "name" harus cocok dengan family internal font (untuk libass).
-	catalog := []struct{ file, name string }{
-		{"Montserrat.ttf", "Montserrat"},
-		{"Anton.ttf", "Anton"},
-		{"BebasNeue.ttf", "Bebas Neue"},
-	}
 	type fontInfo struct {
 		Name string `json:"name"`
 	}
 	out := []fontInfo{}
-	for _, f := range catalog {
+	for _, f := range fontCatalog {
 		if _, err := os.Stat(filepath.Join(s.paths.FontsDir, f.file)); err == nil {
 			out = append(out, fontInfo{Name: f.name})
 		}
@@ -240,26 +261,77 @@ func (s *Server) listFonts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 
-// fontFile menyajikan berkas .ttf agar GUI bisa memuat font asli untuk preview.
+// fontCheck memvalidasi nama font yang diketik manual di GUI: formatnya benar
+// dan fontnya betul-betul ada (bawaan proyek atau terpasang di sistem).
+func (s *Server) fontCheck(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.resolveFont(r.Context(), r.URL.Query().Get("name")))
+}
+
+// resolveFont mencari berkas font untuk sebuah nama family.
+//
+// Urutannya: font bawaan proyek dulu, baru font sistem lewat fontconfig —
+// sama dengan urutan yang dipakai libass saat merender (fontsdir lebih dulu).
+// fc-match SELALU mengembalikan sesuatu (jatuh ke font pengganti bila tak
+// ketemu), jadi nama family hasilnya wajib dibandingkan dengan yang diminta;
+// kalau berbeda berarti font itu tidak terpasang.
+func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
+	name = strings.TrimSpace(name)
+	res := fontResult{Name: name}
+	if name == "" {
+		res.Error = "nama font kosong"
+		return res
+	}
+	if !fontNameOK.MatchString(name) {
+		res.Error = "format nama tidak valid — pakai huruf/angka, spasi, titik, ' & atau -, maksimal 64 karakter (contoh: \"Poppins\", \"Bebas Neue\")"
+		return res
+	}
+	for _, f := range fontCatalog {
+		if strings.EqualFold(f.name, name) {
+			p := filepath.Join(s.paths.FontsDir, f.file)
+			if _, err := os.Stat(p); err == nil {
+				return fontResult{Valid: true, Name: name, Family: f.name, Source: "bawaan", file: p}
+			}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "fc-match", "-f", "%{family}\t%{file}", name).Output()
+	if err != nil {
+		res.Error = "tidak bisa memeriksa font sistem (fontconfig/fc-match tidak tersedia) — pakai font bawaan"
+		return res
+	}
+	bagian := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
+	if len(bagian) < 2 {
+		res.Error = "font tidak ditemukan di sistem"
+		return res
+	}
+	// %{family} bisa berisi beberapa alias yang dipisah koma.
+	for _, fam := range strings.Split(bagian[0], ",") {
+		if strings.EqualFold(strings.TrimSpace(fam), name) {
+			return fontResult{Valid: true, Name: name, Family: strings.TrimSpace(fam), Source: "sistem", file: bagian[1]}
+		}
+	}
+	res.Family = strings.TrimSpace(strings.Split(bagian[0], ",")[0])
+	res.Error = fmt.Sprintf("font %q tidak terpasang — subtitle akan dirender memakai %q sebagai gantinya", name, res.Family)
+	return res
+}
+
+// fontFile menyajikan berkas font agar GUI bisa memuat font asli untuk preview.
+// Melayani font bawaan maupun font sistem yang lolos pengecekan.
 func (s *Server) fontFile(w http.ResponseWriter, r *http.Request) {
-	byName := map[string]string{
-		"Montserrat": "Montserrat.ttf",
-		"Anton":      "Anton.ttf",
-		"Bebas Neue": "BebasNeue.ttf",
-	}
-	file, ok := byName[r.URL.Query().Get("name")]
-	if !ok {
-		writeErr(w, 404, "font tidak dikenal")
+	res := s.resolveFont(r.Context(), r.URL.Query().Get("name"))
+	if !res.Valid {
+		writeErr(w, 404, res.Error)
 		return
 	}
-	p := filepath.Join(s.paths.FontsDir, file)
-	if _, err := os.Stat(p); err != nil {
-		writeErr(w, 404, "berkas font tidak ada")
-		return
+	if ext := strings.ToLower(filepath.Ext(res.file)); ext == ".otf" {
+		w.Header().Set("Content-Type", "font/otf")
+	} else {
+		w.Header().Set("Content-Type", "font/ttf")
 	}
-	w.Header().Set("Content-Type", "font/ttf")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	http.ServeFile(w, r, p)
+	http.ServeFile(w, r, res.file)
 }
 
 // probe mengembalikan durasi & dimensi video.
@@ -279,7 +351,9 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]interface{}{"duration": dur, "width": vw, "height": vh})
 }
 
-// frame mengembalikan 1 frame (JPEG) yang sudah di-crop 9:16 untuk preview subtitle.
+// frame mengembalikan 1 frame (JPEG) 9:16 untuk preview subtitle, disesuaikan
+// memakai mode reframe yang sama dengan render — param 'reframe' (default
+// center). Mode yang belum tersedia ditolak, bukan diganti diam-diam.
 func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	path := q.Get("path")
@@ -292,8 +366,15 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	opts := config.DefaultOptions()
 	opts.Resolution = "720p"
 	opts.Aspect = "9:16"
+	if rf := q.Get("reframe"); rf != "" {
+		opts.Reframe = config.Reframe(rf)
+	}
+	if err := opts.Reframe.Cek(); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
 	tw, th := opts.Dims()
-	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th)
+	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, string(opts.Reframe))
 	if err != nil || len(img) == 0 {
 		writeErr(w, 400, "gagal ekstrak frame")
 		return

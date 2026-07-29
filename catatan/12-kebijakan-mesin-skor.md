@@ -100,3 +100,27 @@ yang masih butuh WAV untuk fitur energi dari worker C++.
 desain sebelum ronde 7 (heuristik memotong dulu, LLM hanya menilai potongan
 jadi). Sejak ronde 7 pipeline hanya memakai `SelectMoments` — LLM yang
 menentukan batas potong — tapi kode lamanya masih ada dan membingungkan.
+
+## Deteksi model Ollama: dinamis, dinilai di engine
+
+`/api/ollama/status` tidak lagi hanya mengirim daftar nama. Tiap model terpasang
+dinilai kelayakannya di `score/ollama.judge()` dari metadata `/api/tags`:
+
+| Syarat | Ditolak bila |
+|---|---|
+| Kemampuan | tidak punya `completion` (mis. model embedding) |
+| Konteks | `context_length` < `numCtx` (8192) — prompt akan terpotong diam-diam |
+| Ukuran | < 6,5 B parameter — sesuai temuan uji di atas (4B membalas isian kosong) |
+
+Metadata kosong (Ollama lama) dianggap siap — jangan menuduh tanpa data.
+
+GUI hanya menampilkan hasilnya: dropdown dibangun dari daftar terpasang
+(`nama — 7.6B · Q4_K_M · 4.7 GB ✓ siap`), saran unduh hanya muncul untuk model
+yang belum ada, dan status disegarkan tiap 15 detik + saat jendela kembali
+fokus, jadi `ollama pull` dari terminal langsung terbaca.
+
+**Bug yang diperbaiki**: perbandingan nama dulu memakai persamaan persis, jadi
+`qwen2.5` (saran statis) tidak pernah cocok dengan `qwen2.5:latest` (nama asli
+dari Ollama) dan model yang jelas-jelas terpasang tetap dicap "(perlu unduh)" —
+padahal baris status di bawahnya memakai `startsWith` dan berkata "siap".
+Sekarang semua perbandingan lewat satu helper `samaModel()` yang membuang tag.

@@ -69,12 +69,19 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
 		return nil, err
 	}
-	// File sementara (audio/transkrip) di workDir; klip final di outDir.
+	// Klip final di outDir. Bila pengguna tidak menentukan folder keluaran,
+	// outDir = workDir — karena itu berkas kerja (audio, transkrip, subtitle
+	// sementara) ditaruh di subfolder tmp/, supaya folder hasil hanya berisi
+	// klip dan .srt, tidak tercampur berkas antara.
 	if outDir == "" {
 		outDir = workDir
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return nil, fmt.Errorf("folder output %q: %w", outDir, err)
+	}
+	tmpDir := filepath.Join(workDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("folder kerja %q: %w", tmpDir, err)
 	}
 
 	// 1. Cache transkrip: kunci dari isi video + model + bahasa. Transkripsi
@@ -95,7 +102,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// Audio hanya perlu diekstrak bila masih harus transkripsi, atau bila
 	// heuristik butuh fitur energi dari worker C++.
 	needAudio := !cacheHit || p.Opts.Provider == "heuristic"
-	wav := filepath.Join(workDir, "audio.wav")
+	wav := filepath.Join(tmpDir, "audio.wav")
 	var rms worker.FeaturesResult
 	if needAudio {
 		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Mengekstrak audio"})
@@ -114,7 +121,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// 3. Transkripsi (bagian paling lama; progress diparse dari whisper).
 	if !cacheHit {
 		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transkripsi (whisper.cpp)"})
-		outBase := filepath.Join(workDir, "transcript")
+		outBase := filepath.Join(tmpDir, "transcript")
 		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
 			// Petakan 0..1 transkripsi ke pita 0.20..0.53 dari total.
 			emit(onProgress, Progress{
@@ -179,12 +186,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		emit(onProgress, Progress{Stage: "rendering", Value: frac,
 			Message: fmt.Sprintf("Render %s (skor %d)", cl.ID, cl.Score)})
 
-		assPath := filepath.Join(workDir, cl.ID+".ass") // subtitle = file sementara
 		segs := segmentsInRange(tr, cl.Start, cl.End)
-		if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle); err != nil {
-			return nil, err
-		}
-		cl.SubtitlePath = assPath
 
 		enc := ffmpeg.EncodeOpts{
 			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
@@ -209,12 +211,22 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			}
 		}
 		// Varian bersubtitle (dibakar) — untuk mode burn & both.
+		//
+		// .ass hanya dibuat bila memang akan dibakar, ditulis ke tmp/, lalu
+		// dihapus setelah pembakaran berhasil: isinya sudah menyatu di video
+		// dan tidak dipakai siapa pun sesudah itu. Bila render gagal, berkasnya
+		// sengaja ditinggal supaya penyebabnya masih bisa ditelusuri.
 		if p.Opts.SubtitleOutput != config.OutputClean {
+			assPath := filepath.Join(tmpDir, cl.ID+".ass")
+			if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle); err != nil {
+				return nil, err
+			}
 			enc.AssPath = assPath
 			outMP4 := filepath.Join(outDir, cl.ID+".mp4")
 			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
 				return nil, err
 			}
+			_ = os.Remove(assPath)
 			cl.VideoPath = outMP4
 		}
 		cl.Status = "rendered"

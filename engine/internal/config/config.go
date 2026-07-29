@@ -22,8 +22,25 @@ type Reframe string
 const (
 	ReframeCenter     Reframe = "center"      // isi penuh (crop/zoom)
 	ReframeFit        Reframe = "fit"         // muat utuh + latar blur (tanpa zoom)
-	ReframeFaceFollow Reframe = "face_follow" // ikut wajah (tahap lanjut)
+	ReframeFaceFollow Reframe = "face_follow" // ikut wajah (BELUM TERSEDIA)
 )
+
+// Cek melaporkan apakah mode reframe ini sudah bisa dipakai.
+//
+// face_follow sudah punya nama dan rencana, tapi deteksi wajahnya belum ada di
+// worker C++. Tanpa pemeriksaan ini ffmpeg diam-diam merendernya sebagai center
+// — persis jenis penggantian senyap yang dilarang di catatan/12.
+func (r Reframe) Cek() error {
+	switch r {
+	case ReframeCenter, ReframeFit:
+		return nil
+	case ReframeFaceFollow:
+		return fmt.Errorf("mode reframe %q belum tersedia (deteksi wajah di worker C++ belum dibuat) — pakai %q atau %q",
+			r, ReframeCenter, ReframeFit)
+	default:
+		return fmt.Errorf("mode reframe %q tidak dikenal — pilih %q atau %q", r, ReframeCenter, ReframeFit)
+	}
+}
 
 // Pilihan berkas keluaran klip.
 const (
@@ -196,6 +213,9 @@ func (o *Options) Validate() error {
 	}
 	if o.Reframe == "" {
 		o.Reframe = d.Reframe
+	}
+	if err := o.Reframe.Cek(); err != nil {
+		return err
 	}
 	if o.SubtitleStyle == "" {
 		o.SubtitleStyle = d.SubtitleStyle

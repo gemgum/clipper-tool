@@ -186,3 +186,113 @@ Catatan biaya: mode `both` meng-encode dua kali → waktu render ±2x.
 - Cek: distribusi durasi klip, tidak ada halaman subtitle <1 dtk, warna sesuai,
   subtitle di dalam area aman platform terpilih.
 - Perbarui `catatan/08-status-mvp.md`.
+
+## Preview & font di GUI (ronde perbaikan setelah uji pakai)
+
+Semuanya di `gui/app/page.tsx` + endpoint font baru di engine.
+
+**Preview**
+- Video baru masuk (unggah/seret/ketik path) → preview lama direset lalu dimuat
+  sendiri, ditunda 500 ms agar path yang sedang diketik tidak memicu probe tiap
+  huruf. Ditambah tombol muat ulang manual & reset.
+- URL frame membawa `&n=<nonce>` yang naik tiap muat ulang. Tanpa itu, video
+  yang ditimpa di path sama akan menampilkan gambar lama dari cache browser —
+  header `no-cache` saja tidak cukup untuk `<img>` ber-URL identik.
+
+**Menggeser subtitle**
+- Selisih titik pegang disimpan saat pointer ditekan lalu dijumlahkan tiap
+  gerakan. Sebelumnya posisi disamakan langsung dengan kursor sehingga teks
+  melompat begitu disentuh — itu sumber rasa "kurang stabil".
+- Magnet ke garis tengah, toleransi 20 unit (≈5 piksel layar pada preview).
+- Garis tengah X, Y, dan penanda titik tengah XY muncul saat digeser; ada
+  centang untuk mengunci agar selalu tampil. Murni panduan — tidak ikut render.
+
+**Bug "posisi aman terlalu ke kiri"**: `placeSafe` dulu menengahkan X ke lebar
+sisa di luar kolom tombol kanan (`1080 × 0,84 / 2 = 453`). Padahal subtitle
+dirender rata tengah terhadap titik itu, jadi hasilnya miring 87 unit ke kiri.
+Sekarang X selalu 540; hanya Y yang menyesuaikan zona bawah.
+
+**Font manual**: `GET /api/font-check?name=` memvalidasi format nama (regex
+ketat, karena nama ini masuk ke .ass dan ke argumen `fc-match`) lalu mencari
+fontnya — bawaan proyek dulu, baru fontconfig. `fc-match` selalu mengembalikan
+sesuatu, jadi family hasilnya wajib dibandingkan dengan yang diminta; kalau
+berbeda berarti font tidak terpasang dan libass akan diam-diam menggantinya.
+`font-file` ikut melayani font sistem yang lolos cek supaya preview memakai
+font asli, dan job ditolak di GUI bila font manual belum valid.
+
+Sekalian diperbaiki: daftar font dari `/api/fonts` dulu menimpa font pilihan
+dari preset (daftar datang belakangan), jadi pilihan font selalu balik ke font
+pertama tiap halaman dimuat ulang.
+
+## Preview mengikuti mode reframe (2b)
+
+**Cacatnya**: `ExtractFrame` selalu `increase` + `crop`, jadi preview selalu
+menampilkan versi crop tengah walaupun pengguna memilih "muat utuh". Render-nya
+sendiri sudah benar sejak awal — yang salah cuma preview.
+
+Akibatnya untuk sumber 16:9 ke kanvas 9:16: render mode `fit` menaruh video
+sebagai pita setinggi **81/256 ≈ 32%** kanvas dengan latar blur di atas-bawah,
+sedangkan preview menampilkannya diperbesar ±3,2× memenuhi kanvas. Subtitle yang
+ditaruh "di bawah dagu" saat preview mendarat di area latar blur saat dirender.
+
+**Perbaikan**: rantai filter diangkat ke satu fungsi bersama
+`ffmpeg.ReframeFilter(mode, w, h)` yang dipakai `ClipReframe` (render) **dan**
+`ExtractFrame` (preview). Ini inti perbaikannya — cacat tadi muncul justru
+karena kedua tempat menyusun filternya sendiri-sendiri, jadi ketika mode `fit`
+ditambahkan ke render, preview tertinggal tanpa ada yang sadar.
+
+`/api/frame` menerima param `reframe` (default center) dan GUI mengirim mode
+yang sedang dipilih, jadi preview = satu frame dari klip jadi, lengkap dengan
+latar blur-nya. Blur di preview murah karena preview dipaksa 720p (720×1280),
+bukan 1080×1920. Ruang koordinat tidak berubah: `subX`/`subY`, zona aman, dan
+garis tengah tetap sah.
+
+**face_follow ditandai belum tersedia, bukan diperlakukan sebagai center.**
+`config.Reframe.Cek()` menolaknya, dipanggil dari `Options.Validate()` (jadi
+CLI & pembuatan job berhenti di depan) dan dari `/api/frame`. Di GUI opsinya
+tampil tapi `disabled`. Sebelumnya `enc.Mode == "fit"` yang bernilai false
+membuat face_follow diam-diam dirender sebagai center — persis penggantian
+senyap yang dilarang catatan/12.
+
+Diuji: frame `center` vs `fit` diambil dari video uji 1280×720 lewat endpoint —
+`center` menampilkan potongan tengah yang di-zoom, `fit` menampilkan frame utuh
+sebagai pita tengah di atas latar blur. `face_follow` & mode ngawur dijawab 400
+dengan pesan yang jelas; CLI `-reframe face_follow` berhenti sebelum pipeline.
+
+## Diagnostik ffmpeg & tata letak berkas kerja
+
+Dipicu satu job nyata yang gagal di klip ke-14 (13 klip sudah jadi) dengan pesan
+`clip+reframe gagal: exit status 254` yang isinya cuma statistik x264.
+
+**1. Pesan galat mengambil baris yang bermakna.** `run()` dulu memotong 500
+karakter TERAKHIR stderr — dan ekor keluaran ffmpeg selalu blok statistik x264,
+bagian paling tidak berguna, sementara baris sebabnya tercetak jauh lebih awal
+dan ikut terbuang. `ringkasGalat()` kini menyaring baris ber-penanda (`error`,
+`no such`, `permission`, `no space`, dst), mengambil maksimal 3 yang terakhir,
+lalu `petunjukGalat()` menambahkan tindak lanjut dalam bahasa Indonesia.
+
+Kode keluar ffmpeg ternyata negatif errno: **254 = ENOENT** (256−2), 243 =
+EACCES, 234 = EINVAL. Jadi 254 pada kasus itu berarti folder keluaran hilang di
+tengah render — bukan kerusakan video atau kesalahan filter.
+
+**2. Folder keluaran dijamin ada sebelum tiap klip.** `ClipReframe` menjalankan
+`MkdirAll(filepath.Dir(out))` di awal. Render satu job bisa puluhan menit; kalau
+foldernya sempat terhapus atau dipindah, dulu seluruh hasil encode terbuang.
+Dipasang di ffmpeg (bukan pipeline) supaya berlaku untuk semua pemanggil.
+
+**3. Berkas kerja dipisah ke `tmp/`, `.ass` dihapus setelah dibakar.** Bila
+pengguna tidak mengisi folder keluaran, `outDir = workDir` — jadi `audio.wav`,
+`transcript.json`, dan `clip_XX.ass` dulu menumpuk bersama klip final. Sekarang
+ketiganya di `workDir/tmp/`, dan `.ass` hanya dibuat bila memang akan dibakar
+lalu dihapus setelah ffmpeg sukses (kalau gagal, sengaja ditinggal untuk
+penelusuran). Komentar lama menyebut `.ass` "file sementara" padahal tak pernah
+ada yang menghapusnya.
+
+Ikut dihapus: field `subtitle_path` di `types.Clip` — tidak dipakai GUI maupun
+API, dan sekarang akan menunjuk berkas yang sudah tiada. `catatan/07` disesuaikan.
+
+Diuji end-to-end dengan potongan 90 detik video Indonesia:
+- mode `burn` → folder job berisi `clip_01.mp4` + `tmp/`; nol berkas `.ass`
+- mode `both` → `clip_01.mp4`, `clip_01_polos.mp4`, `clip_01.srt` + `tmp/`
+- folder tujuan sengaja dihapus → render tetap berhasil (folder dibuat ulang)
+- folder hanya-baca → `izin tulis ditolak untuk folder keluaran`

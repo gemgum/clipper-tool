@@ -85,12 +85,16 @@ Base: `http://127.0.0.1:8787`
   "title": "Rahasia yang jarang diketahui...",
   "hashtags": ["#fyp", "#podcast"],
   "transcript": "...",
-  "subtitle_path": "clip_09.ass",
   "video_path": "clip_09.mp4",
+  "video_path_raw": "clip_09_polos.mp4",
+  "subtitle_srt": "clip_09.srt",
   "status": "rendered"
 }
 ```
 - `status`: `scored` | `rendering` | `rendered`
+- Tidak ada `subtitle_path`: `.ass` cuma berkas antara di `tmp/` yang dihapus
+  setelah dibakar ke video. Yang bertahan `.srt` (mode `clean`/`both`).
+- `video_path_raw` & `subtitle_srt` hanya terisi bila mode simpan memintanya.
 
 ### PATCH /api/clips/{id}/subtitles (request)
 ```json
