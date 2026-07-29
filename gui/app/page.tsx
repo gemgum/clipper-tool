@@ -13,6 +13,31 @@ type Clip = {
 };
 type Model = { name: string; size: string; downloaded: boolean };
 type Font = { name: string };
+// Hasil /api/font-check: valid = font benar-benar ada (bawaan atau sistem).
+type FontCheck = { valid: boolean; name: string; family: string; source: string; error: string };
+
+// Titik tengah bidang 9:16 + toleransi magnet (dalam koordinat 1080×1920).
+// 20 ≈ 5 piksel layar pada preview 270 px, cukup terasa tanpa bikin susah
+// menaruh subtitle sedikit di luar tengah.
+const TENGAH_X = 540, TENGAH_Y = 960, MAGNET = 20;
+
+// Satu model Ollama terpasang, sudah dinilai engine (siap/tidak + alasannya).
+type OllamaModel = {
+  name: string; base: string; params: string; quant: string;
+  bytes: number; context: number; ready: boolean; note: string;
+};
+type OllamaStatus = { running: boolean; models?: string[]; installed?: OllamaModel[] };
+
+// Saran model bila belum ada satu pun yang terpasang.
+const OLLAMA_SARAN = ["qwen2.5", "llama3.1", "gemma2"];
+
+// Nama Ollama tanpa tag: "qwen2.5:latest" → "qwen2.5". Perbandingan nama SELALU
+// lewat sini — dulu dropdown membandingkan persis sehingga "qwen2.5" yang sudah
+// terpasang sebagai "qwen2.5:latest" tetap dicap "perlu unduh".
+const baseName = (m: string) => (m.includes(":") ? m.slice(0, m.indexOf(":")) : m);
+const samaModel = (a: string, b: string) => a === b || baseName(a) === baseName(b);
+
+const ukuranGB = (b: number) => (b > 0 ? `${(b / 1e9).toFixed(1)} GB` : "");
 
 // Area yang tertutup UI tiap aplikasi (fraksi tinggi/lebar frame 9:16).
 // Angka awal hasil pengukuran kasar — sesuaikan bila UI aplikasi berubah.
@@ -40,7 +65,7 @@ export default function Home() {
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
   const [offlineEngine, setOfflineEngine] = useState("ollama"); // ollama | heuristic
   const [ollamaModel, setOllamaModel] = useState("qwen2.5");
-  const [ollamaStatus, setOllamaStatus] = useState<{ running: boolean; models?: string[] } | null>(null);
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [pulling, setPulling] = useState(false);
   const [durationPreset, setDurationPreset] = useState("auto");
   const [maxClips, setMaxClips] = useState(10);
@@ -61,10 +86,22 @@ export default function Home() {
   const [platform, setPlatform] = useState("tiktok");     // "off" = tanpa pembatas
   const [saveMode, setSaveMode] = useState("burn");       // burn | clean | both
 
+  // Font manual (di luar daftar bawaan) + hasil pengecekannya di engine.
+  const fontDariPreset = useRef<string>("");
+  const [fontManualOn, setFontManualOn] = useState(false);
+  const [fontCheck, setFontCheck] = useState<FontCheck | null>(null);
+  const [fontChecking, setFontChecking] = useState(false);
+
   // Preview
   const [previewOn, setPreviewOn] = useState(false);
+  const [seretAktif, setSeretAktif] = useState(false); // sedang menggeser subtitle
+  const [gridSelalu, setGridSelalu] = useState(false); // paksa grid tetap tampil
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [duration, setDuration] = useState(0);
   const [previewTime, setPreviewTime] = useState(5);
+  // Dinaikkan tiap muat ulang manual supaya URL frame berubah — kalau URL-nya
+  // sama persis, browser memakai gambar lama meski videonya sudah ditimpa.
+  const [previewNonce, setPreviewNonce] = useState(0);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
 
@@ -96,11 +133,32 @@ export default function Home() {
       if (dl) setModel(dl.name);
     }).catch(() => addLog("⚠ Engine tidak terjangkau"));
     fetch(`${ENGINE}/api/fonts`).then((r) => r.json()).then((f: Font[]) => {
-      setFonts(f); if (f[0]) setSubFont(f[0].name);
+      setFonts(f);
+      // Jangan menimpa font dari preset — daftar font datang belakangan, dulu
+      // pilihan tersimpan selalu tergantikan font pertama tiap halaman dimuat.
+      if (f[0] && !fontDariPreset.current) setSubFont(f[0].name);
+      // Font tersimpan yang bukan bawaan berarti font manual.
+      else if (fontDariPreset.current && !f.some((x) => x.name === fontDariPreset.current)) setFontManualOn(true);
     }).catch(() => {});
   }, [addLog]);
 
   useEffect(() => { logRef.current?.scrollTo(0, logRef.current.scrollHeight); }, [logs]);
+
+  // Font manual divalidasi di engine (format + benar-benar terpasang), ditunda
+  // 400 ms supaya tidak memanggil fc-match tiap huruf yang diketik.
+  useEffect(() => {
+    if (!fontManualOn) { setFontCheck(null); return; }
+    const nama = subFont.trim();
+    if (!nama) { setFontCheck(null); return; }
+    setFontChecking(true);
+    const t = setTimeout(() => {
+      fetch(`${ENGINE}/api/font-check?name=${encodeURIComponent(nama)}`)
+        .then((r) => r.json()).then(setFontCheck)
+        .catch(() => setFontCheck({ valid: false, name: nama, family: "", source: "", error: "engine tidak terjangkau" }))
+        .finally(() => setFontChecking(false));
+    }, 400);
+    return () => { clearTimeout(t); setFontChecking(false); };
+  }, [fontManualOn, subFont]);
 
   // Muat preset tersimpan (localStorage) sekali di awal.
   useEffect(() => {
@@ -115,7 +173,7 @@ export default function Home() {
       if (s.ollamaModel) setOllamaModel(s.ollamaModel);
       if (s.durationPreset) setDurationPreset(s.durationPreset);
       if (s.maxClips) setMaxClips(s.maxClips);
-      if (s.subFont) setSubFont(s.subFont);
+      if (s.subFont) { setSubFont(s.subFont); fontDariPreset.current = s.subFont; }
       if (s.subSize) setSubSize(s.subSize);
       if (s.subColor) setSubColor(s.subColor);
       if (typeof s.subOutline === "number") setSubOutline(s.subOutline);
@@ -159,23 +217,52 @@ export default function Home() {
     fetch(`${ENGINE}/api/settings`).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
   }, []);
 
-  const checkOllama = useCallback(() => {
-    setOllamaStatus(null);
-    fetch(`${ENGINE}/api/ollama/status`).then((r) => r.json()).then(setOllamaStatus).catch(() => setOllamaStatus({ running: false }));
+  // diam = pengecekan berkala; jangan kosongkan status agar UI tak berkedip.
+  const checkOllama = useCallback((diam = false) => {
+    if (!diam) setOllamaStatus(null);
+    fetch(`${ENGINE}/api/ollama/status`).then((r) => r.json()).then(setOllamaStatus)
+      .catch(() => setOllamaStatus({ running: false }));
   }, []);
 
-  useEffect(() => {
-    if (mode === "offline" && offlineEngine === "ollama") checkOllama();
-  }, [mode, offlineEngine, checkOllama]);
+  const ollamaAktif = mode === "offline" && offlineEngine === "ollama";
 
-  // Auto-pilih model terpasang bila pilihan sekarang tak ada di Ollama.
   useEffect(() => {
-    const ms = ollamaStatus?.models;
-    if (ollamaStatus?.running && ms?.length && !ms.some((m) => m.startsWith(ollamaModel))) {
-      setOllamaModel(ms[0]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (ollamaAktif) checkOllama();
+  }, [ollamaAktif, checkOllama]);
+
+  // Selama panel Ollama terbuka, status disegarkan sendiri: berkala tiap 15 detik
+  // dan tiap jendela kembali fokus — jadi model yang baru di-pull dari terminal
+  // langsung terbaca tanpa perlu menekan "cek ulang".
+  useEffect(() => {
+    if (!ollamaAktif) return;
+    const t = setInterval(() => checkOllama(true), 15000);
+    const onFocus = () => checkOllama(true);
+    window.addEventListener("focus", onFocus);
+    return () => { clearInterval(t); window.removeEventListener("focus", onFocus); };
+  }, [ollamaAktif, checkOllama]);
+
+  const ollamaInstalled = useMemo<OllamaModel[]>(() => {
+    const inst = ollamaStatus?.installed;
+    if (inst?.length) return inst;
+    // Engine versi lama hanya mengirim daftar nama.
+    return (ollamaStatus?.models || []).map((n) => ({
+      name: n, base: baseName(n), params: "", quant: "", bytes: 0, context: 0, ready: true, note: "",
+    }));
   }, [ollamaStatus]);
+
+  const ollamaTerpilih = useMemo(
+    () => ollamaInstalled.find((m) => samaModel(m.name, ollamaModel)),
+    [ollamaInstalled, ollamaModel],
+  );
+
+  // Auto-pilih: kalau pilihan sekarang belum terpasang, ambil model terpasang
+  // yang dinilai siap lebih dulu; kalau tak ada yang siap, ambil yang pertama.
+  useEffect(() => {
+    if (!ollamaStatus?.running || !ollamaInstalled.length) return;
+    if (ollamaInstalled.some((m) => samaModel(m.name, ollamaModel))) return;
+    setOllamaModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ollamaInstalled, ollamaStatus?.running]);
 
   const saveKey = useCallback(async () => {
     try {
@@ -209,13 +296,20 @@ export default function Home() {
   const selectedModel = models.find((m) => m.name === model);
   const modelMissing = selectedModel && !selectedModel.downloaded;
 
+  // reframe ikut dikirim: preview memakai mode yang sama dengan render, jadi
+  // koordinat subtitle diatur di atas geometri yang benar (di mode "muat utuh"
+  // videonya cuma mengisi pita tengah, bukan seluruh kanvas).
   const frameUrl = useMemo(
-    () => `${ENGINE}/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`,
-    [path, previewTime]
+    () => `${ENGINE}/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`
+      + `&reframe=${encodeURIComponent(reframe)}&n=${previewNonce}`,
+    [path, previewTime, reframe, previewNonce]
   );
 
-  const loadPreview = useCallback(async () => {
+  // diam = dipicu otomatis oleh video baru; kegagalannya tidak perlu diteriakkan
+  // ke log karena path bisa saja masih setengah diketik.
+  const loadPreview = useCallback(async (diam = false) => {
     if (!path) return;
+    setPreviewBusy(true);
     try {
       const r = await fetch(`${ENGINE}/api/probe?path=${encodeURIComponent(path)}`);
       const txt = await r.text();
@@ -225,20 +319,77 @@ export default function Home() {
       if (!r.ok) throw new Error(d.error || "gagal membaca video");
       setDuration(d.duration || 0);
       setPreviewTime(Math.min(5, (d.duration || 10) / 2));
+      setPreviewNonce((n) => n + 1);
       setPreviewOn(true);
-    } catch (e: any) { addLog(`⚠ Preview gagal: ${e.message}`); }
+    } catch (e: any) {
+      if (!diam) addLog(`⚠ Preview gagal: ${e.message}`);
+    } finally { setPreviewBusy(false); }
   }, [path, addLog]);
 
-  // Drag subtitle di atas frame.
+  // Kembali ke keadaan awal: frame dilepas, durasi & waktu direset. Dipakai
+  // tombol "reset" dan otomatis saat videonya berganti.
+  const resetPreview = useCallback(() => {
+    setPreviewOn(false);
+    setPreviewBusy(false);
+    setDuration(0);
+    setPreviewTime(5);
+  }, []);
+
+  // Video baru masuk (unggah, seret-lepas, atau path diketik) → preview lama
+  // dibuang lalu dimuat ulang sendiri. Ditunda 500 ms supaya path yang sedang
+  // diketik tidak memicu satu permintaan per huruf.
+  useEffect(() => {
+    resetPreview();
+    if (!path) return;
+    const t = setTimeout(() => loadPreview(true), 500);
+    return () => clearTimeout(t);
+  }, [path, resetPreview, loadPreview]);
+
+  // Geser subtitle di atas frame.
+  //
+  // Selisih titik pegang disimpan saat tombol ditekan, lalu ikut dijumlahkan
+  // tiap gerakan. Dulu posisi langsung disamakan dengan kursor, jadi teks
+  // melompat ke bawah kursor begitu disentuh — itu yang terasa "kurang stabil".
+  const pegang = useRef({ dx: 0, dy: 0 });
+
+  const titikPreview = useCallback((e: React.PointerEvent) => {
+    const rect = boxRef.current!.getBoundingClientRect();
+    return {
+      x: ((e.clientX - rect.left) / rect.width) * PLAY_W,
+      y: ((e.clientY - rect.top) / rect.height) * PLAY_H,
+    };
+  }, []);
+
+  const mulaiSeret = useCallback((e: React.PointerEvent) => {
+    if (!boxRef.current) return;
+    e.preventDefault();
+    const p = titikPreview(e);
+    pegang.current = { dx: subX - p.x, dy: subY - p.y };
+    dragging.current = true;
+    setSeretAktif(true);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+  }, [subX, subY, titikPreview]);
+
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging.current || !boxRef.current) return;
-    const rect = boxRef.current.getBoundingClientRect();
-    let nx = ((e.clientX - rect.left) / rect.width) * PLAY_W;
-    let ny = ((e.clientY - rect.top) / rect.height) * PLAY_H;
-    nx = Math.max(0, Math.min(PLAY_W, nx));
-    ny = Math.max(0, Math.min(PLAY_H, ny));
-    setSubX(Math.round(nx)); setSubY(Math.round(ny));
+    const p = titikPreview(e);
+    let nx = p.x + pegang.current.dx;
+    let ny = p.y + pegang.current.dy;
+    // Magnet ke garis tengah — inilah rasa "berhenti" saat melewati tengah.
+    if (Math.abs(nx - TENGAH_X) < MAGNET) nx = TENGAH_X;
+    if (Math.abs(ny - TENGAH_Y) < MAGNET) ny = TENGAH_Y;
+    setSubX(Math.round(Math.max(0, Math.min(PLAY_W, nx))));
+    setSubY(Math.round(Math.max(0, Math.min(PLAY_H, ny))));
+  }, [titikPreview]);
+
+  const selesaiSeret = useCallback(() => {
+    dragging.current = false;
+    setSeretAktif(false);
   }, []);
+
+  const diTengahX = subX === TENGAH_X;
+  const diTengahY = subY === TENGAH_Y;
+  const gridTampil = seretAktif || gridSelalu;
 
   const uploadFile = useCallback((file: File) => {
     setUploading(true); setUploadPct(0);
@@ -259,6 +410,12 @@ export default function Home() {
   }, [addLog]);
 
   const start = useCallback(async () => {
+    // Font manual yang belum lolos pengecekan ditolak di sini — kalau diteruskan,
+    // libass diam-diam mengganti fontnya dan hasil render tidak sesuai preview.
+    if (fontManualOn && !fontCheck?.valid) {
+      addLog(`⚠ Font "${subFont}" belum valid — perbaiki dulu namanya${fontCheck?.error ? ` (${fontCheck.error})` : ""}`);
+      return;
+    }
     setError(""); setClips([]); setProgress(0); setStage(""); setMessage("");
     setBusy(true); setStatus("queued"); setJobId(null);
     addLog(`▶ Job — ${resolution}/${quality}, durasi=${durationPreset}, font=${subFont}`);
@@ -285,7 +442,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "gagal membuat job");
       setJobId(data.id); addLog(`📋 Job ${data.id}`);
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, mode, model, resolution, quality, reframe, fps, offlineEngine, claudeModel, ollamaModel, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog]);
+  }, [path, mode, model, resolution, quality, reframe, fps, offlineEngine, claudeModel, ollamaModel, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManualOn, fontCheck]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -322,23 +479,31 @@ export default function Home() {
   const colorHex = hex(subColor);
   const highlightHex = hex(subHighlight);
 
+  // Font yang di-@font-face untuk preview: bawaan + font manual yang lolos cek.
+  const fontPreview = useMemo(() => {
+    const n = fonts.map((f) => f.name);
+    if (fontManualOn && fontCheck?.valid && !n.includes(fontCheck.family)) n.push(fontCheck.family);
+    return n;
+  }, [fonts, fontManualOn, fontCheck]);
+
   // Zona yang tertutup UI aplikasi (undefined = pembatas dimatikan).
   const zone = platform !== "off" ? PLATFORMS[platform]?.zone : undefined;
   const inUnsafe = !!zone && (
     subY / PLAY_H < zone.top || subY / PLAY_H > 1 - zone.bottom || subX / PLAY_W > 1 - zone.right
   );
-  // Taruh subtitle tepat di atas zona bawah, digeser dari zona tombol kanan.
+  // Taruh subtitle tepat di atas zona bawah. X tetap di tengah bidang: subtitle
+  // ditulis rata tengah terhadap titik ini, jadi menengahkannya ke lebar sisa
+  // (di luar kolom tombol kanan) justru membuatnya miring ke kiri.
   const placeSafe = () => {
-    if (!zone) { setSubX(PLAY_W / 2); setSubY(PLAY_H / 2); return; }
-    setSubY(Math.round(PLAY_H * (1 - zone.bottom) - 140));
-    setSubX(Math.round((PLAY_W * (1 - zone.right)) / 2));
+    setSubX(TENGAH_X);
+    setSubY(zone ? Math.round(PLAY_H * (1 - zone.bottom) - 140) : TENGAH_Y);
   };
 
   return (
     <div className="wrap">
-      {/* Muat font asli agar preview akurat */}
-      <style dangerouslySetInnerHTML={{ __html: fonts.map((f) =>
-        `@font-face{font-family:"${f.name}";src:url("${ENGINE}/api/font-file?name=${encodeURIComponent(f.name)}") format("truetype");font-display:swap;}`
+      {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek */}
+      <style dangerouslySetInnerHTML={{ __html: fontPreview.map((n) =>
+        `@font-face{font-family:"${n}";src:url("${ENGINE}/api/font-file?name=${encodeURIComponent(n)}");font-display:swap;}`
       ).join("") }} />
       <h1>✂️ Clipper</h1>
       <p className="sub">Video panjang → klip 9:16 HD bersubtitle + skor viral (Indonesia)</p>
@@ -423,6 +588,7 @@ export default function Home() {
             <select value={reframe} onChange={(e) => setReframe(e.target.value)}>
               <option value="center">Isi penuh (zoom/crop)</option>
               <option value="fit">Muat utuh (latar blur) — paling tajam</option>
+              <option value="face_follow" disabled>Ikut wajah — belum tersedia</option>
             </select></div>
           <div className="field"><label title="Kehalusan gerak, bukan ketajaman">FPS ⓘ</label>
             <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
@@ -472,21 +638,33 @@ export default function Home() {
                 <div className="field">
                   <label>Model lokal (dijalankan via Ollama)</label>
                   <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
-                    {Array.from(new Set([...(ollamaStatus?.models || []), "qwen2.5", "llama3.1", "gemma2"])).map((m) => {
-                      const installed = ollamaStatus?.models?.some((x) => x === m);
-                      return <option key={m} value={m}>{m}{installed ? " ✓ terpasang" : " (perlu unduh)"}</option>;
+                    {ollamaInstalled.map((m) => {
+                      const spek = [m.params, m.quant, ukuranGB(m.bytes)].filter(Boolean).join(" · ");
+                      return (
+                        <option key={m.name} value={m.name}>
+                          {m.name}{spek ? ` — ${spek}` : ""} {m.ready ? "✓ siap" : "⚠ kurang memadai"}
+                        </option>
+                      );
                     })}
+                    {/* Saran hanya muncul bila belum terpasang — dicek per nama dasar
+                        supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest". */}
+                    {OLLAMA_SARAN.filter((s) => !ollamaInstalled.some((m) => samaModel(m.name, s))).map((s) => (
+                      <option key={s} value={s}>{s} (perlu unduh)</option>
+                    ))}
                   </select>
                 </div>
                 <div className="meta">
                   {ollamaStatus === null ? "Mengecek Ollama…"
                     : !ollamaStatus.running ? (
-                      <span className="warn">⚠ Ollama tak terdeteksi. Install dari ollama.com lalu jalankan <code>ollama serve</code>. <button className="ghost tiny" onClick={checkOllama}>cek ulang</button></span>
-                    ) : ollamaStatus.models?.some((m) => m.startsWith(ollamaModel)) ? (
-                      <span className="ok">✓ Ollama jalan, model {ollamaModel} siap</span>
-                    ) : (
+                      <span className="warn">⚠ Ollama tak terdeteksi. Install dari ollama.com lalu jalankan <code>ollama serve</code>. <button className="ghost tiny" onClick={() => checkOllama()}>cek ulang</button></span>
+                    ) : !ollamaTerpilih ? (
                       <span className="warn">Ollama jalan, tapi {ollamaModel} belum ada. <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? "mengunduh…" : "⬇ unduh model"}</button></span>
+                    ) : ollamaTerpilih.ready ? (
+                      <span className="ok">✓ Ollama jalan, model {ollamaTerpilih.name} siap{ollamaTerpilih.params ? ` (${ollamaTerpilih.params})` : ""}</span>
+                    ) : (
+                      <span className="warn">⚠ {ollamaTerpilih.name} terpasang tapi {ollamaTerpilih.note}. Job akan berhenti bila model gagal memilih momen — pakai model lain atau <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? "mengunduh…" : "⬇ unduh model terpilih"}</button></span>
                     )}
+                  {ollamaStatus?.running && !ollamaInstalled.length && " — belum ada model terpasang sama sekali."}
                 </div>
               </>
             )}
@@ -499,9 +677,27 @@ export default function Home() {
         <div className="meta" style={{ marginBottom: 10 }}>Setelan subtitle — geser teks di preview untuk atur posisi</div>
         <div className="row">
           <div className="field"><label>Font</label>
-            <select value={subFont} onChange={(e) => setSubFont(e.target.value)}>
+            <select
+              value={fontManualOn ? "__manual__" : subFont}
+              onChange={(e) => {
+                if (e.target.value === "__manual__") { setFontManualOn(true); return; }
+                setFontManualOn(false); setSubFont(e.target.value);
+              }}>
               {fonts.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-            </select></div>
+              <option value="__manual__">✏️ Font lain — ketik manual…</option>
+            </select>
+            {fontManualOn && (
+              <>
+                <input style={{ marginTop: 6 }} value={subFont} spellCheck={false}
+                  placeholder="mis. Poppins" onChange={(e) => setSubFont(e.target.value)} />
+                <div className="meta">
+                  {fontChecking ? "Memeriksa font…"
+                    : !fontCheck ? "Ketik nama family font — huruf/angka, spasi, titik, ' & atau -"
+                    : fontCheck.valid ? <span className="ok">✓ {fontCheck.family} ditemukan ({fontCheck.source})</span>
+                    : <span className="warn">⚠ {fontCheck.error}</span>}
+                </div>
+              </>
+            )}</div>
           <div className="field"><label>Ukuran ({subSize})</label>
             <input type="range" min={40} max={140} value={subSize} onChange={(e) => setSubSize(Number(e.target.value))} /></div>
           <div className="field"><label>Warna</label>
@@ -555,14 +751,21 @@ export default function Home() {
         </div>
 
         {!previewOn ? (
-          <button className="ghost" disabled={!path} onClick={loadPreview}>👁 Muat preview frame</button>
+          <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
+            {previewBusy ? "Memuat preview…" : "👁 Muat preview frame"}
+          </button>
         ) : (
           <>
+            <div className="row" style={{ gap: 8, marginBottom: 10 }}>
+              <button className="ghost tiny" disabled={previewBusy} onClick={() => loadPreview()}>
+                {previewBusy ? "memuat…" : "🔄 muat ulang preview"}
+              </button>
+              <button className="ghost tiny" onClick={resetPreview}>✕ reset preview</button>
+              <label className="chk"><input type="checkbox" checked={gridSelalu}
+                onChange={(e) => setGridSelalu(e.target.checked)} /> tampilkan garis tengah terus</label>
+            </div>
             <div className="preview-wrap">
-              <div className="preview9x16" ref={boxRef}
-                onPointerMove={onPointerMove}
-                onPointerUp={() => (dragging.current = false)}
-                onPointerLeave={() => (dragging.current = false)}>
+              <div className="preview9x16" ref={boxRef}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={frameUrl} alt="preview" draggable={false} />
                 {zone && (
@@ -581,6 +784,15 @@ export default function Home() {
                     </div>
                   </>
                 )}
+                {/* Garis tengah: muncul saat digeser (atau dikunci lewat centang).
+                    Kelas "on" = subtitle sedang menempel di garis itu. */}
+                {gridTampil && (
+                  <>
+                    <div className={`guide v${diTengahX ? " on" : ""}`} />
+                    <div className={`guide h${diTengahY ? " on" : ""}`} />
+                    {diTengahX && diTengahY && <div className="guide xy" />}
+                  </>
+                )}
                 <div className="suboverlay"
                   style={{
                     left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
@@ -594,7 +806,10 @@ export default function Home() {
                       ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
                       : "none"),
                   }}
-                  onPointerDown={(e) => { dragging.current = true; (e.target as HTMLElement).setPointerCapture?.(e.pointerId); }}>
+                  onPointerDown={mulaiSeret}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={selesaiSeret}
+                  onPointerCancel={selesaiSeret}>
                   {subMode === "word" ? (
                     <span style={{ color: highlightHex }}>Contoh</span>
                   ) : subMode === "karaoke" ? (
@@ -608,7 +823,12 @@ export default function Home() {
               <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
                 value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
             </div>
-            <div className="meta">Catatan: font di preview kira-kira (font asli dipakai saat render).</div>
+            <div className="meta">
+              Preview memakai mode reframe yang sedang dipilih
+              ({reframe === "fit" ? "muat utuh + latar blur" : "isi penuh, crop tengah"}),
+              jadi posisi subtitle yang kamu atur di sini sama dengan hasil render.
+              Font di preview masih kira-kira — font asli dipakai saat render.
+            </div>
           </>
         )}
       </div>
