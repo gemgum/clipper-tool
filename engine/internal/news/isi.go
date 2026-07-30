@@ -3,6 +3,7 @@ package news
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -30,12 +31,44 @@ type Isi struct {
 // Di bawah ini biasanya menu, label, keterangan foto, atau tombol berbagi.
 const minKataParagraf = 12
 
+// Perambah membuka satu halaman di browser dan mengembalikan DOM akhirnya —
+// setelah skrip halaman selesai berjalan. Dibuat berupa fungsi supaya paket
+// news tidak perlu mengenal paket capture; lapisan api yang merangkainya.
+type Perambah func(ctx context.Context, url string) (string, error)
+
 // AmbilIsi membaca artikel sekaligus badan teksnya.
 //
 // Metodenya: ambil isi <p> lebih dulu, sebab hampir semua media Indonesia
 // menaruh badan berita di sana. Bila hasilnya terlalu sedikit (ada situs yang
 // memakai <div> per paragraf), dicoba lagi dengan <div> berisi teks saja.
-func AmbilIsi(ctx context.Context, halaman string) (Isi, error) {
+//
+// Tautan hasil pencarian Google News ditangani berbeda: ia bukan alamat
+// artikel melainkan pengalih yang hanya jalan lewat JavaScript, jadi harus
+// dibuka pakai browser. Sekali buka, DOM-nya sudah memuat alamat asli, tag og:,
+// dan badan tulisannya sekaligus — tidak perlu unduh kedua kali.
+func AmbilIsi(ctx context.Context, halaman string, ramban Perambah, cacheDir string) (Isi, error) {
+	if TautanGoogleNews(halaman) {
+		// Tautan yang pernah diresolusi (mis. saat pengguna menyalinnya) cukup
+		// diambil dari cache, lalu diproses lewat jalur HTTP biasa — jauh lebih
+		// cepat daripada memanggil browser untuk kedua kalinya.
+		if asli, ok := muatResolusi(cacheDir, halaman); ok {
+			halaman = asli
+		} else {
+			if ramban == nil {
+				return Isi{}, fmt.Errorf("tautan hasil pencarian perlu dibuka lewat browser, tapi browser tidak tersedia — pasang Chrome/Chromium, atau buka tautannya sendiri lalu tempel alamat aslinya")
+			}
+			dom, err := ramban(ctx, halaman)
+			if err != nil {
+				return Isi{}, err
+			}
+			isi, err := dariHTML(dom, halaman)
+			if err == nil {
+				simpanResolusi(cacheDir, halaman, isi.Artikel.URL)
+			}
+			return isi, err
+		}
+	}
+
 	art, err := Ambil(ctx, halaman)
 	if err != nil {
 		return Isi{}, err
@@ -44,7 +77,30 @@ func AmbilIsi(ctx context.Context, halaman string) (Isi, error) {
 	if err != nil {
 		return Isi{}, err
 	}
-	par := uraiParagraf(string(raw))
+	return susunIsi(art, string(raw))
+}
+
+// dariHTML membangun Isi dari satu HTML utuh (hasil browser).
+func dariHTML(htmlStr, asal string) (Isi, error) {
+	u, err := url.Parse(asal)
+	if err != nil {
+		return Isi{}, fmt.Errorf("URL tidak valid: %v", err)
+	}
+	art, err := uraiArtikel(htmlStr, u)
+	if err != nil {
+		return Isi{}, err
+	}
+	// Kalau alamatnya masih menunjuk Google News, berarti pengalihannya belum
+	// terjadi — jangan diteruskan, sebab yang terbaca halaman Google, bukan
+	// artikelnya.
+	if TautanGoogleNews(art.URL) {
+		return Isi{}, fmt.Errorf("tautan belum sampai ke artikel aslinya — coba lagi, atau buka tautannya di browser lalu tempel alamat yang muncul")
+	}
+	return susunIsi(art, htmlStr)
+}
+
+func susunIsi(art Artikel, htmlStr string) (Isi, error) {
+	par := uraiParagraf(htmlStr)
 	if len(par) == 0 {
 		return Isi{}, fmt.Errorf(
 			"badan artikel tidak terbaca dari %s — halaman mungkin berbayar, atau isinya dimuat lewat JavaScript. "+

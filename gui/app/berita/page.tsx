@@ -74,6 +74,10 @@ export default function Berita() {
 
   // Pintu 2: jelajah RSS.
   const [feed, setFeed] = useState("antara");
+  // Kata kunci yang SUDAH dikirim. Dipisah dari isi kotak ketik supaya daftar
+  // tidak memuat ulang di setiap huruf yang diketik.
+  const [kunci, setKunci] = useState("");
+  const [ketik, setKetik] = useState("");
   const [daftar, setDaftar] = useState<Artikel[]>([]);
   const [daftarSibuk, setDaftarSibuk] = useState(false);
 
@@ -102,6 +106,13 @@ export default function Berita() {
   const seret = useRef<{ x: number; y: number; ax: number; ay: number } | null>(null);
   const kotakRef = useRef<HTMLDivElement>(null);
 
+  // Tautan yang baru saja disalin — dipakai untuk mengubah warna tombolnya
+  // sebentar, sebagai tanda bahwa klik tadi benar-benar berhasil.
+  const [tersalin, setTersalin] = useState("");
+  // Tautan yang sedang diresolusi — menandai tombolnya supaya jeda 2-3 detik
+  // itu tidak terasa seperti klik yang tidak berfungsi.
+  const [salinSibuk, setSalinSibuk] = useState("");
+
   const [hasil, setHasil] = useState<{ file: string; zip: string } | null>(null);
   const [buatSibuk, setBuatSibuk] = useState(false);
   const [galat, setGalat] = useState("");
@@ -129,13 +140,16 @@ export default function Berita() {
     setZoom(1);
   }, []);
 
-  const muatDaftar = useCallback(async (id: string) => {
+  const muatDaftar = useCallback(async (id: string, cari: string) => {
     setDaftarSibuk(true);
     setGalat("");
     try {
-      const r = await fetch(`${ENGINE}/api/news/list?feed=${encodeURIComponent(id)}&maks=24`);
+      const param = cari
+        ? `q=${encodeURIComponent(cari)}`
+        : `feed=${encodeURIComponent(id)}`;
+      const r = await fetch(`${ENGINE}/api/news/list?${param}&maks=24`);
       const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "gagal memuat feed");
+      if (!r.ok) throw new Error(d.error || "gagal memuat berita");
       setDaftar(d);
     } catch (e: any) {
       setDaftar([]);
@@ -146,8 +160,60 @@ export default function Berita() {
   }, []);
 
   useEffect(() => {
-    if (pintu === "jelajah") muatDaftar(feed);
-  }, [pintu, feed, muatDaftar]);
+    if (pintu === "jelajah") muatDaftar(feed, kunci);
+  }, [pintu, feed, kunci, muatDaftar]);
+
+  // Mencari selalu memindahkan tampilan ke daftar — hasilnya muncul di bawah.
+  const cariBerita = useCallback(() => {
+    setKunci(ketik.trim());
+    setPintu("jelajah");
+  }, [ketik]);
+
+  // Menyalin tautan artikel supaya bisa dicek silang di tab lain.
+  //
+  // navigator.clipboard hanya tersedia di konteks aman (https atau localhost).
+  // Saat GUI dibuka lewat alamat IP mesin, ia tidak ada sama sekali — karena itu
+  // ada jalur cadangan memakai textarea sementara.
+  const salinTautan = useCallback(async (u: string) => {
+    if (!u || salinSibuk) return;
+    try {
+      // Hasil pencarian membawa pengalih Google, bukan alamat medianya. Yang
+      // berguna untuk dicek silang adalah alamat aslinya, jadi diresolusi dulu.
+      // Perlu satu peluncuran browser (~2-3 detik), tapi hasilnya di-cache.
+      if (u.includes("news.google.com/")) {
+        setSalinSibuk(u);
+        const r = await fetch(`${ENGINE}/api/news/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: u }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || "gagal membuka tautan");
+        // Simpan supaya kartu ini tidak perlu diresolusi lagi nanti.
+        setDaftar((ds) => ds.map((a) => (a.url === u ? { ...a, url: d.url } : a)));
+        u = d.url;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(u);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = u;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      const disalin = u;
+      setTersalin(disalin);
+      setTimeout(() => setTersalin((t) => (t === disalin ? "" : t)), 1600);
+    } catch (e: any) {
+      setGalat(e?.message || "Tidak bisa menyalin otomatis — salin manual dari tautan sumber.");
+    } finally {
+      setSalinSibuk("");
+    }
+  }, [salinSibuk]);
 
   const ambilLink = useCallback(async () => {
     if (!link.trim()) return;
@@ -188,6 +254,32 @@ export default function Berita() {
       if (!r.ok) throw new Error(d.error || "gagal menganalisis artikel");
       const par: Paragraf[] = d.paragraf;
       const pil: Pilihan = d.pilihan;
+
+      // Balasan analisis memuat artikel hasil resolusi — di sinilah alamat asli
+      // dan og:image pertama kali tersedia. Hasil pencarian Google News tidak
+      // membawa keduanya, jadi tanpa penggabungan ini kartunya terbit tanpa foto
+      // dan tautannya tetap menunjuk pengalih Google.
+      //
+      // Hanya field yang memang lebih baik yang ditimpa. Judul, ringkasan, dan
+      // badge dibiarkan apa adanya karena bisa jadi sudah disunting pengguna.
+      if (d.artikel) {
+        const baru: Artikel = d.artikel;
+        setArt((a) => ({
+          ...a,
+          url: baru.url && !baru.url.includes("news.google.com/") ? baru.url : a.url,
+          gambar: a.gambar || baru.gambar || "",
+          tanggal: a.tanggal || baru.tanggal || "",
+          terbit: a.terbit || baru.terbit || "",
+          sumber: a.sumber || baru.sumber || "",
+          domain: a.domain || baru.domain || "",
+        }));
+        // Daftar hasil ikut diperbarui supaya artikel ini tidak perlu
+        // diresolusi lagi kalau nanti dipilih ulang.
+        if (baru.url && !baru.url.includes("news.google.com/")) {
+          setDaftar((ds) => ds.map((x) => (x.url === art.url ? { ...x, url: baru.url } : x)));
+        }
+      }
+
       setParagraf(par);
       setPilihan(pil);
       terapkanKartu(par, pil.kartu);
@@ -308,6 +400,18 @@ export default function Berita() {
           <button className={"ghost" + (pintu === "jelajah" ? " aktif" : "")} onClick={() => setPintu("jelajah")}>
             Jelajah berita
           </button>
+          <div className="cari">
+            <input
+              value={ketik}
+              onChange={(e) => setKetik(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && cariBerita()}
+              placeholder="Cari berita — mis. banjir jakarta"
+              aria-label="Cari berita"
+            />
+            <button onClick={cariBerita} disabled={!ketik.trim() || daftarSibuk}>
+              {daftarSibuk && kunci ? "Mencari…" : "Cari"}
+            </button>
+          </div>
         </div>
 
         {pintu === "link" ? (
@@ -329,6 +433,14 @@ export default function Berita() {
           </div>
         ) : (
           <>
+            {kunci ? (
+              <div className="hasil-cari">
+                <span>Hasil pencarian <b>{kunci}</b></span>
+                <button className="ghost tiny" onClick={() => { setKunci(""); setKetik(""); }}>
+                  ✕ kembali ke sumber
+                </button>
+              </div>
+            ) : (
             <div className="field">
               <label>Sumber berita</label>
               <select value={feed} onChange={(e) => setFeed(e.target.value)}>
@@ -337,22 +449,44 @@ export default function Berita() {
                 ))}
               </select>
             </div>
+            )}
             {daftarSibuk ? (
               <p className="stage">Memuat berita…</p>
             ) : (
               <div className="berita-list">
                 {daftar.map((a) => (
-                  <button
+                  <div
                     key={a.url}
                     className={"berita-item" + (art.url === a.url ? " aktif" : "")}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => pakaiArtikel(a)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pakaiArtikel(a); }
+                    }}
                   >
-                    {a.gambar ? <img src={a.gambar} alt="" loading="lazy" /> : <div className="berita-nogambar" />}
+                    {/* Hasil pencarian Google News tidak membawa gambar — gambarnya
+                        baru ada setelah artikelnya dibuka. Kotak kosong dihilangkan
+                        saja daripada menyisakan bidang abu yang terlihat rusak. */}
+                    {a.gambar && <img src={a.gambar} alt="" loading="lazy" />}
                     <div className="berita-teks">
                       <div className="berita-judul">{a.judul}</div>
-                      <div className="meta">{a.tanggal || a.domain}</div>
+                      <div className="berita-kaki">
+                        <span className="meta">{a.tanggal || a.domain}</span>
+                        <button
+                          className={"salin" + (tersalin === a.url ? " ok" : "")}
+                          title="Salin tautan artikel untuk dicek sendiri"
+                          aria-label="Salin tautan artikel"
+                          disabled={salinSibuk === a.url}
+                          onClick={(e) => { e.stopPropagation(); salinTautan(a.url); }}
+                        >
+                          {salinSibuk === a.url ? "… membuka"
+                            : tersalin === a.url ? "✓ tersalin"
+                            : "🔗 salin"}
+                        </button>
+                      </div>
                     </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -460,6 +594,23 @@ export default function Berita() {
             <label>URL gambar {gaya === "kutipan" && <em>(tidak dipakai di gaya kutipan)</em>}</label>
             <input value={art.gambar} onChange={ubah("gambar")} />
           </div>
+
+          {art.url && (
+            <div className="field">
+              <label>Tautan artikel <em>— untuk dicek sendiri sebelum diposting</em></label>
+              <div className="tautan-baris">
+                <a href={art.url} target="_blank" rel="noreferrer" title={art.url}>{art.url}</a>
+                <button
+                  className={"salin" + (tersalin === art.url ? " ok" : "")}
+                  title="Salin tautan artikel"
+                  aria-label="Salin tautan artikel"
+                  onClick={() => salinTautan(art.url)}
+                >
+                  {tersalin === art.url ? "✓ tersalin" : "🔗 salin"}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="field">
             <label>Caption {idxCaption !== null && <em>(paragraf #{idxCaption} dari artikel)</em>}</label>

@@ -26,6 +26,65 @@ justru bagian paling makan waktu.
 Mode asli belum dibuat. Bila nanti diperlukan (untuk kesan otentik), fondasinya
 sama — paket `capture` yang sama — jadi tidak ada yang terbuang.
 
+## Pencarian kata kunci: Google News RSS, bukan Puppeteer
+
+Diuji langsung sebelum diputuskan:
+
+| Jalur | Hasil uji |
+|---|---|
+| Scrape `google.com/search` tanpa JS | HTTP 200, **nol hasil** — cangkang `enablejs` |
+| Scrape dengan Chrome asli (menjalankan JS) | **CAPTCHA di permintaan pertama**, dari IP rumah |
+| `news.google.com/rss/search?q=` | **100 artikel**, media Indonesia, gratis, tanpa key |
+
+Jadi Puppeteer tidak menyelesaikan apa pun di sini: yang menghalangi bukan
+ketiadaan JavaScript, melainkan deteksi otomasi. Melawannya berarti merawat
+lapisan penyamaran yang jadwal rusaknya ditentukan pihak lain — dan matinya
+diam-diam, tanpa error, cuma "0 hasil".
+
+Operator pencarian tetap berlaku di endpoint RSS (sudah diuji): `site:`,
+tanda kutip untuk frasa persis, dan `when:7d` untuk batas waktu.
+
+### Ganjalan: tautannya bukan alamat artikel
+
+Google News mengembalikan pengalih `news.google.com/rss/articles/CBMi…`.
+Dua jalan buntu yang sudah dicoba:
+
+- **Ikuti redirect HTTP** → mendarat di halaman Google News, bukan artikelnya
+- **Bongkar base64-nya** → **0 dari 6**; Google mengubah format, URL-nya tidak
+  lagi ada di dalam kode itu
+
+Yang berhasil: `chrome --headless --dump-dom`. Sekali buka, DOM-nya sudah memuat
+`og:url` (alamat asli), tag og: lainnya, **dan** badan artikelnya — jadi satu
+panggilan menggantikan dua pengunduhan yang biasanya dibutuhkan alur tempel-link.
+
+`DumpDOM` mencoba **dua kali**: pengalihan JavaScript kadang belum selesai saat
+anggaran waktu virtual habis, terutama pada Chrome yang baru dingin. Gejalanya
+khas — keluar sukses tapi DOM nyaris kosong. Percobaan kedua dengan anggaran dua
+kali lipat menyelesaikannya; ini ditemukan dari kegagalan sesekali saat uji.
+
+### Resolusi di-cache, dan itu dipakai dua kali
+
+Tombol "salin tautan" di daftar hasil meresolusi pengalihnya lebih dulu, supaya
+yang tersalin adalah alamat medianya — bukan URL panjang milik Google yang tak
+berguna saat dibagikan ke orang lain.
+
+Hasil resolusi disimpan di `data/cache/resolusi` (kunci = sidik jari tautan
+Google). Efeknya berlapis:
+
+| | Waktu |
+|---|---|
+| Resolusi pertama (browser) | ~3–8 detik |
+| Resolusi berikutnya (cache) | **0,01 detik** |
+| Analisis tautan yang sudah diresolusi | **melewati browser sepenuhnya** — cukup unduh HTTP biasa |
+
+Yang terakhir itu bukan kebetulan: `AmbilIsi` memeriksa cache resolusi lebih
+dulu, dan bila ada, ia memakai jalur HTTP normal alih-alih memanggil Chrome
+untuk kedua kalinya.
+
+Catatan tampilan: hasil pencarian **tidak membawa gambar** (Google News tidak
+menyertakannya). Gambarnya baru muncul setelah artikel diresolusi, jadi kartu
+daftar dibiarkan tanpa bidang gambar alih-alih menampilkan kotak abu kosong.
+
 ## Kenapa RSS, bukan Google dorking
 
 Rencana awal: menyisir hasil Google dengan operator pencarian. Ditolak karena

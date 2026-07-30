@@ -81,6 +81,12 @@ type rssItem struct {
 	MediaThumb struct {
 		URL string `xml:"url,attr"`
 	} `xml:"thumbnail"`
+	// Google News mengisi <source> dengan nama media & domainnya. Lebih akurat
+	// daripada daftar kurasi kita, sebab mencakup media mana pun.
+	Source struct {
+		Nama string `xml:",chardata"`
+		URL  string `xml:"url,attr"`
+	} `xml:"source"`
 }
 
 type atomEntry struct {
@@ -163,13 +169,20 @@ func uraiFeed(raw []byte, nama string, maks int) ([]Artikel, error) {
 			continue
 		}
 		gambar := firstNonEmpty(it.Enclosure.URL, it.MediaContent.URL, it.MediaThumb.URL, gambarDalam(it.Description))
+		// <source> (dipakai Google News) menang atas tebakan apa pun: ia menyebut
+		// nama media per artikel, bukan per feed.
+		media := bersih(it.Source.Nama)
+		dom := domain(link)
+		if it.Source.URL != "" {
+			dom = domain(it.Source.URL)
+		}
 		out = append(out, Artikel{
-			Judul:   bersih(it.Title),
+			Judul:   bersih(buangEkorMedia(it.Title, media)),
 			Ringkas: potong(bersih(buangTag(it.Description)), 300),
 			URL:     link,
 			Gambar:  gambar,
-			Sumber:  firstNonEmpty(nama, namaMedia(namaFeed, link)),
-			Domain:  domain(link),
+			Sumber:  firstNonEmpty(media, nama, namaMedia(namaFeed, link)),
+			Domain:  dom,
 			Tanggal: formatTanggal(it.PubDate),
 			Terbit:  rfc3339(it.PubDate),
 		})
@@ -216,6 +229,25 @@ func gambarDalam(s string) string {
 		return html.UnescapeString(m[1])
 	}
 	return ""
+}
+
+// buangEkorMedia memangkas " - Nama Media" di ujung judul. Google News
+// menempelkannya ke SETIAP judul (terbukti 100 dari 100 pada uji), padahal nama
+// medianya sudah tampil di lencana kartu — kalau dibiarkan, tiap judul berakhir
+// dengan pengulangan.
+func buangEkorMedia(judul, media string) string {
+	judul = strings.TrimSpace(judul)
+	media = strings.TrimSpace(media)
+	if media == "" {
+		return judul
+	}
+	for _, sep := range []string{" - ", " – ", " — ", " | "} {
+		ekor := sep + media
+		if strings.HasSuffix(judul, ekor) {
+			return strings.TrimSpace(strings.TrimSuffix(judul, ekor))
+		}
+	}
+	return judul
 }
 
 func bersih(s string) string {

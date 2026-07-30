@@ -228,6 +228,73 @@ func tempWindowsDir() (string, error) {
 	return tempWin, tempErr
 }
 
+// DumpDOM membuka url, menunggu skripnya selesai, lalu mengembalikan DOM akhir.
+//
+// Dipakai untuk halaman yang pindah alamat lewat JavaScript — Google News,
+// misalnya, yang tautannya tidak bisa diikuti dengan redirect HTTP biasa dan
+// kodenya tidak lagi memuat URL aslinya. Setelah skripnya jalan, yang terbaca
+// di sini sudah berupa halaman artikel yang sebenarnya, lengkap dengan tag
+// og: dan badan tulisannya — jadi satu panggilan cukup.
+func (c *Client) DumpDOM(ctx context.Context, url string, tungguMS int) (string, error) {
+	if c.Bin == "" {
+		return "", fmt.Errorf("browser tidak ditemukan — pasang Chrome/Chromium, atau set CLIPPER_CHROME ke path chrome.exe")
+	}
+	if tungguMS <= 0 {
+		tungguMS = 15000
+	}
+	// Dicoba dua kali. Halaman yang pindah alamat lewat JavaScript kadang belum
+	// selesai saat anggaran waktu virtual habis — terutama pada peluncuran
+	// Chrome pertama yang masih dingin. Gejalanya khas: keluar sukses tapi DOM
+	// nyaris kosong. Percobaan kedua dengan anggaran dua kali lipat hampir
+	// selalu berhasil, jadi lebih baik menunggu sebentar daripada melempar
+	// galat yang sebenarnya cuma soal waktu.
+	dom, err := c.dumpSekali(ctx, url, tungguMS)
+	if err == nil {
+		return dom, nil
+	}
+	return c.dumpSekali(ctx, url, tungguMS*2)
+}
+
+func (c *Client) dumpSekali(ctx context.Context, url string, tungguMS int) (string, error) {
+	profil, hapus, err := c.dirProfil()
+	if err != nil {
+		return "", err
+	}
+	defer hapus()
+
+	args := []string{
+		"--headless=new",
+		"--disable-gpu",
+		"--no-first-run",
+		"--no-default-browser-check",
+		"--disable-extensions",
+		"--mute-audio",
+		"--user-data-dir=" + profil,
+		fmt.Sprintf("--virtual-time-budget=%d", tungguMS),
+		"--dump-dom",
+		url,
+	}
+
+	ctx, batal := context.WithTimeout(ctx, 90*time.Second)
+	defer batal()
+
+	cmd := exec.CommandContext(ctx, c.Bin, args...)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", fmt.Errorf("browser tidak merespons dalam 90 detik saat membuka %s", url)
+		}
+		return "", fmt.Errorf("browser gagal membuka halaman: %v — %s", err, ringkas(stderr.String()))
+	}
+	dom := out.String()
+	if len(dom) < 200 {
+		return "", fmt.Errorf("halaman %s tidak menghasilkan isi — %s", url, ringkas(stderr.String()))
+	}
+	return dom, nil
+}
+
 // tempWindows menyiapkan nama berkas di folder temp Windows dan mengembalikan
 // pasangan (path Windows, path Linux) untuk berkas yang sama.
 func tempWindows() (win, lx string, err error) {

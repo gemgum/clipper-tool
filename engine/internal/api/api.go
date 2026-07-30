@@ -73,6 +73,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/news/feeds", s.newsFeeds)
 	mux.HandleFunc("GET /api/news/list", s.newsList)
 	mux.HandleFunc("POST /api/news/article", s.newsArticle)
+	mux.HandleFunc("POST /api/news/resolve", s.newsResolve)
 	mux.HandleFunc("POST /api/news/analisis", s.newsAnalisis)
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
@@ -99,6 +100,19 @@ func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
 // newsList mengambil isi satu feed. Param 'feed' boleh berupa ID sumber bawaan
 // atau URL feed apa pun.
 func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
+	maksCari, _ := strconv.Atoi(r.URL.Query().Get("maks"))
+	// Kata kunci menang atas pilihan feed: kalau pengguna mengetik sesuatu, itu
+	// yang dia mau lihat.
+	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
+		item, err := news.Cari(r.Context(), q, maksCari)
+		if err != nil {
+			writeErr(w, 502, err.Error())
+			return
+		}
+		writeJSON(w, 200, item)
+		return
+	}
+
 	feed := strings.TrimSpace(r.URL.Query().Get("feed"))
 	if feed == "" {
 		feed = news.SumberBawaan[0].ID
@@ -125,6 +139,19 @@ func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, item)
 }
 
+// ramban menyediakan pembuka halaman berbasis browser untuk paket news.
+// Mengembalikan nil bila browser tidak ada — news yang menerjemahkannya jadi
+// pesan yang bisa ditindaklanjuti pengguna.
+func (s *Server) ramban() news.Perambah {
+	if s.paths.Chrome == "" {
+		return nil
+	}
+	cap := capture.New(s.paths.Chrome)
+	return func(ctx context.Context, url string) (string, error) {
+		return cap.DumpDOM(ctx, url, 15000)
+	}
+}
+
 // newsArticle membaca metadata satu artikel dari URL yang ditempel pengguna.
 func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -140,6 +167,25 @@ func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, a)
+}
+
+// newsResolve menerjemahkan pengalih hasil pencarian jadi alamat artikel yang
+// sebenarnya, supaya pengguna bisa menyalin tautan yang benar-benar menunjuk ke
+// medianya — bukan alamat panjang milik Google.
+func (s *Server) newsResolve(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "body JSON tidak valid")
+		return
+	}
+	asli, err := news.Resolusi(r.Context(), req.URL, s.ramban(), s.paths.DataDir)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]string{"url": asli})
 }
 
 // newsAnalisis mengambil badan artikel lalu meminta LLM menilai paragraf mana
@@ -160,7 +206,7 @@ func (s *Server) newsAnalisis(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "body JSON tidak valid")
 		return
 	}
-	isi, err := news.AmbilIsi(r.Context(), req.URL)
+	isi, err := news.AmbilIsi(r.Context(), req.URL, s.ramban(), s.paths.DataDir)
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return

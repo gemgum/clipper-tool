@@ -269,6 +269,7 @@ label em { font-style: normal; opacity: 0.7; }
   padding-right: 4px;
 }
 .berita-item {
+  cursor: pointer;
   background: var(--panel2);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -282,14 +283,16 @@ label em { font-style: normal; opacity: 0.7; }
 }
 .berita-item:hover { border-color: var(--muted); }
 .berita-item.aktif { border-color: var(--accent); outline: 1px solid var(--accent); }
-.berita-item img, .berita-nogambar {
+.berita-item img {
   width: 100%;
   aspect-ratio: 16/9;
   object-fit: cover;
   display: block;
   background: var(--panel);
 }
-.berita-teks { padding: 10px 12px 12px; }
+.berita-teks { padding: 12px; }
+/* Kartu tanpa gambar tetap punya tinggi wajar di dalam grid. */
+.berita-item:not(:has(img)) .berita-teks { padding: 14px 12px; }
 .berita-judul { font-size: 13px; font-weight: 600; line-height: 1.35; margin-bottom: 6px; }
 
 .kartu-hasil { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
@@ -484,3 +487,84 @@ label em { font-style: normal; opacity: 0.7; }
 .grup .row { gap: 12px; }
 .grup .meta { margin-top: 8px; }
 select:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ---------- Pencarian berita, sejajar dengan tombol pintu ---------- */
+.cari {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;   /* didorong ke ujung kanan baris pintu */
+  flex: 1;
+  max-width: 380px;
+  min-width: 220px;
+}
+.cari input { flex: 1; min-width: 0; }
+.cari button { flex: none; white-space: nowrap; }
+@media (max-width: 700px) {
+  .cari { margin-left: 0; max-width: none; flex-basis: 100%; }
+}
+
+/* Penanda bahwa daftar di bawah adalah hasil pencarian, bukan isi feed. */
+.hasil-cari {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.hasil-cari b { color: var(--text); }
+.hasil-cari button.tiny { margin-left: 0; }
+
+/* ---------- Tombol salin tautan ---------- */
+.salin {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex: none;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.salin:hover { color: var(--text); border-color: var(--muted); }
+/* Warna berubah sesaat setelah diklik — tanda bahwa penyalinan benar terjadi,
+   bukan sekadar tombol yang tertekan. */
+.salin.ok {
+  color: var(--good);
+  border-color: var(--good);
+  background: rgba(62, 207, 142, 0.12);
+}
+
+.berita-kaki {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tautan-baris {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tautan-baris a {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.tautan-baris a:hover { text-decoration: underline; }
+
+/* .berita-item kini <div role="button">, jadi fokus keyboardnya diberi tanda
+   sendiri — tanpa ini pengguna papan ketik tidak tahu sedang di kartu mana. */
+.berita-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

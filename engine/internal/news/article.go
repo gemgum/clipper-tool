@@ -25,18 +25,34 @@ func Ambil(ctx context.Context, halaman string) (Artikel, error) {
 	if err != nil {
 		return Artikel{}, err
 	}
-	htmlStr := string(raw)
+	return uraiArtikel(string(raw), u)
+}
 
+// uraiArtikel membaca metadata dari HTML yang sudah di tangan. Dipisah dari
+// Ambil supaya bisa dipakai juga untuk DOM hasil browser (tautan Google News),
+// yang tidak melewati pengunduhan biasa.
+func uraiArtikel(htmlStr string, u *url.URL) (Artikel, error) {
 	meta := bacaMeta(htmlStr)
 	judul := firstNonEmpty(meta["og:title"], meta["twitter:title"], tagTitle(htmlStr))
 	if judul == "" {
 		return Artikel{}, fmt.Errorf("tidak menemukan judul di %s — halaman itu mungkin bukan artikel, atau memuat isinya lewat JavaScript", domain(u.String()))
 	}
+	// og:url menyebut alamat kanonik artikel. Untuk halaman hasil resolusi
+	// Google News, inilah satu-satunya tempat alamat aslinya muncul.
+	alamat := u
+	// bersih() wajib di sini: sebagian situs menulis og:url dengan entitas HTML
+	// menempel di ujungnya (mis. "…/artikel&nbsp;&nbsp;"). Diteruskan mentah,
+	// alamat yang dihasilkan ikut membawa sampah itu dan berujung 404.
+	if canon := bersih(firstNonEmpty(meta["og:url"], meta["twitter:url"])); canon != "" {
+		if abs, err := u.Parse(canon); err == nil && abs.Host != "" {
+			alamat = abs
+		}
+	}
 	ringkas := firstNonEmpty(meta["og:description"], meta["twitter:description"], meta["description"])
-	gambar := firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"])
+	gambar := bersih(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"]))
 	if gambar != "" {
 		// Sebagian situs menulis og:image sebagai path relatif.
-		if abs, err := u.Parse(gambar); err == nil {
+		if abs, err := alamat.Parse(gambar); err == nil {
 			gambar = abs.String()
 		}
 	}
@@ -45,10 +61,10 @@ func Ambil(ctx context.Context, halaman string) (Artikel, error) {
 	return Artikel{
 		Judul:   bersih(judul),
 		Ringkas: potong(bersih(ringkas), 300),
-		URL:     u.String(),
+		URL:     alamat.String(),
 		Gambar:  gambar,
-		Sumber:  firstNonEmpty(bersih(meta["og:site_name"]), domain(u.String())),
-		Domain:  domain(u.String()),
+		Sumber:  firstNonEmpty(bersih(meta["og:site_name"]), domain(alamat.String())),
+		Domain:  domain(alamat.String()),
 		Tanggal: formatTanggal(terbit),
 		Terbit:  rfc3339(terbit),
 	}, nil

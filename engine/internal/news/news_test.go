@@ -1,6 +1,7 @@
 package news
 
 import (
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -346,5 +347,30 @@ func TestSusunSatuParagrafBolehKembar(t *testing.T) {
 	p := susun(isi, balasan{Kartu: 0, Caption: 0}, "uji")
 	if p.Kartu != 0 || p.Caption != 0 {
 		t.Errorf("kartu=%d caption=%d, mau 0 keduanya", p.Kartu, p.Caption)
+	}
+}
+
+// Sebagian situs menulis og:url dengan entitas HTML menempel di ujungnya.
+// Diteruskan mentah, alamat hasilnya membawa sampah itu dan berujung 404.
+func TestUraiArtikelBersihkanEntitasDiOgUrl(t *testing.T) {
+	h := `<html><head>
+	<meta property="og:title" content="Cegah Narkoba dari Keluarga">
+	<meta property="og:url" content="https://contoh.go.id/Cegah_Narkoba&nbsp;&nbsp;">
+	<meta property="og:image" content="https://contoh.go.id/foto.jpg&nbsp;">
+	</head><body></body></html>`
+	u, _ := url.Parse("https://news.google.com/rss/articles/CBMiabc")
+	a, err := uraiArtikel(h, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.URL != "https://contoh.go.id/Cegah_Narkoba" {
+		t.Errorf("url = %q — entitas di ujung harus dibuang", a.URL)
+	}
+	if a.Gambar != "https://contoh.go.id/foto.jpg" {
+		t.Errorf("gambar = %q — entitas di ujung harus dibuang", a.Gambar)
+	}
+	// og:url menang atas alamat pengalih yang dipakai untuk membuka halaman.
+	if a.Domain != "contoh.go.id" {
+		t.Errorf("domain = %q, mau contoh.go.id", a.Domain)
 	}
 }
