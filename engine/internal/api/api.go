@@ -2,6 +2,7 @@
 package api
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -15,9 +16,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/capture"
+	"github.com/gemgum/clipper/engine/internal/card"
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/job"
+	"github.com/gemgum/clipper/engine/internal/news"
+	"github.com/gemgum/clipper/engine/internal/score/llm"
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 )
 
@@ -27,6 +32,7 @@ type Server struct {
 	root  string
 	paths config.Paths
 	ff    *ffmpeg.Client
+	kartu *card.Builder
 }
 
 func NewServer(mgr *job.Manager, root string) *Server {
@@ -36,6 +42,7 @@ func NewServer(mgr *job.Manager, root string) *Server {
 		root:  root,
 		paths: paths,
 		ff:    ffmpeg.New(paths.FFmpeg, paths.FFprobe),
+		kartu: card.New(capture.New(paths.Chrome), paths.FontsDir),
 	}
 }
 
@@ -62,8 +69,235 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
 	mux.HandleFunc("GET /api/jobs/{id}/clips", s.jobClips)
 	mux.HandleFunc("GET /api/jobs/{id}/clips/{clip}/file", s.clipFile)
+	// Kartu berita (tab kedua di GUI).
+	mux.HandleFunc("GET /api/news/feeds", s.newsFeeds)
+	mux.HandleFunc("GET /api/news/list", s.newsList)
+	mux.HandleFunc("POST /api/news/article", s.newsArticle)
+	mux.HandleFunc("POST /api/news/analisis", s.newsAnalisis)
+	mux.HandleFunc("POST /api/card", s.makeCard)
+	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
+	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
 	return withCORS(mux)
 }
+
+// --- kartu berita ---
+
+// newsFeeds melaporkan daftar sumber RSS bawaan + apakah browser tersedia.
+// GUI memakai flag itu untuk menjelaskan sejak awal bila kartu tak bisa dibuat,
+// bukan membiarkan pengguna menemukannya saat menekan tombol.
+func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]interface{}{
+		"feeds":       news.SumberBawaan,
+		"ada_browser": s.paths.Chrome != "",
+		"browser":     filepath.Base(s.paths.Chrome),
+		"gaya":        []string{card.GayaGelap, card.GayaTerang, card.GayaKutipan},
+		"rasio":       []string{card.Rasio916, card.Rasio45, card.Rasio11},
+		"rata":        []string{card.RataKiri, card.RataTengah, card.RataKanan, card.RataPenuh},
+	})
+}
+
+// newsList mengambil isi satu feed. Param 'feed' boleh berupa ID sumber bawaan
+// atau URL feed apa pun.
+func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
+	feed := strings.TrimSpace(r.URL.Query().Get("feed"))
+	if feed == "" {
+		feed = news.SumberBawaan[0].ID
+	}
+	// Nama media diambil dari daftar kurasi bila feednya dikenal — judul channel
+	// RSS terlalu berbeda-beda antar media untuk dipakai sebagai badge kartu.
+	nama := ""
+	for _, su := range news.SumberBawaan {
+		if su.ID == feed {
+			feed, nama = su.URL, su.Nama
+			break
+		}
+	}
+	if !strings.HasPrefix(feed, "http://") && !strings.HasPrefix(feed, "https://") {
+		writeErr(w, 400, "feed tidak dikenal — pakai salah satu id bawaan, atau tempel URL feed lengkap")
+		return
+	}
+	maks, _ := strconv.Atoi(r.URL.Query().Get("maks"))
+	item, err := news.Daftar(r.Context(), feed, nama, maks)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, 200, item)
+}
+
+// newsArticle membaca metadata satu artikel dari URL yang ditempel pengguna.
+func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "body JSON tidak valid")
+		return
+	}
+	a, err := news.Ambil(r.Context(), req.URL)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, 200, a)
+}
+
+// newsAnalisis mengambil badan artikel lalu meminta LLM menilai paragraf mana
+// yang paling layak jadi isi kartu & caption.
+//
+// LLM di sini hanya MEMILIH NOMOR paragraf — teksnya diambil engine dari
+// artikel. Jadi tidak ada peluang mengarang kalimat, dan hasilnya selalu
+// verbatim dari sumbernya.
+func (s *Server) newsAnalisis(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		URL         string `json:"url"`
+		Provider    string `json:"provider"`     // claude | ollama
+		LLMModel    string `json:"llm_model"`    // model Claude
+		OllamaModel string `json:"ollama_model"` // model lokal
+		OllamaURL   string `json:"ollama_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "body JSON tidak valid")
+		return
+	}
+	isi, err := news.AmbilIsi(r.Context(), req.URL)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+
+	jalan, nama, err := s.mesinLLM(req.Provider, req.LLMModel, req.OllamaModel, req.OllamaURL)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	pilihan, err := news.Pilih(r.Context(), isi, jalan, nama, s.paths.DataDir)
+	if err != nil {
+		// Mesin yang dipilih pengguna dipakai apa adanya — bila gagal, job
+		// berhenti dengan pesan akar masalah (catatan/12). Tidak ada
+		// perpindahan diam-diam ke mesin lain.
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{
+		"artikel":  isi.Artikel,
+		"paragraf": isi.Paragraf,
+		"pilihan":  pilihan,
+	})
+}
+
+// mesinLLM merangkai satu fungsi pemanggil LLM sesuai mesin yang dipilih.
+func (s *Server) mesinLLM(provider, modelClaude, modelOllama, urlOllama string) (news.Mesin, string, error) {
+	switch provider {
+	case "claude":
+		key := s.mgr.APIKey()
+		if key == "" {
+			return nil, "", fmt.Errorf("API key Claude kosong — isi di tab Klip video, panel Mesin AI, atau ANTHROPIC_API_KEY di .env")
+		}
+		c := llm.New(key, modelClaude)
+		nama := "Claude (" + c.Model + ")"
+		return func(ctx context.Context, system, user string) (string, error) {
+			return c.Lengkapi(ctx, system, user, 4096)
+		}, nama, nil
+	case "ollama", "":
+		c := ollama.New(urlOllama, modelOllama)
+		nama := "Ollama (" + c.Model + ")"
+		return func(ctx context.Context, system, user string) (string, error) {
+			return c.Lengkapi(ctx, system, user, news.SkemaPilih(), 2048)
+		}, nama, nil
+	}
+	return nil, "", fmt.Errorf("mesin %q tidak dikenal — pilih \"claude\" atau \"ollama\"", provider)
+}
+
+// makeCard merender kartu jadi PNG dan membalas id-nya.
+//
+// Sengaja sinkron, tidak lewat antrian job: satu kartu selesai dalam hitungan
+// detik, sementara mesin job dirancang untuk pekerjaan hitungan menit.
+func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
+	if s.paths.Chrome == "" {
+		writeErr(w, 503, "browser tidak ditemukan — pasang Chrome/Chromium, atau set CLIPPER_CHROME ke path chrome.exe")
+		return
+	}
+	var p card.Permintaan
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeErr(w, 400, "body JSON tidak valid: "+err.Error())
+		return
+	}
+	id := fmt.Sprintf("kartu-%d", time.Now().UnixNano())
+	if err := s.kartu.Buat(r.Context(), p, s.dirKartu(id)); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	lebar, tinggi := card.Dims(p.Rasio)
+	writeJSON(w, 201, map[string]interface{}{
+		"id": id, "lebar": lebar, "tinggi": tinggi,
+		"file": "/api/card/" + id + "/file",
+		"zip":  "/api/card/" + id + "/zip",
+	})
+}
+
+func (s *Server) dirKartu(id string) string {
+	return filepath.Join(s.root, "data", "kartu", id)
+}
+
+// cardFile menyajikan PNG kartu. Id dibatasi pola yang kita buat sendiri
+// supaya parameter dari luar tidak bisa menunjuk berkas lain.
+func (s *Server) cardFile(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !idKartuOK.MatchString(id) {
+		writeErr(w, 400, "id kartu tidak valid")
+		return
+	}
+	p := filepath.Join(s.dirKartu(id), card.BerkasPNG)
+	if _, err := os.Stat(p); err != nil {
+		writeErr(w, 404, "kartu tidak ditemukan")
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	http.ServeFile(w, r, p)
+}
+
+// cardZip membungkus gambar + caption + keterangan sumber jadi satu berkas.
+func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if !idKartuOK.MatchString(id) {
+		writeErr(w, 400, "id kartu tidak valid")
+		return
+	}
+	dir := s.dirKartu(id)
+	isi, err := os.ReadDir(dir)
+	if err != nil || len(isi) == 0 {
+		writeErr(w, 404, "kartu tidak ditemukan")
+		return
+	}
+	// Header ditulis lebih dulu karena zip ditulis langsung ke koneksi
+	// (tidak disusun di memori); setelah byte pertama terkirim, status HTTP
+	// tidak bisa diubah lagi.
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+id+`.zip"`)
+
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+	for _, e := range isi {
+		if e.IsDir() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		f, err := zw.Create(e.Name())
+		if err != nil {
+			return
+		}
+		if _, err := f.Write(raw); err != nil {
+			return
+		}
+	}
+}
+
+var idKartuOK = regexp.MustCompile(`^kartu-[0-9]{1,25}$`)
 
 // listModels melaporkan model whisper yang tersedia/terunduh.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
@@ -369,12 +603,18 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	if rf := q.Get("reframe"); rf != "" {
 		opts.Reframe = config.Reframe(rf)
 	}
-	if err := opts.Reframe.Cek(); err != nil {
+	// Latar & zoom ikut dikirim supaya preview memakai penempatan yang sama
+	// persis dengan render — Validate yang menjepit nilainya.
+	opts.Latar = q.Get("latar")
+	opts.Zoom, _ = strconv.Atoi(q.Get("zoom"))
+	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	tw, th := opts.Dims()
-	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, string(opts.Reframe))
+	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, ffmpeg.Tata{
+		Mode: string(opts.Reframe), Latar: opts.Latar, Zoom: opts.Zoom,
+	})
 	if err != nil || len(img) == 0 {
 		writeErr(w, 400, "gagal ekstrak frame")
 		return

@@ -92,7 +92,9 @@ type EncodeOpts struct {
 	Preset   string
 	AssPath  string // subtitle .ass; kosong = tanpa subtitle
 	FontsDir string // dir font untuk libass
-	Mode     string // "fit" (latar blur) | selain itu = center (crop/zoom)
+	Mode     string // "fit" (frame utuh) | selain itu = center (crop/zoom)
+	Latar    string // blur | hitam — isi ruang kosong di sekeliling video
+	Zoom     int    // persen ukuran video dalam bingkai; 0/100 = isi penuh
 	FPS      int    // 0 = ikut sumber
 }
 
@@ -102,21 +104,67 @@ type EncodeOpts struct {
 // sumber, sebab dulu keduanya menyusun filter sendiri-sendiri dan preview
 // tertinggal (selalu crop tengah) ketika mode "fit" ditambahkan ke render.
 //
-// "fit"  : frame utuh di atas latar blur, tanpa zoom (paling tajam).
-// selain : crop tengah, isi penuh (ada zoom).
-func ReframeFilter(mode string, targetW, targetH int) string {
-	if mode == "fit" {
-		// Latar: frame dibesarkan penuh lalu di-blur. Depan: frame utuh (fit).
-		return fmt.Sprintf(
-			"split=2[bg][fg];"+
-				"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
-				"[fg]scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos[fgb];"+
-				"[bgb][fgb]overlay=(W-w)/2:(H-h)/2",
-			targetW, targetH, targetW, targetH, targetW, targetH)
+// "fit"  : frame utuh, tanpa zoom (paling tajam).
+// selain : crop tengah, isi penuh.
+//
+// Zoom mengecilkan video di dalam bingkai (100 = isi penuh). Ruang sisa diisi
+// menurut Latar: blur dari videonya sendiri, atau hitam polos.
+type Tata struct {
+	Mode  string // center | fit
+	Latar string // blur | hitam
+	Zoom  int    // persen; <=0 dianggap 100
+}
+
+// ReframeFilter menyusun rantai filter -vf untuk menempatkan video ke bingkai
+// target.
+func ReframeFilter(t Tata, targetW, targetH int) string {
+	zoom := t.Zoom
+	if zoom <= 0 || zoom > 100 {
+		zoom = 100
 	}
-	// Center: cover lalu crop tengah (lanczos untuk pembesaran lebih tajam).
-	return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
-		targetW, targetH, targetW, targetH)
+	// Ukuran video di dalam bingkai. Dibulatkan genap: encoder h264 menolak
+	// dimensi ganjil.
+	fw := genap(targetW * zoom / 100)
+	fh := genap(targetH * zoom / 100)
+
+	// Depan: "fit" memuat frame utuh (decrease), selain itu menutupi lalu
+	// dipotong tengah (increase + crop).
+	var depan string
+	if t.Mode == "fit" {
+		depan = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos", fw, fh)
+	} else {
+		depan = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d", fw, fh, fw, fh)
+	}
+
+	// Isi penuh tanpa zoom tidak menyisakan ruang kosong sama sekali, jadi latar
+	// apa pun tidak akan terlihat — rantainya dibiarkan sesederhana mungkin.
+	if t.Mode != "fit" && zoom == 100 {
+		return depan
+	}
+
+	if t.Latar == "hitam" {
+		// Tidak perlu menggandakan aliran: cukup beri bantalan hitam di sekeliling.
+		return depan + fmt.Sprintf(",pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", targetW, targetH)
+	}
+
+	// Blur: video dipakai dua kali — satu jadi latar yang dibesarkan & diburamkan,
+	// satu lagi jadi gambar depan yang ditumpuk di tengahnya.
+	return fmt.Sprintf(
+		"split=2[bg][fg];"+
+			"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
+			"[fg]%s[fgb];"+
+			"[bgb][fgb]overlay=(W-w)/2:(H-h)/2",
+		targetW, targetH, targetW, targetH, depan)
+}
+
+func genap(n int) int {
+	if n < 2 {
+		return 2
+	}
+	if n%2 != 0 {
+		n--
+	}
+	return n
 }
 
 // ClipReframe memotong [start,end], menyesuaikan ke rasio target, dan membakar
@@ -145,7 +193,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		}
 	}
 
-	vf := ReframeFilter(enc.Mode, targetW, targetH)
+	vf := ReframeFilter(Tata{Mode: enc.Mode, Latar: enc.Latar, Zoom: enc.Zoom}, targetW, targetH)
 	if enc.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", enc.FPS)
 	}
@@ -166,8 +214,8 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		"-ss", fmt.Sprintf("%.3f", start),
 		"-i", input,
 		"-t", fmt.Sprintf("%.3f", dur),
-		"-map", "0:v:0",   // ambil video pertama
-		"-map", "0:a:0?",  // ambil audio pertama bila ada (? = opsional)
+		"-map", "0:v:0", // ambil video pertama
+		"-map", "0:a:0?", // ambil audio pertama bila ada (? = opsional)
 		"-vf", vf,
 		"-c:v", "libx264",
 		"-preset", preset,
@@ -175,7 +223,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		"-pix_fmt", "yuv420p",
 		"-c:a", "aac",
 		"-b:a", "160k",
-		"-ac", "2",        // paksa stereo (kompatibel semua pemutar)
+		"-ac", "2", // paksa stereo (kompatibel semua pemutar)
 		"-movflags", "+faststart",
 		out,
 	}
@@ -186,8 +234,8 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 // memakai mode reframe yang sama dengan render, dikembalikan sebagai JPEG
 // (untuk preview subtitle di GUI). Hasilnya = satu frame dari klip jadi,
 // jadi koordinat subtitle yang diatur di preview berlaku apa adanya.
-func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int, mode string) ([]byte, error) {
-	vf := ReframeFilter(mode, targetW, targetH)
+func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int, tata Tata) ([]byte, error) {
+	vf := ReframeFilter(tata, targetW, targetH)
 	args := []string{
 		"-y",
 		"-ss", fmt.Sprintf("%.3f", t),

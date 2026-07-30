@@ -73,20 +73,20 @@ type Reasons struct {
 
 // Clip hasil akhir satu klip.
 type Clip struct {
-	ID           string   `json:"id"`
-	JobID        string   `json:"job_id"`
-	Start        float64  `json:"start"`
-	End          float64  `json:"end"`
-	Duration     float64  `json:"duration"`
-	Score        int      `json:"score"`
-	Reasons      Reasons  `json:"reasons"`
-	Title        string   `json:"title"`
-	Hashtags     []string `json:"hashtags"`
-	Transcript   string   `json:"transcript"`
+	ID         string   `json:"id"`
+	JobID      string   `json:"job_id"`
+	Start      float64  `json:"start"`
+	End        float64  `json:"end"`
+	Duration   float64  `json:"duration"`
+	Score      int      `json:"score"`
+	Reasons    Reasons  `json:"reasons"`
+	Title      string   `json:"title"`
+	Hashtags   []string `json:"hashtags"`
+	Transcript string   `json:"transcript"`
 	// Tidak ada subtitle_path: .ass hanya berkas antara di tmp/ yang dihapus
 	// setelah dibakar. Yang bertahan adalah .srt (mode clean/both).
-	VideoPath    string   `json:"video_path"`       // varian utama (dibuka GUI)
-	VideoPathRaw string   `json:"video_path_raw"`   // varian polos, bila diminta
-	SubtitleSRT  string   `json:"subtitle_srt"`     // .srt di folder output (opsional)
-	Status       string   `json:"status"`           // scored | rendering | rendered
+	VideoPath    string `json:"video_path"`     // varian utama (dibuka GUI)
+	VideoPathRaw string `json:"video_path_raw"` // varian polos, bila diminta
+	SubtitleSRT  string `json:"subtitle_srt"`   // .srt di folder output (opsional)
+	Status       string `json:"status"`         // scored | rendering | rendered
 }

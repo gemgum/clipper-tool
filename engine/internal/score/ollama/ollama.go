@@ -69,43 +69,60 @@ type chatResp struct {
 // Schema di parameter "format", sehingga prompt panjang tidak lagi membuat
 // model lokal membalas JSON rusak (masalah lama yang memaksa prompt disederhanakan).
 func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error) {
+	isi, err := c.Lengkapi(ctx, llm.SystemPrompt(targetMin, targetMax, ch), llm.UserPrompt(tr, maxClips),
+		llm.ResponseSchema(), 3072)
+	if err != nil {
+		return nil, err
+	}
+	var wrap llm.MomentsWrapper
+	if err := json.Unmarshal([]byte(isi), &wrap); err != nil {
+		return nil, fmt.Errorf("model lokal %s membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
+			c.Model, err, trunc(isi, 300))
+	}
+	return wrap.Moments, nil
+}
+
+// Lengkapi mengirim satu pasang prompt ke Ollama dan mengembalikan isi balasan.
+//
+// skema (boleh nil) diteruskan ke parameter "format" Ollama sehingga bentuk
+// balasan dijamin di sisi server — inilah yang membuat model lokal tetap
+// membalas JSON rapi walau promptnya panjang.
+func (c *Client) Lengkapi(ctx context.Context, system, user string, skema any, numPredict int) (string, error) {
+	if numPredict <= 0 {
+		numPredict = 2048
+	}
 	reqBody := chatReq{
 		Model: c.Model,
 		Messages: []chatMsg{
-			{Role: "system", Content: llm.SystemPrompt(targetMin, targetMax, ch)},
-			{Role: "user", Content: llm.UserPrompt(tr, maxClips)},
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
 		},
 		Stream:  false,
-		Format:  llm.ResponseSchema(),
-		Options: map[string]any{"temperature": 0.4, "num_ctx": numCtx, "num_predict": 3072},
+		Format:  skema,
+		Options: map[string]any{"temperature": 0.4, "num_ctx": numCtx, "num_predict": numPredict},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	req.Header.Set("content-type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Ollama tidak terjangkau di %s — pastikan sudah dipasang & jalankan `ollama serve`: %w", c.URL, err)
+		return "", fmt.Errorf("Ollama tidak terjangkau di %s — pastikan sudah dipasang & jalankan `ollama serve`: %w", c.URL, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var cr chatResp
 	if err := json.Unmarshal(raw, &cr); err != nil {
-		return nil, fmt.Errorf("respons Ollama tidak bisa dibaca (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
+		return "", fmt.Errorf("respons Ollama tidak bisa dibaca (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
 	}
 	if cr.Error != "" {
-		return nil, ollamaError(c.Model, cr.Error)
+		return "", ollamaError(c.Model, cr.Error)
 	}
-	var wrap llm.MomentsWrapper
-	if err := json.Unmarshal([]byte(cr.Message.Content), &wrap); err != nil {
-		return nil, fmt.Errorf("model lokal %s membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
-			c.Model, err, trunc(cr.Message.Content, 300))
-	}
-	return wrap.Moments, nil
+	return cr.Message.Content, nil
 }
 
 // ollamaError menerjemahkan pesan Ollama jadi petunjuk yang bisa ditindaklanjuti.

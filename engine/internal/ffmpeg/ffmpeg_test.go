@@ -60,15 +60,19 @@ func TestPetunjukGalat(t *testing.T) {
 // menjaga keduanya tetap satu sumber — kalau salah satu mode diubah, yang lain
 // ikut berubah dengan sendirinya.
 func TestReframeFilter(t *testing.T) {
-	center := ReframeFilter("center", 1080, 1920)
+	center := ReframeFilter(Tata{Mode: "center", Zoom: 100}, 1080, 1920)
 	if !strings.Contains(center, "force_original_aspect_ratio=increase") || !strings.Contains(center, "crop=1080:1920") {
 		t.Errorf("center harus memperbesar lalu crop tengah, dapat: %s", center)
 	}
-	if strings.Contains(center, "gblur") {
-		t.Errorf("center tidak boleh memakai latar blur: %s", center)
+	// Isi penuh tanpa zoom tidak menyisakan ruang kosong — tidak boleh ada
+	// pekerjaan latar sama sekali.
+	for _, jangan := range []string{"gblur", "split=2", "pad="} {
+		if strings.Contains(center, jangan) {
+			t.Errorf("center 100%% tidak boleh memakai %q: %s", jangan, center)
+		}
 	}
 
-	fit := ReframeFilter("fit", 1080, 1920)
+	fit := ReframeFilter(Tata{Mode: "fit", Latar: "blur", Zoom: 100}, 1080, 1920)
 	for _, bagian := range []string{
 		"split=2[bg][fg]",                      // frame dipakai dua kali
 		"gblur=sigma=20",                       // latar di-blur
@@ -82,7 +86,50 @@ func TestReframeFilter(t *testing.T) {
 
 	// Mode tak dikenal jatuh ke center; penolakannya ditangani config.Reframe.Cek
 	// supaya pesan errornya muncul sebelum ffmpeg dipanggil.
-	if ReframeFilter("apa saja", 720, 1280) != ReframeFilter("center", 720, 1280) {
+	if ReframeFilter(Tata{Mode: "apa saja"}, 720, 1280) != ReframeFilter(Tata{Mode: "center"}, 720, 1280) {
 		t.Error("mode tak dikenal seharusnya sama dengan center")
+	}
+}
+
+func TestReframeFilterLatarHitamTanpaMenggandakanAliran(t *testing.T) {
+	got := ReframeFilter(Tata{Mode: "fit", Latar: "hitam", Zoom: 100}, 1080, 1920)
+	if !strings.Contains(got, "pad=1080:1920") {
+		t.Errorf("latar hitam harus memakai pad, dapat: %s", got)
+	}
+	// Latar hitam tidak perlu menyalin aliran video — split/overlay hanya
+	// dibutuhkan untuk blur, dan memakainya di sini membuang waktu encode.
+	for _, jangan := range []string{"split=2", "gblur", "overlay="} {
+		if strings.Contains(got, jangan) {
+			t.Errorf("latar hitam tidak boleh memakai %q: %s", jangan, got)
+		}
+	}
+}
+
+func TestReframeFilterZoomMengecilkanDanTetapGenap(t *testing.T) {
+	// 50% dari 1080x1920.
+	got := ReframeFilter(Tata{Mode: "center", Latar: "hitam", Zoom: 50}, 1080, 1920)
+	if !strings.Contains(got, "crop=540:960") {
+		t.Errorf("zoom 50%% harus menghasilkan 540x960, dapat: %s", got)
+	}
+	// Zoom di bawah 100 selalu menyisakan ruang, jadi latar wajib ikut.
+	if !strings.Contains(got, "pad=1080:1920") {
+		t.Errorf("zoom <100 harus mengisi sisa bingkai, dapat: %s", got)
+	}
+
+	// 35% dari 1080 = 378 (genap) tapi dari 1920 = 672; uji ukuran yang jatuh
+	// ganjil: 33% dari 1080 = 356.4 -> 356, dari 1920 = 633.6 -> 633 -> 632.
+	ganjil := ReframeFilter(Tata{Mode: "center", Latar: "hitam", Zoom: 33}, 1080, 1920)
+	for _, angka := range []string{"633", "357"} {
+		if strings.Contains(ganjil, angka) {
+			t.Errorf("dimensi ganjil %s bocor ke filter (h264 menolaknya): %s", angka, ganjil)
+		}
+	}
+}
+
+func TestGenapSelaluGenapDanMinimalDua(t *testing.T) {
+	for masuk, mau := range map[int]int{0: 2, 1: 2, 2: 2, 7: 6, 1080: 1080, 633: 632} {
+		if got := genap(masuk); got != mau {
+			t.Errorf("genap(%d) = %d, mau %d", masuk, got, mau)
+		}
 	}
 }

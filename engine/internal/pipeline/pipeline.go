@@ -26,10 +26,10 @@ import (
 
 // Progress dilaporkan selama proses.
 type Progress struct {
-	Stage    string      `json:"stage"`
-	Value    float64     `json:"progress"`
-	Message  string      `json:"message,omitempty"`
-	Clip     *types.Clip `json:"clip,omitempty"`
+	Stage   string      `json:"stage"`
+	Value   float64     `json:"progress"`
+	Message string      `json:"message,omitempty"`
+	Clip    *types.Clip `json:"clip,omitempty"`
 }
 
 // ProgressFunc callback progres (boleh nil).
@@ -37,11 +37,11 @@ type ProgressFunc func(Progress)
 
 // Pipeline menyimpan dependensi & konfigurasi.
 type Pipeline struct {
-	Paths  config.Paths
-	Opts   config.Options
-	ff     *ffmpeg.Client
-	wh     *transcribe.Whisper
-	wk     *worker.Client
+	Paths config.Paths
+	Opts  config.Options
+	ff    *ffmpeg.Client
+	wh    *transcribe.Whisper
+	wk    *worker.Client
 }
 
 func New(paths config.Paths, opts config.Options) *Pipeline {
@@ -190,7 +190,8 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 
 		enc := ffmpeg.EncodeOpts{
 			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
-			Mode: string(p.Opts.Reframe), FPS: p.Opts.FPS,
+			Mode: string(p.Opts.Reframe), Latar: p.Opts.Latar, Zoom: p.Opts.Zoom,
+			FPS: p.Opts.FPS,
 		}
 		// Varian polos (tanpa subtitle) — untuk mode clean & both.
 		if p.Opts.SubtitleOutput == config.OutputClean || p.Opts.SubtitleOutput == config.OutputBoth {
@@ -472,4 +473,3 @@ func segmentsInRange(tr types.Transcript, start, end float64) []types.Transcript
 	}
 	return out
 }
-

@@ -30,17 +30,17 @@ type Event struct {
 
 // Job satu pekerjaan clipping.
 type Job struct {
-	ID        string          `json:"id"`
-	Dir       string          `json:"dir"` // nama folder unik: <id>_<tanggal_jam>
-	Status    string          `json:"status"`
-	Stage     string          `json:"stage"`
-	Progress  float64         `json:"progress"`
-	Error     string          `json:"error,omitempty"`
-	Input     string          `json:"input"`
-	Options   config.Options  `json:"options"`
-	Clips     []types.Clip    `json:"clips"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        string         `json:"id"`
+	Dir       string         `json:"dir"` // nama folder unik: <id>_<tanggal_jam>
+	Status    string         `json:"status"`
+	Stage     string         `json:"stage"`
+	Progress  float64        `json:"progress"`
+	Error     string         `json:"error,omitempty"`
+	Input     string         `json:"input"`
+	Options   config.Options `json:"options"`
+	Clips     []types.Clip   `json:"clips"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 
 	cancel context.CancelFunc
 	subs   map[chan Event]struct{}
@@ -49,8 +49,8 @@ type Job struct {
 
 // Manager menyimpan seluruh job & mengatur antrian eksekusi.
 type Manager struct {
-	paths config.Paths
-	root  string
+	paths  config.Paths
+	root   string
 	mu     sync.RWMutex
 	jobs   map[string]*Job
 	seq    int
@@ -72,6 +72,10 @@ func (m *Manager) HasAPIKey() bool {
 	m.mu.RUnlock()
 	return k != "" || m.paths.APIKey != ""
 }
+
+// APIKey mengembalikan key Claude yang berlaku (dari GUI, atau dari .env).
+// Dipakai fitur di luar pipeline klip — mis. analisis artikel di tab berita.
+func (m *Manager) APIKey() string { return m.getAPIKey() }
 
 func (m *Manager) getAPIKey() string {
 	m.mu.RLock()

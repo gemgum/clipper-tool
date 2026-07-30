@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/gemgum/clipper/engine/internal/capture"
 )
 
 // Mode operasi engine.
@@ -42,6 +44,22 @@ func (r Reframe) Cek() error {
 	}
 }
 
+// Latar = isi ruang kosong saat video tidak memenuhi bingkai 9:16 — terjadi di
+// mode "fit", atau di mode "center" ketika Zoom di bawah 100%.
+const (
+	LatarBlur  = "blur"
+	LatarHitam = "hitam"
+)
+
+// Batas zoom video di dalam bingkai. 100% = isi penuh (video menutupi bingkai);
+// makin kecil, makin banyak video yang terlihat dan makin lebar latarnya.
+// Kelipatan 5 supaya pilihannya terbatas dan hasilnya bisa diulang.
+const (
+	ZoomMin  = 5
+	ZoomMaks = 100
+	ZoomStep = 5
+)
+
 // Pilihan berkas keluaran klip.
 const (
 	OutputBurn  = "burn"  // 1 file: video dengan subtitle dibakar
@@ -65,6 +83,7 @@ type Paths struct {
 	Whisper  string
 	Model    string
 	Worker   string
+	Chrome   string // browser untuk merender kartu berita (boleh kosong)
 	DataDir  string
 	FontsDir string
 	APIKey   string
@@ -125,6 +144,8 @@ type Options struct {
 	Quality        string      `json:"quality"`    // draft | hd | max
 	FPS            int         `json:"fps"`        // 0 = ikut sumber
 	Reframe        Reframe     `json:"reframe"`
+	Latar          string      `json:"latar"`          // blur | hitam
+	Zoom           int         `json:"zoom"`           // persen 5..100, kelipatan 5
 	SubtitleStyle  string      `json:"subtitle_style"` // plain | viral (fallback warna)
 	Subtitle       Subtitle    `json:"subtitle"`
 	SubtitleOutput string      `json:"subtitle_output"` // burn | clean | both
@@ -152,6 +173,8 @@ func DefaultOptions() Options {
 		Resolution:     "1080p",
 		Quality:        "hd",
 		Reframe:        ReframeCenter,
+		Latar:          LatarBlur,
+		Zoom:           ZoomMaks,
 		SubtitleStyle:  "plain",
 		Subtitle:       DefaultSubtitle(),
 		SubtitleOutput: OutputBurn,
@@ -161,21 +184,21 @@ func DefaultOptions() Options {
 		// Provider sengaja kosong: Validate memilih menurut mode (offline →
 		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
 		// pun ikut memanggil API Claude.
-		Provider: "",
-		LLMModel:       "claude-haiku-4-5",
-		OllamaModel:    "qwen2.5",
-		OllamaURL:      "http://localhost:11434",
-		MinScore:       0,
+		Provider:    "",
+		LLMModel:    "claude-haiku-4-5",
+		OllamaModel: "qwen2.5",
+		OllamaURL:   "http://localhost:11434",
+		MinScore:    0,
 	}
 }
 
 // DefaultSubtitle: Montserrat, besar, posisi tengah, garis tepi hitam.
 func DefaultSubtitle() Subtitle {
 	return Subtitle{
-		Font:         "Montserrat",
-		Size:         72,
-		X:            540,
-		Y:            960,
+		Font:           "Montserrat",
+		Size:           72,
+		X:              540,
+		Y:              960,
 		Color:          "white",
 		Bold:           true,
 		Outline:        4,
@@ -216,6 +239,23 @@ func (o *Options) Validate() error {
 	}
 	if err := o.Reframe.Cek(); err != nil {
 		return err
+	}
+	switch o.Latar {
+	case LatarBlur, LatarHitam:
+	default:
+		o.Latar = d.Latar
+	}
+	// Zoom dijepit lalu dibulatkan ke kelipatan 5. Nilai 0 datang dari permintaan
+	// lama yang belum mengenal field ini, jadi diartikan "isi penuh".
+	if o.Zoom <= 0 {
+		o.Zoom = ZoomMaks
+	}
+	if o.Zoom > ZoomMaks {
+		o.Zoom = ZoomMaks
+	}
+	o.Zoom = (o.Zoom / ZoomStep) * ZoomStep
+	if o.Zoom < ZoomMin {
+		o.Zoom = ZoomMin
 	}
 	if o.SubtitleStyle == "" {
 		o.SubtitleStyle = d.SubtitleStyle
@@ -400,11 +440,14 @@ func ResolvePaths(root string, o Options) Paths {
 	worker := env("CLIPPER_WORKER_BIN",
 		firstExisting(filepath.Join(root, "bin", "clipper-worker"), "clipper-worker"))
 	return Paths{
-		FFmpeg:   env("CLIPPER_FFMPEG_BIN", "ffmpeg"),
-		FFprobe:  env("CLIPPER_FFPROBE_BIN", "ffprobe"),
-		Whisper:  whisper,
-		Model:    model,
-		Worker:   worker,
+		FFmpeg:  env("CLIPPER_FFMPEG_BIN", "ffmpeg"),
+		FFprobe: env("CLIPPER_FFPROBE_BIN", "ffprobe"),
+		Whisper: whisper,
+		Model:   model,
+		Worker:  worker,
+		// Browser dicari oleh paket capture (termasuk chrome.exe lewat WSL).
+		// Boleh kosong: hanya fitur kartu berita yang membutuhkannya.
+		Chrome:   capture.Cari(),
 		DataDir:  dataDir,
 		FontsDir: env("CLIPPER_FONTS_DIR", filepath.Join(root, "assets", "fonts")),
 		APIKey:   os.Getenv("ANTHROPIC_API_KEY"),

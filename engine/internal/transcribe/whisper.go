@@ -138,7 +138,7 @@ func (w *Whisper) Transcribe(ctx context.Context, wavPath, outBase, language str
 		"-t", fmt.Sprintf("%d", threads),
 		"-ojf",         // output JSON lengkap (termasuk timestamp per token)
 		"-of", outBase, // output file prefix
-		"-pp",          // print progress (ke stderr)
+		"-pp", // print progress (ke stderr)
 	}
 	cmd := exec.CommandContext(ctx, w.Bin, args...)
 	// Agar library whisper (.so) ditemukan walau folder dipindah: cari .so di

@@ -86,16 +86,41 @@ func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClip
 	if c.APIKey == "" {
 		return nil, fmt.Errorf("API key Claude kosong — isi di panel Mesin AI (GUI) atau ANTHROPIC_API_KEY di .env")
 	}
+	text, err := c.Lengkapi(ctx, SystemPrompt(targetMin, targetMax, ch), UserPrompt(tr, maxClips), 8192)
+	if err != nil {
+		return nil, err
+	}
+	moments, err := parseMoments(text)
+	if err != nil {
+		return nil, fmt.Errorf("Claude (%s) membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
+			c.Model, err, truncate(text, 300))
+	}
+	return moments, nil
+}
+
+// Lengkapi mengirim satu pasang prompt dan mengembalikan teks balasan apa
+// adanya. Ini lapisan HTTP telanjang yang dipakai bersama oleh pemilihan momen
+// klip dan pemilihan paragraf berita — keduanya cuma berbeda prompt.
+//
+// Seperti SelectMoments: setiap kegagalan dikembalikan apa adanya, TIDAK ada
+// perpindahan diam-diam ke mesin lain (lihat catatan/12).
+func (c *Client) Lengkapi(ctx context.Context, system, user string, maxTokens int) (string, error) {
+	if c.APIKey == "" {
+		return "", fmt.Errorf("API key Claude kosong — isi di panel Mesin AI (GUI) atau ANTHROPIC_API_KEY di .env")
+	}
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
 	reqBody := msgReq{
 		Model:     c.Model,
-		MaxTokens: 8192,
-		System:    SystemPrompt(targetMin, targetMax, ch),
-		Messages:  []anthMsg{{Role: "user", Content: UserPrompt(tr, maxClips)}},
+		MaxTokens: maxTokens,
+		System:    system,
+		Messages:  []anthMsg{{Role: "user", Content: user}},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
@@ -103,29 +128,22 @@ func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClip
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("Claude tidak terjangkau (cek koneksi internet): %w", err)
+		return "", fmt.Errorf("Claude tidak terjangkau (cek koneksi internet): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var parsed msgResp
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("respons Claude tidak bisa dibaca (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
+		return "", fmt.Errorf("respons Claude tidak bisa dibaca (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	if parsed.Error != nil {
-		return nil, claudeError(resp.StatusCode, parsed.Error.Message)
+		return "", claudeError(resp.StatusCode, parsed.Error.Message)
 	}
 	if len(parsed.Content) == 0 {
-		return nil, fmt.Errorf("Claude membalas kosong (status %d)", resp.StatusCode)
+		return "", fmt.Errorf("Claude membalas kosong (status %d)", resp.StatusCode)
 	}
-
-	text := parsed.Content[0].Text
-	moments, err := parseMoments(text)
-	if err != nil {
-		return nil, fmt.Errorf("Claude (%s) membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
-			c.Model, err, truncate(text, 300))
-	}
-	return moments, nil
+	return parsed.Content[0].Text, nil
 }
 
 // claudeError menerjemahkan pesan API jadi petunjuk yang bisa ditindaklanjuti.

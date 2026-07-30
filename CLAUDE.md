@@ -15,7 +15,8 @@ gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
   whisper.cpp/ffmpeg/worker. Standard library saja (tanpa dependency eksternal).
 - **worker/** (C++) — native: `features` (RMS energi audio). `reframe`/face-follow
   (OpenCV) = milestone berikut. Kontrak: stdin JSON → stdout NDJSON.
-- **gui/** (Next.js) — halaman tunggal: form → progress SSE → daftar klip.
+- **gui/** (Next.js) — dua tab: `/` klip video (form → progress SSE → daftar klip)
+  dan `/berita` kartu berita (tempel link / jelajah RSS → kartu PNG).
 - **catatan/** — diskusi & keputusan desain (baca 01–07 untuk konteks).
 
 ## Perintah penting
@@ -29,6 +30,12 @@ gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
 ./bin/clipper serve              # HTTP API di 127.0.0.1:8787
 cd gui && npm run dev            # GUI di 3000
 ```
+
+Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
+mencarinya sendiri; timpa dengan `CLIPPER_CHROME=/path/ke/chrome`.
+
+Di tab itu LLM hanya **memilih nomor paragraf**, tidak pernah menulis: isi kartu
+& caption selalu verbatim dari artikel. Lihat `catatan/13-kartu-berita.md`.
 
 ## Alur pipeline (engine/internal/pipeline)
 
@@ -51,6 +58,9 @@ segmentasi kandidat → scoring (heuristik ± Claude) → render klip 9:16 + bur
 | pipeline | orkestrasi + progress callback |
 | job | store job in-memory + SSE broadcast |
 | api | HTTP handlers + SSE |
+| capture | foto layar halaman web via Chrome headless (exec, + terjemah path WSL) |
+| news | RSS + metadata artikel (Open Graph) + ekstraksi paragraf + pemilih hook (LLM) |
+| card | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber |
 
 ## Mode & mesin skor
 

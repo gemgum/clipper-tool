@@ -206,3 +206,281 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 .ok { color: var(--good); font-size: 12px; font-weight: 600; }
 .warn { color: var(--warn); font-size: 12px; }
 .warn code, .ok code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+
+/* ---------- Navigasi antar tab ---------- */
+.nav {
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.nav-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nav .brand {
+  font-weight: 700;
+  font-size: 15px;
+  margin-right: 20px;
+  padding: 14px 0;
+  letter-spacing: -0.01em;
+}
+.nav-tab {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 14px;
+  padding: 14px 14px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.nav-tab:hover { color: var(--text); }
+.nav-tab.aktif { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ---------- Tab kartu berita ---------- */
+.pintu { display: flex; gap: 8px; margin-bottom: 18px; }
+.pintu button.aktif { border-color: var(--accent); color: var(--accent); }
+
+textarea {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 14px;
+  width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}
+textarea:focus { outline: 2px solid var(--accent); }
+label.blok { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+label em { font-style: normal; opacity: 0.7; }
+
+.berita-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  max-height: 460px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.berita-item {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0;
+  overflow: hidden;
+  text-align: left;
+  color: var(--text);
+  font-weight: 400;
+  display: flex;
+  flex-direction: column;
+}
+.berita-item:hover { border-color: var(--muted); }
+.berita-item.aktif { border-color: var(--accent); outline: 1px solid var(--accent); }
+.berita-item img, .berita-nogambar {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: cover;
+  display: block;
+  background: var(--panel);
+}
+.berita-teks { padding: 10px 12px 12px; }
+.berita-judul { font-size: 13px; font-weight: 600; line-height: 1.35; margin-bottom: 6px; }
+
+.kartu-hasil { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.kartu-hasil img {
+  width: 270px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.warnbox.err { border-color: #ff6b6b; color: #ff9b9b; }
+
+/* ---------- Daftar paragraf berperingkat ---------- */
+.par-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
+.par {
+  display: flex;
+  gap: 12px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.par.pilih-kartu { border-left-color: var(--accent); }
+.par.pilih-caption { border-left-color: var(--good); }
+.par.pilih-kartu.pilih-caption {
+  border-left-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--good);
+}
+.par-skor {
+  font-weight: 700;
+  font-size: 15px;
+  min-width: 34px;
+  text-align: center;
+  color: var(--warn);
+  padding-top: 2px;
+}
+.par-isi { flex: 1; min-width: 0; }
+.par-teks { font-size: 13px; line-height: 1.5; }
+.par-alasan { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+.par-aksi { display: flex; gap: 8px; margin-top: 10px; }
+.par-aksi button { margin-left: 0; }
+.par-skor.auto { color: var(--muted); }
+.par-auto { display: block; font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+
+/* ---------- Bingkai foto: geser & zoom ---------- */
+.foto-atur { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.foto-kotak {
+  position: relative;
+  flex: 1;
+  min-width: 220px;
+  max-width: 380px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #000;
+  cursor: grab;
+  touch-action: none;          /* wajib agar pointer drag tidak diambil alih scroll */
+  container-type: inline-size; /* memberi arti pada satuan cqw di transform */
+}
+.foto-kotak:active { cursor: grabbing; }
+/* Harus sama persis dengan .foto img di engine/internal/card/card.go.
+   object-fit:cover dipakai supaya penskalaan tidak bergantung ukuran asli
+   gambar — itulah yang dulu membuat pratinjau tidak cocok dengan hasil render. */
+.foto-kotak img {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transform-origin: center;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+/* Meniru gradien bawah kartu: memperlihatkan bagian foto yang nanti tertutup
+   teks, supaya wajah orang tidak sengaja ditaruh di area gelap itu. */
+.foto-kabut {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, rgba(0,0,0,0) 30%,
+    rgba(13,17,23,0) 55%, rgba(13,17,23,.85) 82%, #0d1117 100%);
+}
+.foto-knop { flex: none; width: 190px; }
+.foto-knop label { display: block; margin-bottom: 4px; }
+.foto-knop input[type=range] { margin-bottom: 6px; }
+.foto-knop button.tiny { margin-left: 0; margin-top: 6px; }
+
+/* ---------- Setelan subtitle: preview kiri, setelan kanan ---------- */
+.sub-tata {
+  display: grid;
+  grid-template-columns: minmax(230px, 300px) 1fr;
+  gap: 26px;
+  align-items: start;
+}
+@media (max-width: 780px) {
+  .sub-tata { grid-template-columns: 1fr; }
+  .sub-preview { justify-self: center; }
+}
+.sub-preview .preview9x16 { height: 430px; --pvh: 430px; }
+.sub-preview .field { margin-top: 14px; margin-bottom: 8px; }
+
+/* Kendali di bawah gambar preview. */
+.preview-aksi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.preview-aksi button.tiny { margin-left: 0; }
+
+/* Setelan di kanan: sebagian berjajar dalam .row, sebagian menumpuk penuh.
+   Hanya .field yang jadi anak LANGSUNG yang dimatikan flex-nya — yang di dalam
+   .row tetap ikut membagi lebar seperti biasa. */
+.sub-setelan > .field { flex: none; min-width: 0; }
+.sub-setelan .row { gap: 12px; }
+.sub-setelan .row .field { min-width: 130px; }
+
+/* Nilai posisi + tombol reset dalam satu baris rapat. */
+.posisi-nilai {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  padding-top: 9px;
+}
+.posisi-nilai button.tiny { margin-left: 0; }
+
+/* Dropdown pembatas + tombol area aman berdampingan. */
+.pembatas { display: flex; gap: 8px; align-items: center; }
+.pembatas select { flex: 1; min-width: 0; }
+.pembatas button.tiny { margin-left: 0; flex: none; white-space: nowrap; }
+
+/* Bingkai kosong: mengundang aksi, bukan kotak hitam mati. Subtitle contoh
+   tetap bisa digeser di atasnya, jadi posisi sudah bisa diatur sebelum
+   videonya dipilih. */
+.preview-kosong {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Ditaruh di sepertiga atas, bukan di tengah: contoh subtitle default berada
+     tepat di titik tengah bingkai dan keduanya akan saling menimpa. */
+  justify-content: flex-start;
+  padding-top: 52px;
+  gap: 8px;
+  text-align: center;
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(255,255,255,0.022) 0 10px, transparent 10px 20px),
+    var(--panel2);
+}
+.pk-ikon {
+  width: 46px;
+  height: 78px;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  position: relative;
+  margin-bottom: 4px;
+}
+.pk-ikon::after {
+  content: "";
+  position: absolute;
+  left: 8px; right: 8px; bottom: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.pk-judul { font-size: 13px; font-weight: 600; color: var(--text); }
+/* Tombol di dalam kolom setelan tidak ikut meregang selebar kolom — lebarnya
+   mengikuti isinya, seperti tombol pada umumnya. */
+
+/* ---------- Kelompok dalam panel Setelan render ---------- */
+.grup { margin-bottom: 18px; }
+.grup:last-child { margin-bottom: 0; }
+.grup-judul {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.grup .field { margin-bottom: 0; }
+.grup .row { gap: 12px; }
+.grup .meta { margin-top: 8px; }
+select:disabled { opacity: 0.45; cursor: not-allowed; }

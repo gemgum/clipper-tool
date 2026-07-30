@@ -21,6 +21,10 @@ type FontCheck = { valid: boolean; name: string; family: string; source: string;
 // menaruh subtitle sedikit di luar tengah.
 const TENGAH_X = 540, TENGAH_Y = 960, MAGNET = 20;
 
+// Pilihan zoom video di dalam bingkai — kelipatan 5, dari isi penuh (100%)
+// sampai 5%. Harus sama dengan ZoomMin/ZoomMaks/ZoomStep di engine/config.
+const ZOOM_PILIHAN = Array.from({ length: 20 }, (_, i) => 100 - i * 5);
+
 // Satu model Ollama terpasang, sudah dinilai engine (siap/tidak + alasannya).
 type OllamaModel = {
   name: string; base: string; params: string; quant: string;
@@ -57,6 +61,8 @@ export default function Home() {
   const [resolution, setResolution] = useState("1080p");
   const [quality, setQuality] = useState("hd");
   const [reframe, setReframe] = useState("center");
+  const [latar, setLatar] = useState("blur");
+  const [zoom, setZoom] = useState(100);
   const [fps, setFps] = useState(0);
 
   // Mesin AI (scoring)
@@ -189,9 +195,9 @@ export default function Home() {
 
   // Simpan preset setiap kali setelan berubah.
   useEffect(() => {
-    const s = { resolution, quality, reframe, fps, claudeModel, offlineEngine, ollamaModel, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
+    const s = { resolution, quality, reframe, latar, zoom, fps, claudeModel, offlineEngine, ollamaModel, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
     try { localStorage.setItem("clipper.preset", JSON.stringify(s)); } catch {}
-  }, [resolution, quality, reframe, fps, claudeModel, offlineEngine, ollamaModel, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
+  }, [resolution, quality, reframe, latar, zoom, fps, claudeModel, offlineEngine, ollamaModel, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
 
   // Sambung ulang ke job yang sedang berjalan (mis. setelah tab di-reload/tab baru).
   useEffect(() => {
@@ -301,8 +307,9 @@ export default function Home() {
   // videonya cuma mengisi pita tengah, bukan seluruh kanvas).
   const frameUrl = useMemo(
     () => `${ENGINE}/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`
-      + `&reframe=${encodeURIComponent(reframe)}&n=${previewNonce}`,
-    [path, previewTime, reframe, previewNonce]
+      + `&reframe=${encodeURIComponent(reframe)}&latar=${encodeURIComponent(latar)}&zoom=${zoom}`
+      + `&n=${previewNonce}`,
+    [path, previewTime, reframe, latar, zoom, previewNonce]
   );
 
   // diam = dipicu otomatis oleh video baru; kegagalannya tidak perlu diteriakkan
@@ -425,7 +432,7 @@ export default function Home() {
         body: JSON.stringify({
           source: { type: "path", value: path },
           options: {
-            mode, whisper_model: model, resolution, quality, reframe, fps: Number(fps),
+            mode, whisper_model: model, resolution, quality, reframe, latar, zoom: Number(zoom), fps: Number(fps),
             provider: mode === "hybrid" ? "claude" : offlineEngine,
             llm_model: claudeModel, ollama_model: ollamaModel,
             duration_preset: durationPreset, max_clips: Number(maxClips), output_dir: outputDir,
@@ -442,7 +449,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || "gagal membuat job");
       setJobId(data.id); addLog(`📋 Job ${data.id}`);
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, mode, model, resolution, quality, reframe, fps, offlineEngine, claudeModel, ollamaModel, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManualOn, fontCheck]);
+  }, [path, mode, model, resolution, quality, reframe, latar, zoom, fps, offlineEngine, claudeModel, ollamaModel, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManualOn, fontCheck]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -538,65 +545,100 @@ export default function Home() {
         </div>
       </div>
 
-      {/* 2. Setelan render */}
+      {/* 2. Setelan render — dikelompokkan menurut pertanyaan yang dijawabnya:
+          dengan apa diproses, seperti apa hasilnya, bagaimana masuk bingkai,
+          dan berapa banyak klip. */}
       <div className="panel">
-        <div className="meta" style={{ marginBottom: 10 }}>Setelan render</div>
-        <div className="row">
-          <div className="field"><label>Mode</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="offline">offline (gratis)</option>
-              <option value="hybrid">hybrid (Claude API)</option>
-            </select></div>
-          <div className="field"><label>Model Whisper</label>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {models.map((m) => <option key={m.name} value={m.name}>{m.name} {m.size} {m.downloaded ? "✓" : "✗ belum"}</option>)}
-            </select></div>
-          <div className="field"><label>Resolusi</label>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-              <option value="720p">720p (HD)</option>
-              <option value="1080p">1080p (Full HD)</option>
-              <option value="1440p">1440p (2K)</option>
-            </select></div>
-          <div className="field"><label>Kualitas</label>
-            <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-              <option value="draft">draft (cepat)</option>
-              <option value="hd">HD (seimbang)</option>
-              <option value="max">max (terbaik, lambat)</option>
-            </select></div>
+        <div className="meta" style={{ marginBottom: 14 }}>Setelan render</div>
+
+        <div className="grup">
+          <div className="grup-judul">Mesin pemroses</div>
+          <div className="row">
+            <div className="field"><label>Mode</label>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="offline">offline (gratis)</option>
+                <option value="hybrid">hybrid (Claude API)</option>
+              </select></div>
+            <div className="field"><label>Model Whisper</label>
+              <select value={model} onChange={(e) => setModel(e.target.value)}>
+                {models.map((m) => <option key={m.name} value={m.name}>{m.name} {m.size} {m.downloaded ? "✓" : "✗ belum"}</option>)}
+              </select></div>
+          </div>
         </div>
-        <div className="row">
-          <div className="field"><label title="Panjang tiap klip">Durasi klip ⓘ</label>
-            <select value={durationPreset} onChange={(e) => setDurationPreset(e.target.value)}>
-              <option value="auto">auto (45 dtk – 2 mnt)</option>
-              <option value="30">± 30 detik</option>
-              <option value="60">± 60 detik</option>
-              <option value="90">± 90 detik</option>
-              <option value="120">± 2 menit</option>
-              <option value="180">± 3 menit</option>
-            </select></div>
-          <div className="field"><label title="Batas atas jumlah klip dari 1 video">Jumlah klip maksimum ⓘ</label>
-            <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
-          <div className="field"><label title="Klip polos berguna bila subtitle mau diatur ulang di editor lain">Simpan klip ⓘ</label>
-            <select value={saveMode} onChange={(e) => setSaveMode(e.target.value)}>
-              <option value="burn">Dengan subtitle (dibakar)</option>
-              <option value="clean">Klip saja — tanpa subtitle</option>
-              <option value="both">Keduanya (2 berkas per klip)</option>
-            </select></div>
+
+        <div className="grup">
+          <div className="grup-judul">Kualitas video</div>
+          <div className="row">
+            <div className="field"><label>Resolusi</label>
+              <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+                <option value="720p">720p (HD)</option>
+                <option value="1080p">1080p (Full HD)</option>
+                <option value="1440p">1440p (2K)</option>
+              </select></div>
+            <div className="field"><label>Kualitas</label>
+              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+                <option value="draft">draft (cepat)</option>
+                <option value="hd">HD (seimbang)</option>
+                <option value="max">max (terbaik, lambat)</option>
+              </select></div>
+            <div className="field"><label title="Kehalusan gerak, bukan ketajaman">FPS ⓘ</label>
+              <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
+                <option value={0}>Ikut sumber</option>
+                <option value={24}>24</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select></div>
+          </div>
         </div>
-        <div className="row">
-          <div className="field"><label title="Cara memuat video landscape ke bingkai tegak 9:16">Cara pas ke 9:16 ⓘ</label>
-            <select value={reframe} onChange={(e) => setReframe(e.target.value)}>
-              <option value="center">Isi penuh (zoom/crop)</option>
-              <option value="fit">Muat utuh (latar blur) — paling tajam</option>
-              <option value="face_follow" disabled>Ikut wajah — belum tersedia</option>
-            </select></div>
-          <div className="field"><label title="Kehalusan gerak, bukan ketajaman">FPS ⓘ</label>
-            <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
-              <option value={0}>Ikut sumber</option>
-              <option value={24}>24</option>
-              <option value={30}>30</option>
-              <option value={60}>60</option>
-            </select></div>
+
+        <div className="grup">
+          <div className="grup-judul">Bingkai 9:16</div>
+          <div className="row">
+            <div className="field"><label title="Cara memuat video landscape ke bingkai tegak 9:16">Cara pas ⓘ</label>
+              <select value={reframe} onChange={(e) => setReframe(e.target.value)}>
+                <option value="center">Isi penuh (zoom/crop)</option>
+                <option value="fit">Muat utuh — paling tajam</option>
+                <option value="face_follow" disabled>Ikut wajah — belum tersedia</option>
+              </select></div>
+            <div className="field"><label title="100% = video menutupi bingkai. Makin kecil, makin banyak video terlihat dan makin lebar latarnya.">Zoom ⓘ</label>
+              <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+                {ZOOM_PILIHAN.map((z) => (
+                  <option key={z} value={z}>{z}%{z === 100 ? " — isi penuh" : ""}</option>
+                ))}
+              </select></div>
+            <div className="field"><label title="Dipakai saat video tidak menutupi seluruh bingkai">Latar ⓘ</label>
+              <select value={latar} onChange={(e) => setLatar(e.target.value)}
+                disabled={reframe !== "fit" && zoom === 100}>
+                <option value="blur">Blur dari videonya</option>
+                <option value="hitam">Hitam polos</option>
+              </select></div>
+          </div>
+          {reframe !== "fit" && zoom === 100 && (
+            <div className="meta">Isi penuh tanpa zoom menutupi seluruh bingkai — latar tidak terlihat.</div>
+          )}
+        </div>
+
+        <div className="grup">
+          <div className="grup-judul">Hasil klip</div>
+          <div className="row">
+            <div className="field"><label title="Panjang tiap klip">Durasi klip ⓘ</label>
+              <select value={durationPreset} onChange={(e) => setDurationPreset(e.target.value)}>
+                <option value="auto">auto (45 dtk – 2 mnt)</option>
+                <option value="30">± 30 detik</option>
+                <option value="60">± 60 detik</option>
+                <option value="90">± 90 detik</option>
+                <option value="120">± 2 menit</option>
+                <option value="180">± 3 menit</option>
+              </select></div>
+            <div className="field"><label title="Batas atas jumlah klip dari 1 video">Jumlah maksimum ⓘ</label>
+              <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
+            <div className="field"><label title="Klip polos berguna bila subtitle mau diatur ulang di editor lain">Simpan klip ⓘ</label>
+              <select value={saveMode} onChange={(e) => setSaveMode(e.target.value)}>
+                <option value="burn">Dengan subtitle (dibakar)</option>
+                <option value="clean">Klip saja — tanpa subtitle</option>
+                <option value="both">Keduanya (2 berkas per klip)</option>
+              </select></div>
+          </div>
         </div>
       </div>
 
@@ -674,163 +716,201 @@ export default function Home() {
 
       {/* 3. Setelan subtitle + preview geser */}
       <div className="panel">
-        <div className="meta" style={{ marginBottom: 10 }}>Setelan subtitle — geser teks di preview untuk atur posisi</div>
-        <div className="row">
-          <div className="field"><label>Font</label>
-            <select
-              value={fontManualOn ? "__manual__" : subFont}
-              onChange={(e) => {
-                if (e.target.value === "__manual__") { setFontManualOn(true); return; }
-                setFontManualOn(false); setSubFont(e.target.value);
-              }}>
-              {fonts.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-              <option value="__manual__">✏️ Font lain — ketik manual…</option>
-            </select>
-            {fontManualOn && (
+        <div className="meta" style={{ marginBottom: 14 }}>Setelan subtitle — geser teks di preview untuk atur posisi</div>
+
+        <div className="sub-tata">
+        {/* Kiri: bingkai preview. Bingkainya selalu ada — walau frame video
+            belum dimuat — supaya posisi subtitle tetap bisa diatur lebih dulu. */}
+        <div className="sub-preview">
+          <div className="preview9x16" ref={boxRef}>
+            {previewOn ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={frameUrl} alt="preview" draggable={false} />
+            ) : (
+              <div className="preview-kosong">
+                <div className="pk-ikon" aria-hidden="true" />
+                <div className="pk-judul">Bingkai kosong</div>
+              </div>
+            )}
+            {zone && (
               <>
-                <input style={{ marginTop: 6 }} value={subFont} spellCheck={false}
-                  placeholder="mis. Poppins" onChange={(e) => setSubFont(e.target.value)} />
-                <div className="meta">
-                  {fontChecking ? "Memeriksa font…"
-                    : !fontCheck ? "Ketik nama family font — huruf/angka, spasi, titik, ' & atau -"
-                    : fontCheck.valid ? <span className="ok">✓ {fontCheck.family} ditemukan ({fontCheck.source})</span>
-                    : <span className="warn">⚠ {fontCheck.error}</span>}
+                <div className="safezone" style={{ top: 0, left: 0, right: 0, height: `${zone.top * 100}%` }}>
+                  <span>ketutup UI atas</span>
+                </div>
+                <div className="safezone" style={{ bottom: 0, left: 0, right: 0, height: `${zone.bottom * 100}%` }}>
+                  <span>caption &amp; nama akun</span>
+                </div>
+                <div className="safezone" style={{
+                  top: `${zone.top * 100}%`, bottom: `${zone.bottom * 100}%`,
+                  right: 0, width: `${zone.right * 100}%`,
+                }}>
+                  <span className="vert">tombol aksi</span>
                 </div>
               </>
-            )}</div>
+            )}
+            {/* Garis tengah: muncul saat digeser (atau dikunci lewat centang).
+                Kelas "on" = subtitle sedang menempel di garis itu. */}
+            {gridTampil && (
+              <>
+                <div className={`guide v${diTengahX ? " on" : ""}`} />
+                <div className={`guide h${diTengahY ? " on" : ""}`} />
+                {diTengahX && diTengahY && <div className="guide xy" />}
+              </>
+            )}
+            <div className="suboverlay"
+              style={{
+                left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
+                fontFamily: `"${subFont}", sans-serif`,
+                fontSize: `calc(${subSize / PLAY_H} * var(--pvh))`,
+                color: colorHex,
+                background: subBox ? "rgba(0,0,0,0.6)" : "transparent",
+                borderRadius: subBox ? 8 : 0,
+                padding: subBox ? "4px 14px" : "2px 8px",
+                textShadow: subBox ? "none" : (subOutline > 0
+                  ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
+                  : "none"),
+              }}
+              onPointerDown={mulaiSeret}
+              onPointerMove={onPointerMove}
+              onPointerUp={selesaiSeret}
+              onPointerCancel={selesaiSeret}>
+              {subMode === "word" ? (
+                <span style={{ color: highlightHex }}>Contoh</span>
+              ) : subMode === "karaoke" ? (
+                <>Contoh <span style={{ color: highlightHex }}>subtitle</span></>
+              ) : "Contoh subtitle"}
+            </div>
+          </div>
+
+          {/* Kendali preview ditaruh DI BAWAH gambar: tombolnya mengubah gambar
+              itu, jadi urutan bacanya lebih masuk akal daripada di atas. */}
+          <div className="preview-aksi">
+            {!previewOn ? (
+              <>
+                <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
+                  {previewBusy ? "Memuat preview…" : "👁 Muat preview frame"}
+                </button>
+                <p className="meta" style={{ margin: 0 }}>
+                  {path
+                    ? "Muat satu frame dari videomu untuk melihat subtitle di atas gambar asli."
+                    : "Pilih video dulu di atas. Sementara itu posisi subtitle sudah bisa diatur di bingkai ini."}
+                </p>
+              </>
+            ) : (
+              <>
+                <button className="ghost tiny" disabled={previewBusy} onClick={() => loadPreview()}>
+                  {previewBusy ? "memuat…" : "🔄 muat ulang preview"}
+                </button>
+                <button className="ghost tiny" onClick={resetPreview}>✕ reset preview</button>
+                <label className="chk"><input type="checkbox" checked={gridSelalu}
+                  onChange={(e) => setGridSelalu(e.target.checked)} /> garis tengah terus</label>
+              </>
+            )}
+          </div>
+
+          {previewOn && (
+            <>
+              <div className="field">
+                <label>Waktu frame preview: {previewTime.toFixed(1)}s</label>
+                <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
+                  value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
+              </div>
+              <div className="meta">
+                Preview memakai mode reframe yang sedang dipilih
+                ({reframe === "fit" ? "muat utuh + latar blur" : "isi penuh, crop tengah"}),
+                jadi posisi subtitle di sini sama dengan hasil render.
+                Font masih kira-kira — font asli dipakai saat render.
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Kanan: setelan, dikelompokkan menurut apa yang diubahnya —
+            rupa huruf, ketebalan, lalu perilaku, lalu batas platform. */}
+        <div className="sub-setelan">
+          <div className="row">
+            <div className="field"><label>Font</label>
+              <select
+                value={fontManualOn ? "__manual__" : subFont}
+                onChange={(e) => {
+                  if (e.target.value === "__manual__") { setFontManualOn(true); return; }
+                  setFontManualOn(false); setSubFont(e.target.value);
+                }}>
+                {fonts.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
+                <option value="__manual__">✏️ Font lain — ketik manual…</option>
+              </select>
+              {fontManualOn && (
+                <>
+                  <input style={{ marginTop: 6 }} value={subFont} spellCheck={false}
+                    placeholder="mis. Poppins" onChange={(e) => setSubFont(e.target.value)} />
+                  <div className="meta">
+                    {fontChecking ? "Memeriksa font…"
+                      : !fontCheck ? "Ketik nama family font — huruf/angka, spasi, titik, ' & atau -"
+                      : fontCheck.valid ? <span className="ok">✓ {fontCheck.family} ditemukan ({fontCheck.source})</span>
+                      : <span className="warn">⚠ {fontCheck.error}</span>}
+                  </div>
+                </>
+              )}</div>
+            <div className="field"><label>Warna</label>
+              <select value={subColor} onChange={(e) => setSubColor(e.target.value)}>
+                <option value="white">Putih</option>
+                <option value="yellow">Kuning</option>
+              </select></div>
+            <div className="field"><label>Efek</label>
+              <label className="chk"><input type="checkbox" checked={subBox} onChange={(e) => setSubBox(e.target.checked)} /> Latar kotak</label>
+            </div>
+          </div>
+
+          {/* Dua penggeser ditumpuk memenuhi lebar: penggeser butuh jarak
+              tempuh panjang agar nilainya bisa diatur dengan halus. */}
           <div className="field"><label>Ukuran ({subSize})</label>
             <input type="range" min={40} max={140} value={subSize} onChange={(e) => setSubSize(Number(e.target.value))} /></div>
-          <div className="field"><label>Warna</label>
-            <select value={subColor} onChange={(e) => setSubColor(e.target.value)}>
-              <option value="white">Putih</option>
-              <option value="yellow">Kuning</option>
-            </select></div>
-          <div className="field"><label>Posisi</label>
-            <div className="meta">x={subX} y={subY}
-              <button className="ghost tiny" onClick={() => { setSubX(540); setSubY(960); }}>reset tengah</button>
-            </div></div>
-        </div>
-        <div className="row">
-          <div className="field"><label title="Cara kata ditampilkan di layar">Gaya subtitle ⓘ</label>
-            <select value={subMode} onChange={(e) => setSubMode(e.target.value)}>
-              <option value="normal">Normal — kalimat utuh</option>
-              <option value="karaoke">Highlight per-kata — kata aktif disorot</option>
-              <option value="word">Satu kata per layar — gaya viral</option>
-            </select></div>
-          {subMode !== "normal" && (
-            <div className="field"><label>Warna sorot</label>
-              <select value={subHighlight} onChange={(e) => setSubHighlight(e.target.value)}>
-                <option value="yellow">Kuning</option>
-                <option value="white">Putih</option>
-                <option value="green">Hijau</option>
-                <option value="cyan">Biru muda</option>
-              </select></div>
-          )}
-          <div className="field"><label title="Makin lambat = makin sedikit teks sekaligus & tampil lebih lama">Kecepatan subtitle ⓘ</label>
-            <select value={subSpeed} onChange={(e) => setSubSpeed(e.target.value)}>
-              <option value="lambat">Lambat — paling mudah dibaca</option>
-              <option value="normal">Normal</option>
-              <option value="padat">Padat — teks lebih banyak</option>
-            </select></div>
-        </div>
-        <div className="row">
           <div className="field"><label>Garis tepi ({subOutline})</label>
             <input type="range" min={0} max={12} value={subOutline} onChange={(e) => setSubOutline(Number(e.target.value))} /></div>
-          <div className="field"><label>Efek</label>
-            <label className="chk"><input type="checkbox" checked={subBox} onChange={(e) => setSubBox(e.target.checked)} /> Latar kotak</label>
+
+          <div className="row">
+            <div className="field"><label title="Cara kata ditampilkan di layar">Gaya subtitle ⓘ</label>
+              <select value={subMode} onChange={(e) => setSubMode(e.target.value)}>
+                <option value="normal">Normal — kalimat utuh</option>
+                <option value="karaoke">Highlight per-kata — kata aktif disorot</option>
+                <option value="word">Satu kata per layar — gaya viral</option>
+              </select></div>
+            {subMode !== "normal" && (
+              <div className="field"><label>Warna sorot</label>
+                <select value={subHighlight} onChange={(e) => setSubHighlight(e.target.value)}>
+                  <option value="yellow">Kuning</option>
+                  <option value="white">Putih</option>
+                  <option value="green">Hijau</option>
+                  <option value="cyan">Biru muda</option>
+                </select></div>
+            )}
+            <div className="field"><label title="Makin lambat = makin sedikit teks sekaligus & tampil lebih lama">Kecepatan subtitle ⓘ</label>
+              <select value={subSpeed} onChange={(e) => setSubSpeed(e.target.value)}>
+                <option value="lambat">Lambat — paling mudah dibaca</option>
+                <option value="normal">Normal</option>
+                <option value="padat">Padat — teks lebih banyak</option>
+              </select></div>
+            <div className="field"><label>Posisi</label>
+              <div className="posisi-nilai">x={subX} y={subY}
+                <button className="ghost tiny" onClick={() => { setSubX(540); setSubY(960); }}>reset tengah</button>
+              </div></div>
           </div>
+
+          {/* Pembatas platform dan "taruh di area aman" digabung: keduanya soal
+              batas yang sama, dan tombolnya tak berarti apa-apa tanpa platform
+              yang sedang dipilih di sebelahnya. */}
           <div className="field"><label title="Area yang tertutup tombol & caption aplikasi">Pembatas sosmed ⓘ</label>
-            <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
-              {Object.entries(PLATFORMS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
-              <option value="off">Tanpa pembatas</option>
-            </select></div>
-          <div className="field"><label>Posisi aman</label>
-            <button className="ghost tiny" onClick={placeSafe}>⤓ Taruh di area aman</button>
+            <div className="pembatas">
+              <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
+                {Object.entries(PLATFORMS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+                <option value="off">Tanpa pembatas</option>
+              </select>
+              <button className="ghost tiny" disabled={!zone} onClick={placeSafe}>⤓ Taruh di area aman</button>
+            </div>
             {inUnsafe && <div className="warn" style={{ marginTop: 6 }}>⚠ Subtitle masuk area yang tertutup UI {PLATFORMS[platform]?.label}</div>}
           </div>
         </div>
-
-        {!previewOn ? (
-          <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
-            {previewBusy ? "Memuat preview…" : "👁 Muat preview frame"}
-          </button>
-        ) : (
-          <>
-            <div className="row" style={{ gap: 8, marginBottom: 10 }}>
-              <button className="ghost tiny" disabled={previewBusy} onClick={() => loadPreview()}>
-                {previewBusy ? "memuat…" : "🔄 muat ulang preview"}
-              </button>
-              <button className="ghost tiny" onClick={resetPreview}>✕ reset preview</button>
-              <label className="chk"><input type="checkbox" checked={gridSelalu}
-                onChange={(e) => setGridSelalu(e.target.checked)} /> tampilkan garis tengah terus</label>
-            </div>
-            <div className="preview-wrap">
-              <div className="preview9x16" ref={boxRef}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={frameUrl} alt="preview" draggable={false} />
-                {zone && (
-                  <>
-                    <div className="safezone" style={{ top: 0, left: 0, right: 0, height: `${zone.top * 100}%` }}>
-                      <span>ketutup UI atas</span>
-                    </div>
-                    <div className="safezone" style={{ bottom: 0, left: 0, right: 0, height: `${zone.bottom * 100}%` }}>
-                      <span>caption &amp; nama akun</span>
-                    </div>
-                    <div className="safezone" style={{
-                      top: `${zone.top * 100}%`, bottom: `${zone.bottom * 100}%`,
-                      right: 0, width: `${zone.right * 100}%`,
-                    }}>
-                      <span className="vert">tombol aksi</span>
-                    </div>
-                  </>
-                )}
-                {/* Garis tengah: muncul saat digeser (atau dikunci lewat centang).
-                    Kelas "on" = subtitle sedang menempel di garis itu. */}
-                {gridTampil && (
-                  <>
-                    <div className={`guide v${diTengahX ? " on" : ""}`} />
-                    <div className={`guide h${diTengahY ? " on" : ""}`} />
-                    {diTengahX && diTengahY && <div className="guide xy" />}
-                  </>
-                )}
-                <div className="suboverlay"
-                  style={{
-                    left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
-                    fontFamily: `"${subFont}", sans-serif`,
-                    fontSize: `calc(${subSize / PLAY_H} * var(--pvh))`,
-                    color: colorHex,
-                    background: subBox ? "rgba(0,0,0,0.6)" : "transparent",
-                    borderRadius: subBox ? 8 : 0,
-                    padding: subBox ? "4px 14px" : "2px 8px",
-                    textShadow: subBox ? "none" : (subOutline > 0
-                      ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
-                      : "none"),
-                  }}
-                  onPointerDown={mulaiSeret}
-                  onPointerMove={onPointerMove}
-                  onPointerUp={selesaiSeret}
-                  onPointerCancel={selesaiSeret}>
-                  {subMode === "word" ? (
-                    <span style={{ color: highlightHex }}>Contoh</span>
-                  ) : subMode === "karaoke" ? (
-                    <>Contoh <span style={{ color: highlightHex }}>subtitle</span></>
-                  ) : "Contoh subtitle"}
-                </div>
-              </div>
-            </div>
-            <div className="field" style={{ maxWidth: 360 }}>
-              <label>Waktu frame preview: {previewTime.toFixed(1)}s</label>
-              <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
-                value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
-            </div>
-            <div className="meta">
-              Preview memakai mode reframe yang sedang dipilih
-              ({reframe === "fit" ? "muat utuh + latar blur" : "isi penuh, crop tengah"}),
-              jadi posisi subtitle yang kamu atur di sini sama dengan hasil render.
-              Font di preview masih kira-kira — font asli dipakai saat render.
-            </div>
-          </>
-        )}
+        </div>
       </div>
 
       {modelMissing && (
