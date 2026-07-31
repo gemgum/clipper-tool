@@ -32,7 +32,7 @@ type Server struct {
 	root  string
 	paths config.Paths
 	ff    *ffmpeg.Client
-	kartu *card.Builder
+	cards *card.Builder
 }
 
 func NewServer(mgr *job.Manager, root string) *Server {
@@ -42,7 +42,7 @@ func NewServer(mgr *job.Manager, root string) *Server {
 		root:  root,
 		paths: paths,
 		ff:    ffmpeg.New(paths.FFmpeg, paths.FFprobe),
-		kartu: card.New(capture.New(paths.Chrome), paths.FontsDir),
+		cards: card.New(capture.New(paths.Chrome), paths.FontsDir),
 	}
 }
 
@@ -74,7 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/news/list", s.newsList)
 	mux.HandleFunc("POST /api/news/article", s.newsArticle)
 	mux.HandleFunc("POST /api/news/resolve", s.newsResolve)
-	mux.HandleFunc("POST /api/news/analisis", s.newsAnalisis)
+	mux.HandleFunc("POST /api/news/analyze", s.newsAnalyze)
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
@@ -87,62 +87,71 @@ func (s *Server) Handler() http.Handler {
 // GUI memakai flag itu untuk menjelaskan sejak awal bila kartu tak bisa dibuat,
 // bukan membiarkan pengguna menemukannya saat menekan tombol.
 func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]interface{}{
-		"feeds":       news.SumberBawaan,
-		"ada_browser": s.paths.Chrome != "",
+	writeJSON(w, 200, map[string]any{
+		"feeds":       news.DefaultSources,
+		"has_browser": s.paths.Chrome != "",
 		"browser":     filepath.Base(s.paths.Chrome),
-		"gaya":        []string{card.GayaGelap, card.GayaTerang, card.GayaKutipan},
-		"rasio":       []string{card.Rasio916, card.Rasio45, card.Rasio11},
-		"rata":        []string{card.RataKiri, card.RataTengah, card.RataKanan, card.RataPenuh},
+		"styles":      []string{card.StyleDark, card.StyleLight, card.StyleQuote},
+		"ratios":      []string{card.Ratio916, card.Ratio45, card.Ratio11},
+		"aligns":      []string{card.AlignLeft, card.AlignCenter, card.AlignRight, card.AlignJustify},
 	})
+}
+
+// lang membaca bahasa yang diminta klien. Menentukan bahasa teks yang DITULIS
+// engine ke dalam kartu (tanggal, kaki kartu, berkas pendamping) — bukan bahasa
+// artikelnya, yang selalu apa adanya dari medianya.
+func lang(r *http.Request) string {
+	if v := strings.TrimSpace(r.URL.Query().Get("lang")); v != "" {
+		return v
+	}
+	return "en"
 }
 
 // newsList mengambil isi satu feed. Param 'feed' boleh berupa ID sumber bawaan
 // atau URL feed apa pun.
 func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
-	maksCari, _ := strconv.Atoi(r.URL.Query().Get("maks"))
+	max, _ := strconv.Atoi(r.URL.Query().Get("max"))
 	// Kata kunci menang atas pilihan feed: kalau pengguna mengetik sesuatu, itu
 	// yang dia mau lihat.
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
-		item, err := news.Cari(r.Context(), q, maksCari)
+		items, err := news.Search(r.Context(), q, max, lang(r))
 		if err != nil {
 			writeErr(w, 502, err.Error())
 			return
 		}
-		writeJSON(w, 200, item)
+		writeJSON(w, 200, items)
 		return
 	}
 
 	feed := strings.TrimSpace(r.URL.Query().Get("feed"))
 	if feed == "" {
-		feed = news.SumberBawaan[0].ID
+		feed = news.DefaultSources[0].ID
 	}
 	// Nama media diambil dari daftar kurasi bila feednya dikenal — judul channel
 	// RSS terlalu berbeda-beda antar media untuk dipakai sebagai badge kartu.
-	nama := ""
-	for _, su := range news.SumberBawaan {
-		if su.ID == feed {
-			feed, nama = su.URL, su.Nama
+	name := ""
+	for _, src := range news.DefaultSources {
+		if src.ID == feed {
+			feed, name = src.URL, src.Name
 			break
 		}
 	}
 	if !strings.HasPrefix(feed, "http://") && !strings.HasPrefix(feed, "https://") {
-		writeErr(w, 400, "feed tidak dikenal — pakai salah satu id bawaan, atau tempel URL feed lengkap")
+		writeErr(w, 400, "unknown feed — use one of the built-in ids, or paste a full feed URL")
 		return
 	}
-	maks, _ := strconv.Atoi(r.URL.Query().Get("maks"))
-	item, err := news.Daftar(r.Context(), feed, nama, maks)
+	items, err := news.ListFeed(r.Context(), feed, name, max, lang(r))
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, 200, item)
+	writeJSON(w, 200, items)
 }
 
-// ramban menyediakan pembuka halaman berbasis browser untuk paket news.
+// browser menyediakan pembuka halaman berbasis browser untuk paket news.
 // Mengembalikan nil bila browser tidak ada — news yang menerjemahkannya jadi
 // pesan yang bisa ditindaklanjuti pengguna.
-func (s *Server) ramban() news.Perambah {
+func (s *Server) browser() news.Browser {
 	if s.paths.Chrome == "" {
 		return nil
 	}
@@ -155,13 +164,14 @@ func (s *Server) ramban() news.Perambah {
 // newsArticle membaca metadata satu artikel dari URL yang ditempel pengguna.
 func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL string `json:"url"`
+		URL  string `json:"url"`
+		Lang string `json:"lang"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid")
+		writeErr(w, 400, "invalid JSON body")
 		return
 	}
-	a, err := news.Ambil(r.Context(), req.URL)
+	a, err := news.FetchArticle(r.Context(), req.URL, firstNonEmpty(req.Lang, lang(r)))
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
@@ -177,82 +187,83 @@ func (s *Server) newsResolve(w http.ResponseWriter, r *http.Request) {
 		URL string `json:"url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid")
+		writeErr(w, 400, "invalid JSON body")
 		return
 	}
-	asli, err := news.Resolusi(r.Context(), req.URL, s.ramban(), s.paths.DataDir)
+	original, err := news.Resolve(r.Context(), req.URL, s.browser(), s.paths.DataDir)
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]string{"url": asli})
+	writeJSON(w, 200, map[string]string{"url": original})
 }
 
-// newsAnalisis mengambil badan artikel lalu meminta LLM menilai paragraf mana
+// newsAnalyze mengambil badan artikel lalu meminta LLM menilai paragraf mana
 // yang paling layak jadi isi kartu & caption.
 //
 // LLM di sini hanya MEMILIH NOMOR paragraf — teksnya diambil engine dari
 // artikel. Jadi tidak ada peluang mengarang kalimat, dan hasilnya selalu
 // verbatim dari sumbernya.
-func (s *Server) newsAnalisis(w http.ResponseWriter, r *http.Request) {
+func (s *Server) newsAnalyze(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL         string `json:"url"`
 		Provider    string `json:"provider"`     // claude | ollama
 		LLMModel    string `json:"llm_model"`    // model Claude
 		OllamaModel string `json:"ollama_model"` // model lokal
 		OllamaURL   string `json:"ollama_url"`
+		Lang        string `json:"lang"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid")
+		writeErr(w, 400, "invalid JSON body")
 		return
 	}
-	isi, err := news.AmbilIsi(r.Context(), req.URL, s.ramban(), s.paths.DataDir)
+	content, err := news.FetchContent(r.Context(), req.URL, s.browser(), s.paths.DataDir, firstNonEmpty(req.Lang, lang(r)))
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
 
-	jalan, nama, err := s.mesinLLM(req.Provider, req.LLMModel, req.OllamaModel, req.OllamaURL)
+	complete, engineName, err := s.llmEngine(req.Provider, req.LLMModel, req.OllamaModel, req.OllamaURL)
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	pilihan, err := news.Pilih(r.Context(), isi, jalan, nama, s.paths.DataDir)
+	selection, err := news.SelectParagraphs(r.Context(), content, complete, engineName, s.paths.DataDir)
 	if err != nil {
 		// Mesin yang dipilih pengguna dipakai apa adanya — bila gagal, job
-		// berhenti dengan pesan akar masalah (catatan/12). Tidak ada
-		// perpindahan diam-diam ke mesin lain.
+		// berhenti dengan pesan akar masalah (notes/12). Tidak ada perpindahan
+		// diam-diam ke mesin lain.
 		writeErr(w, 502, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]any{
-		"artikel":  isi.Artikel,
-		"paragraf": isi.Paragraf,
-		"pilihan":  pilihan,
+		"article":    content.Article,
+		"paragraphs": content.Paragraphs,
+		"selection":  selection,
 	})
 }
 
-// mesinLLM merangkai satu fungsi pemanggil LLM sesuai mesin yang dipilih.
-func (s *Server) mesinLLM(provider, modelClaude, modelOllama, urlOllama string) (news.Mesin, string, error) {
+// llmEngine merangkai satu fungsi pemanggil LLM sesuai mesin yang dipilih.
+func (s *Server) llmEngine(provider, claudeModel, ollamaModel, ollamaURL string) (news.Completer, string, error) {
 	switch provider {
 	case "claude":
 		key := s.mgr.APIKey()
 		if key == "" {
-			return nil, "", fmt.Errorf("API key Claude kosong — isi di tab Klip video, panel Mesin AI, atau ANTHROPIC_API_KEY di .env")
+			return nil, "", fmt.Errorf("the Claude API key is empty — set it in the Video clips tab, AI engine panel, or ANTHROPIC_API_KEY in .env")
 		}
-		c := llm.New(key, modelClaude)
-		nama := "Claude (" + c.Model + ")"
+		c := llm.New(key, claudeModel)
+		name := "Claude (" + c.Model + ")"
 		return func(ctx context.Context, system, user string) (string, error) {
-			return c.Lengkapi(ctx, system, user, 4096)
-		}, nama, nil
+			return c.Complete(ctx, system, user, 4096)
+		}, name, nil
 	case "ollama", "":
-		c := ollama.New(urlOllama, modelOllama)
-		nama := "Ollama (" + c.Model + ")"
+		c := ollama.New(ollamaURL, ollamaModel)
+		name := "Ollama (" + c.Model + ")"
 		return func(ctx context.Context, system, user string) (string, error) {
-			return c.Lengkapi(ctx, system, user, news.SkemaPilih(), 2048)
-		}, nama, nil
+			return c.Complete(ctx, system, user, news.SelectionSchema(), 2048)
+		}, name, nil
 	}
-	return nil, "", fmt.Errorf("mesin %q tidak dikenal — pilih \"claude\" atau \"ollama\"", provider)
+	return nil, "", fmt.Errorf("unknown engine %q — choose \"claude\" or \"ollama\"", provider)
 }
 
 // makeCard merender kartu jadi PNG dan membalas id-nya.
@@ -261,42 +272,43 @@ func (s *Server) mesinLLM(provider, modelClaude, modelOllama, urlOllama string) 
 // detik, sementara mesin job dirancang untuk pekerjaan hitungan menit.
 func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 	if s.paths.Chrome == "" {
-		writeErr(w, 503, "browser tidak ditemukan — pasang Chrome/Chromium, atau set CLIPPER_CHROME ke path chrome.exe")
+		writeErr(w, 503, "browser not found — install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
 		return
 	}
-	var p card.Permintaan
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		writeErr(w, 400, "body JSON tidak valid: "+err.Error())
+	var req card.Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, 400, "invalid JSON body: "+err.Error())
 		return
 	}
-	id := fmt.Sprintf("kartu-%d", time.Now().UnixNano())
-	if err := s.kartu.Buat(r.Context(), p, s.dirKartu(id)); err != nil {
+	req.Lang = firstNonEmpty(req.Lang, lang(r))
+	id := fmt.Sprintf("card-%d", time.Now().UnixNano())
+	if err := s.cards.Build(r.Context(), req, s.cardDir(id)); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	lebar, tinggi := card.Dims(p.Rasio)
-	writeJSON(w, 201, map[string]interface{}{
-		"id": id, "lebar": lebar, "tinggi": tinggi,
+	width, height := card.Dims(req.Ratio)
+	writeJSON(w, 201, map[string]any{
+		"id": id, "width": width, "height": height,
 		"file": "/api/card/" + id + "/file",
 		"zip":  "/api/card/" + id + "/zip",
 	})
 }
 
-func (s *Server) dirKartu(id string) string {
-	return filepath.Join(s.root, "data", "kartu", id)
+func (s *Server) cardDir(id string) string {
+	return filepath.Join(s.root, "data", "cards", id)
 }
 
 // cardFile menyajikan PNG kartu. Id dibatasi pola yang kita buat sendiri
 // supaya parameter dari luar tidak bisa menunjuk berkas lain.
 func (s *Server) cardFile(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !idKartuOK.MatchString(id) {
-		writeErr(w, 400, "id kartu tidak valid")
+	if !cardIDPattern.MatchString(id) {
+		writeErr(w, 400, "invalid card id")
 		return
 	}
-	p := filepath.Join(s.dirKartu(id), card.BerkasPNG)
+	p := filepath.Join(s.cardDir(id), card.FilePNG)
 	if _, err := os.Stat(p); err != nil {
-		writeErr(w, 404, "kartu tidak ditemukan")
+		writeErr(w, 404, "card not found")
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
@@ -307,14 +319,14 @@ func (s *Server) cardFile(w http.ResponseWriter, r *http.Request) {
 // cardZip membungkus gambar + caption + keterangan sumber jadi satu berkas.
 func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if !idKartuOK.MatchString(id) {
-		writeErr(w, 400, "id kartu tidak valid")
+	if !cardIDPattern.MatchString(id) {
+		writeErr(w, 400, "invalid card id")
 		return
 	}
-	dir := s.dirKartu(id)
-	isi, err := os.ReadDir(dir)
-	if err != nil || len(isi) == 0 {
-		writeErr(w, 404, "kartu tidak ditemukan")
+	dir := s.cardDir(id)
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) == 0 {
+		writeErr(w, 404, "card not found")
 		return
 	}
 	// Header ditulis lebih dulu karena zip ditulis langsung ke koneksi
@@ -325,7 +337,7 @@ func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
 
 	zw := zip.NewWriter(w)
 	defer zw.Close()
-	for _, e := range isi {
+	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
@@ -343,7 +355,17 @@ func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var idKartuOK = regexp.MustCompile(`^kartu-[0-9]{1,25}$`)
+var cardIDPattern = regexp.MustCompile(`^card-[0-9]{1,25}$`)
+
+// firstNonEmpty mengembalikan nilai pertama yang tidak kosong.
+func firstNonEmpty(v ...string) string {
+	for _, s := range v {
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+	}
+	return ""
+}
 
 // listModels melaporkan model whisper yang tersedia/terunduh.
 func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
@@ -413,7 +435,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]string{"path": abs, "name": name})
 		return
 	}
-	writeErr(w, 400, "tidak ada field 'file'")
+	writeErr(w, 400, "no 'file' field found")
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
@@ -421,20 +443,26 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]interface{}{
-		"modes":            []string{"offline", "hybrid", "online"},
-		"reframe":          []string{"center", "face_follow"},
+	writeJSON(w, 200, map[string]any{
+		"modes": []string{"offline", "hybrid", "online"},
+		// "fit" masih diterima sebagai alias zoom 0, tapi tidak diiklankan lagi
+		// sebagai pilihan — ia menyatakan hal yang sama dengan sumbu zoom.
+		"reframe": []string{"center", "face_follow"},
+		// min, max, langkah
+		"frame_visible":    []int{config.FrameVisibleMin, config.FrameVisibleMax, config.FrameVisibleStep},
+		"picture_size":     []int{config.PictureSizeMin, config.PictureSizeMax, config.PictureSizeStep},
 		"subtitle_styles":  []string{"plain", "viral"},
 		"resolutions":      []string{"720p", "1080p", "1440p"},
 		"qualities":        []string{"draft", "hd", "max"},
 		"duration_presets": []string{"auto", "30", "60", "90", "120", "180"},
+		"transcript_fix":   []string{config.TranscriptFixOn, config.TranscriptFixOff},
 		"defaults":         config.DefaultOptions(),
 	})
 }
 
 // getSettings melaporkan status setelan (apakah API key sudah ada).
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]interface{}{"has_key": s.mgr.HasAPIKey()})
+	writeJSON(w, 200, map[string]any{"has_key": s.mgr.HasAPIKey()})
 }
 
 // postSettings menyimpan API key Claude (dari GUI) — di memori + .env.
@@ -443,7 +471,7 @@ func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 		AnthropicAPIKey string `json:"anthropic_api_key"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid")
+		writeErr(w, 400, "invalid JSON body")
 		return
 	}
 	key := strings.TrimSpace(req.AnthropicAPIKey)
@@ -451,7 +479,7 @@ func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 	if key != "" {
 		_ = writeEnvKey(filepath.Join(s.root, ".env"), "ANTHROPIC_API_KEY", key)
 	}
-	writeJSON(w, 200, map[string]interface{}{"ok": true, "has_key": s.mgr.HasAPIKey()})
+	writeJSON(w, 200, map[string]any{"ok": true, "has_key": s.mgr.HasAPIKey()})
 }
 
 // ollamaStatus memeriksa apakah Ollama jalan & model yang terpasang.
@@ -467,18 +495,18 @@ func (s *Server) ollamaPull(w http.ResponseWriter, r *http.Request) {
 		Model string `json:"model"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid")
+		writeErr(w, 400, "invalid JSON body")
 		return
 	}
 	if req.Model == "" {
-		writeErr(w, 400, "field 'model' wajib")
+		writeErr(w, 400, "the 'model' field is required")
 		return
 	}
 	if err := ollama.Pull(r.Context(), req.URL, req.Model); err != nil {
 		writeErr(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, 200, map[string]interface{}{"ok": true})
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 // writeEnvKey menambah/mengganti satu KEY=value di berkas .env.
@@ -519,7 +547,7 @@ type fontResult struct {
 	Valid  bool   `json:"valid"`
 	Name   string `json:"name"`   // nama yang diminta
 	Family string `json:"family"` // family yang benar-benar akan dipakai libass
-	Source string `json:"source"` // "bawaan" | "sistem"
+	Source string `json:"source"` // "bundled" | "system"
 	Error  string `json:"error"`  // alasan bila tidak valid
 	file   string // lokasi berkas (tidak dikirim ke GUI)
 }
@@ -558,18 +586,18 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 	name = strings.TrimSpace(name)
 	res := fontResult{Name: name}
 	if name == "" {
-		res.Error = "nama font kosong"
+		res.Error = "the font name is empty"
 		return res
 	}
 	if !fontNameOK.MatchString(name) {
-		res.Error = "format nama tidak valid — pakai huruf/angka, spasi, titik, ' & atau -, maksimal 64 karakter (contoh: \"Poppins\", \"Bebas Neue\")"
+		res.Error = "invalid name format — use letters/digits, spaces, dots, ' & or -, at most 64 characters (e.g. \"Poppins\", \"Bebas Neue\")"
 		return res
 	}
 	for _, f := range fontCatalog {
 		if strings.EqualFold(f.name, name) {
 			p := filepath.Join(s.paths.FontsDir, f.file)
 			if _, err := os.Stat(p); err == nil {
-				return fontResult{Valid: true, Name: name, Family: f.name, Source: "bawaan", file: p}
+				return fontResult{Valid: true, Name: name, Family: f.name, Source: "bundled", file: p}
 			}
 		}
 	}
@@ -578,22 +606,22 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "fc-match", "-f", "%{family}\t%{file}", name).Output()
 	if err != nil {
-		res.Error = "tidak bisa memeriksa font sistem (fontconfig/fc-match tidak tersedia) — pakai font bawaan"
+		res.Error = "cannot check system fonts (fontconfig/fc-match unavailable) — use a bundled font"
 		return res
 	}
-	bagian := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
-	if len(bagian) < 2 {
-		res.Error = "font tidak ditemukan di sistem"
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
+	if len(parts) < 2 {
+		res.Error = "font not found on this system"
 		return res
 	}
 	// %{family} bisa berisi beberapa alias yang dipisah koma.
-	for _, fam := range strings.Split(bagian[0], ",") {
+	for _, fam := range strings.Split(parts[0], ",") {
 		if strings.EqualFold(strings.TrimSpace(fam), name) {
-			return fontResult{Valid: true, Name: name, Family: strings.TrimSpace(fam), Source: "sistem", file: bagian[1]}
+			return fontResult{Valid: true, Name: name, Family: strings.TrimSpace(fam), Source: "system", file: parts[1]}
 		}
 	}
-	res.Family = strings.TrimSpace(strings.Split(bagian[0], ",")[0])
-	res.Error = fmt.Sprintf("font %q tidak terpasang — subtitle akan dirender memakai %q sebagai gantinya", name, res.Family)
+	res.Family = strings.TrimSpace(strings.Split(parts[0], ",")[0])
+	res.Error = fmt.Sprintf("font %q is not installed — subtitles will be rendered with %q instead", name, res.Family)
 	return res
 }
 
@@ -618,17 +646,17 @@ func (s *Server) fontFile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Query().Get("path")
 	if path == "" {
-		writeErr(w, 400, "param 'path' wajib")
+		writeErr(w, 400, "the 'path' parameter is required")
 		return
 	}
 	ctx := r.Context()
 	dur, err := s.ff.Duration(ctx, path)
 	if err != nil {
-		writeErr(w, 400, "gagal membaca video: "+err.Error())
+		writeErr(w, 400, "could not read the video: "+err.Error())
 		return
 	}
 	vw, vh, _ := s.ff.Dimensions(ctx, path)
-	writeJSON(w, 200, map[string]interface{}{"duration": dur, "width": vw, "height": vh})
+	writeJSON(w, 200, map[string]any{"duration": dur, "width": vw, "height": vh})
 }
 
 // frame mengembalikan 1 frame (JPEG) 9:16 untuk preview subtitle, disesuaikan
@@ -638,7 +666,7 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	path := q.Get("path")
 	if path == "" {
-		writeErr(w, 400, "param 'path' wajib")
+		writeErr(w, 400, "the 'path' parameter is required")
 		return
 	}
 	t, _ := strconv.ParseFloat(q.Get("t"), 64)
@@ -651,18 +679,20 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	}
 	// Latar & zoom ikut dikirim supaya preview memakai penempatan yang sama
 	// persis dengan render — Validate yang menjepit nilainya.
-	opts.Latar = q.Get("latar")
-	opts.Zoom, _ = strconv.Atoi(q.Get("zoom"))
+	opts.Background = q.Get("background")
+	opts.FrameVisible, _ = strconv.Atoi(q.Get("frame_visible"))
+	opts.PictureSize, _ = strconv.Atoi(q.Get("picture_size"))
 	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	tw, th := opts.Dims()
-	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, ffmpeg.Tata{
-		Mode: string(opts.Reframe), Latar: opts.Latar, Zoom: opts.Zoom,
+	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, ffmpeg.Layout{
+		Mode: string(opts.Reframe), Background: opts.Background,
+		FrameVisible: opts.FrameVisible, PictureSize: opts.PictureSize,
 	})
 	if err != nil || len(img) == 0 {
-		writeErr(w, 400, "gagal ekstrak frame")
+		writeErr(w, 400, "frame extraction failed")
 		return
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
@@ -680,11 +710,11 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		Options config.Options `json:"options"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "body JSON tidak valid: "+err.Error())
+		writeErr(w, 400, "invalid JSON body: "+err.Error())
 		return
 	}
 	if req.Source.Value == "" {
-		writeErr(w, 400, "source.value (path video) wajib diisi")
+		writeErr(w, 400, "source.value (video path) is required")
 		return
 	}
 	opts := req.Options
@@ -709,7 +739,7 @@ func (s *Server) listJobs(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.mgr.Get(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "job tidak ditemukan")
+		writeErr(w, 404, "job not found")
 		return
 	}
 	snap := j.Snapshot()
@@ -719,7 +749,7 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) jobClips(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.mgr.Get(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "job tidak ditemukan")
+		writeErr(w, 404, "job not found")
 		return
 	}
 	snap := j.Snapshot()
@@ -729,20 +759,20 @@ func (s *Server) jobClips(w http.ResponseWriter, r *http.Request) {
 func (s *Server) clipFile(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.mgr.Get(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "job tidak ditemukan")
+		writeErr(w, 404, "job not found")
 		return
 	}
 	clipID := r.PathValue("clip")
-	// ?varian=polos → berkas tanpa subtitle (bila dibuat); ?varian=srt → subtitle.
-	varian := r.URL.Query().Get("varian")
+	// ?variant=clean → berkas tanpa subtitle (bila dibuat); ?variant=srt → subtitle.
+	variant := r.URL.Query().Get("variant")
 	snap := j.Snapshot()
 	for _, cl := range snap.Clips {
 		if cl.ID != clipID {
 			continue
 		}
 		path := cl.VideoPath
-		switch varian {
-		case "polos":
+		switch variant {
+		case "clean":
 			path = cl.VideoPathRaw
 		case "srt":
 			path = cl.SubtitleSRT
@@ -752,12 +782,12 @@ func (s *Server) clipFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeErr(w, 404, "klip belum tersedia")
+	writeErr(w, 404, "the clip is not available yet")
 }
 
 func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	if !s.mgr.Cancel(r.PathValue("id")) {
-		writeErr(w, 404, "job tidak ditemukan")
+		writeErr(w, 404, "job not found")
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "canceled"})
@@ -767,12 +797,12 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.mgr.Get(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 404, "job tidak ditemukan")
+		writeErr(w, 404, "job not found")
 		return
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeErr(w, 500, "streaming tidak didukung")
+		writeErr(w, 500, "streaming is not supported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -795,7 +825,7 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 			c := cl
 			writeSSE(w, "clip", c)
 		}
-		writeSSE(w, "done", map[string]interface{}{"job_id": snap.ID, "clips": len(snap.Clips)})
+		writeSSE(w, "done", map[string]any{"job_id": snap.ID, "clips": len(snap.Clips)})
 		flusher.Flush()
 		return
 	case job.StatusError:
@@ -803,7 +833,7 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return
 	case job.StatusCanceled:
-		writeSSE(w, "error", map[string]string{"message": "Dibatalkan oleh pengguna"})
+		writeSSE(w, "error", map[string]string{"message": "Canceled by the user"})
 		flusher.Flush()
 		return
 	}
@@ -833,7 +863,7 @@ func (s *Server) jobEvents(w http.ResponseWriter, r *http.Request) {
 
 // --- util ---
 
-func writeJSON(w http.ResponseWriter, code int, v interface{}) {
+func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
@@ -843,7 +873,7 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
-func writeSSE(w http.ResponseWriter, event string, data interface{}) {
+func writeSSE(w http.ResponseWriter, event string, data any) {
 	b, _ := json.Marshal(data)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 }

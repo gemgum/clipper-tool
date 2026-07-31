@@ -200,7 +200,7 @@ model). Plumbing + fallback terverifikasi.
 
 ## Update ronde 10 (perbaikan v2 dari uji pakai) — SELESAI & teruji
 
-Rincian & akar masalah: `catatan/11-perbaikan-v2.md`.
+Rincian & akar masalah: `notes/11-perbaikan-v2.md`.
 
 - [x] **Timestamp per kata**: whisper dipanggil `-ojf`, token digabung jadi kata
       + waktunya (`TranscriptSegment.Words`). Fallback bagi rata bila kosong.
@@ -223,7 +223,7 @@ Rincian & akar masalah: `catatan/11-perbaikan-v2.md`.
 
 ## Update ronde 11 (kebijakan mesin skor) — SELESAI & teruji
 
-Rincian: `catatan/12-kebijakan-mesin-skor.md`.
+Rincian: `notes/12-kebijakan-mesin-skor.md`.
 
 - [x] **Tanpa fallback**: mesin pilihan pengguna dipakai apa adanya; gagal =
       job gagal dengan pesan akar masalah (key ditolak, model belum diunduh,

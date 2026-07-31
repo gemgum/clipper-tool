@@ -2,38 +2,38 @@ package card
 
 import "testing"
 
-func TestRataCSSMemetakanPilihanKeTextAlign(t *testing.T) {
-	kasus := []struct{ rata, align string }{
-		{RataKiri, "left"},
-		{RataTengah, "center"},
-		{RataKanan, "right"},
-		{RataPenuh, "justify"},
-		{"", "left"},       // belum diisi
-		{"ngawur", "left"}, // nilai tak dikenal jangan bikin CSS rusak
+func TestAlignCSSMapsChoiceToTextAlign(t *testing.T) {
+	cases := []struct{ align, css string }{
+		{AlignLeft, "left"},
+		{AlignCenter, "center"},
+		{AlignRight, "right"},
+		{AlignJustify, "justify"},
+		{"", "left"},         // belum diisi
+		{"nonsense", "left"}, // nilai tak dikenal jangan bikin CSS rusak
 	}
-	for _, k := range kasus {
-		got, _ := rataCSS(k.rata)
-		if got != k.align {
-			t.Errorf("rataCSS(%q) = %q, mau %q", k.rata, got, k.align)
+	for _, c := range cases {
+		got, _ := alignCSS(c.align)
+		if got != c.css {
+			t.Errorf("alignCSS(%q) = %q, mau %q", c.align, got, c.css)
 		}
 	}
 }
 
 // Garis aksen harus ikut berpindah; kalau tidak, ia menggantung di kiri
 // sementara teksnya rata kanan atau tengah.
-func TestRataCSSGarisIkutBerpindah(t *testing.T) {
-	_, kiri := rataCSS(RataKiri)
-	_, tengah := rataCSS(RataTengah)
-	_, kanan := rataCSS(RataKanan)
-	if kiri == tengah || tengah == kanan || kiri == kanan {
-		t.Errorf("margin garis harus berbeda tiap perataan: kiri=%q tengah=%q kanan=%q",
-			kiri, tengah, kanan)
+func TestAlignCSSRuleFollowsAlignment(t *testing.T) {
+	_, left := alignCSS(AlignLeft)
+	_, center := alignCSS(AlignCenter)
+	_, right := alignCSS(AlignRight)
+	if left == center || center == right || left == right {
+		t.Errorf("margin garis harus berbeda tiap perataan: left=%q center=%q right=%q",
+			left, center, right)
 	}
 }
 
-func TestZoomSahJagaBatas(t *testing.T) {
-	kasus := []struct {
-		in, mau float64
+func TestClampZoomKeepsBounds(t *testing.T) {
+	cases := []struct {
+		in, want float64
 	}{
 		{0, 1},   // permintaan lama tanpa field foto
 		{-2, 1},  // nilai mustahil
@@ -41,49 +41,66 @@ func TestZoomSahJagaBatas(t *testing.T) {
 		{1.6, 1.6},
 		{9, 4}, // batas atas
 	}
-	for _, k := range kasus {
-		if got := zoomSah(k.in); got != k.mau {
-			t.Errorf("zoomSah(%v) = %v, mau %v", k.in, got, k.mau)
+	for _, c := range cases {
+		if got := clampZoom(c.in); got != c.want {
+			t.Errorf("clampZoom(%v) = %v, mau %v", c.in, got, c.want)
 		}
 	}
 }
 
 // Batas geser harus sama dengan rumus yang dipakai GUI: (zoom-1)/2 × ukuran.
-func TestBatasGeserIkutZoom(t *testing.T) {
-	if got := batasGeser(1080, 1); got != 0 {
-		t.Errorf("batasGeser pada zoom 1 = %d, mau 0 (foto pas bingkai)", got)
+func TestOffsetLimitFollowsZoom(t *testing.T) {
+	if got := offsetLimit(1080, 1); got != 0 {
+		t.Errorf("offsetLimit pada zoom 1 = %d, mau 0 (foto pas bingkai)", got)
 	}
-	if got := batasGeser(1080, 2); got != 540 {
-		t.Errorf("batasGeser(1080, 2) = %d, mau 540", got)
-	}
-}
-
-func TestJepitTahanNilaiDiLuarBatas(t *testing.T) {
-	if got := jepit(900, 540); got != 540 {
-		t.Errorf("jepit(900,540) = %d, mau 540", got)
-	}
-	if got := jepit(-900, 540); got != -540 {
-		t.Errorf("jepit(-900,540) = %d, mau -540", got)
-	}
-	if got := jepit(100, 540); got != 100 {
-		t.Errorf("jepit(100,540) = %d, mau 100", got)
+	if got := offsetLimit(1080, 2); got != 540 {
+		t.Errorf("offsetLimit(1080, 2) = %d, mau 540", got)
 	}
 }
 
-func TestDimsPerRasio(t *testing.T) {
-	kasus := []struct {
-		rasio string
+func TestClampHoldsValuesInsideLimit(t *testing.T) {
+	if got := clamp(900, 540); got != 540 {
+		t.Errorf("clamp(900,540) = %d, mau 540", got)
+	}
+	if got := clamp(-900, 540); got != -540 {
+		t.Errorf("clamp(-900,540) = %d, mau -540", got)
+	}
+	if got := clamp(100, 540); got != 100 {
+		t.Errorf("clamp(100,540) = %d, mau 100", got)
+	}
+}
+
+func TestDimsPerRatio(t *testing.T) {
+	cases := []struct {
+		ratio string
 		w, h  int
 	}{
-		{Rasio916, 1080, 1920},
-		{Rasio45, 1080, 1350},
-		{Rasio11, 1080, 1080},
+		{Ratio916, 1080, 1920},
+		{Ratio45, 1080, 1350},
+		{Ratio11, 1080, 1080},
 		{"", 1080, 1920}, // default
 	}
-	for _, k := range kasus {
-		w, h := Dims(k.rasio)
-		if w != k.w || h != k.h {
-			t.Errorf("Dims(%q) = %dx%d, mau %dx%d", k.rasio, w, h, k.w, k.h)
+	for _, c := range cases {
+		w, h := Dims(c.ratio)
+		if w != c.w || h != c.h {
+			t.Errorf("Dims(%q) = %dx%d, mau %dx%d", c.ratio, w, h, c.w, c.h)
 		}
+	}
+}
+
+// Teks tetap pada kartu ikut bahasa yang diminta; bahasa tak dikenal jatuh ke
+// bahasa Inggris, bukan string kosong.
+func TestPhrasesFollowLanguage(t *testing.T) {
+	if got := phrasesFor("id").readMore; got != "baca selengkapnya" {
+		t.Errorf("readMore(id) = %q", got)
+	}
+	if got := phrasesFor("en").readMore; got != "read the full story" {
+		t.Errorf("readMore(en) = %q", got)
+	}
+	if got := phrasesFor("zz").readMore; got != "read the full story" {
+		t.Errorf("bahasa tak dikenal seharusnya jatuh ke Inggris, dapat %q", got)
+	}
+	if got := langAttr("zz"); got != "en" {
+		t.Errorf("langAttr(zz) = %q, mau en", got)
 	}
 }

@@ -9,23 +9,23 @@ import (
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
-// ucapan membuat segmen dengan kata berdurasi tetap mulai detik start.
-func ucapan(start, per float64, kata ...string) types.TranscriptSegment {
-	seg := types.TranscriptSegment{Start: start, Text: strings.Join(kata, " ")}
+// utterance membuat segmen dengan kata berdurasi tetap mulai detik start.
+func utterance(start, per float64, words ...string) types.TranscriptSegment {
+	seg := types.TranscriptSegment{Start: start, Text: strings.Join(words, " ")}
 	t := start
-	for _, k := range kata {
-		seg.Words = append(seg.Words, types.Word{Start: t, End: t + per, Text: k})
+	for _, w := range words {
+		seg.Words = append(seg.Words, types.Word{Start: t, End: t + per, Text: w})
 		t += per
 	}
 	seg.End = t
 	return seg
 }
 
-func TestBuildPagesTidakAdaTampilanKilat(t *testing.T) {
+func TestBuildPagesHasNoFlashPages(t *testing.T) {
 	// Ucapan cepat (0,25 dtk/kata) — dulu menghasilkan tampilan <0,5 detik.
 	segs := []types.TranscriptSegment{
-		ucapan(0, 0.25, "hari", "ini", "kita", "bahas", "soal", "uang", "dan", "cara", "mengaturnya", "dengan", "benar."),
-		ucapan(3.0, 0.25, "itu."),
+		utterance(0, 0.25, "hari", "ini", "kita", "bahas", "soal", "uang", "dan", "cara", "mengaturnya", "dengan", "benar."),
+		utterance(3.0, 0.25, "itu."),
 	}
 	sub := config.DefaultSubtitle()
 	minDur, maxLines := sub.Pacing()
@@ -48,9 +48,9 @@ func TestBuildPagesTidakAdaTampilanKilat(t *testing.T) {
 	}
 }
 
-func TestBuildPagesTidakKehilanganKata(t *testing.T) {
+func TestBuildPagesLosesNoWords(t *testing.T) {
 	segs := []types.TranscriptSegment{
-		ucapan(0, 0.3, "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh"),
+		utterance(0, 0.3, "satu", "dua", "tiga", "empat", "lima", "enam", "tujuh", "delapan", "sembilan", "sepuluh"),
 	}
 	pages := buildPages(collectWords(segs, 0), 20, 2, 1.2)
 	var got []string
@@ -67,9 +67,9 @@ func TestBuildPagesTidakKehilanganKata(t *testing.T) {
 	}
 }
 
-func TestWaktuIkutTimestampKata(t *testing.T) {
+func TestTimingFollowsWordTimestamps(t *testing.T) {
 	// Kata pertama mulai detik 5 dalam klip yang dimulai detik 3 → relatif 2 dtk.
-	segs := []types.TranscriptSegment{ucapan(5, 0.5, "halo", "dunia")}
+	segs := []types.TranscriptSegment{utterance(5, 0.5, "halo", "dunia")}
 	words := collectWords(segs, 3)
 	if len(words) != 2 {
 		t.Fatalf("dapat %d kata", len(words))
@@ -79,7 +79,7 @@ func TestWaktuIkutTimestampKata(t *testing.T) {
 	}
 }
 
-func TestWarnaTidakDipaksaKuning(t *testing.T) {
+func TestColorIsNotForcedToYellow(t *testing.T) {
 	sub := config.DefaultSubtitle()
 	sub.Color = "white"
 	sub.Mode = config.SubKaraoke
@@ -99,8 +99,8 @@ func TestWarnaTidakDipaksaKuning(t *testing.T) {
 	}
 }
 
-func TestModeWordSatuKataPerTampilan(t *testing.T) {
-	segs := []types.TranscriptSegment{ucapan(0, 0.4, "satu", "dua", "tiga")}
+func TestWordModeShowsOneWordPerPage(t *testing.T) {
+	segs := []types.TranscriptSegment{utterance(0, 0.4, "satu", "dua", "tiga")}
 	sub := config.DefaultSubtitle()
 	sub.Mode = config.SubWord
 
@@ -108,24 +108,24 @@ func TestModeWordSatuKataPerTampilan(t *testing.T) {
 	if err := WriteASS(path, segs, 0, sub); err != nil {
 		t.Fatal(err)
 	}
-	var dialog []string
+	var dialogue []string
 	for _, l := range strings.Split(readFile(t, path), "\n") {
 		if strings.HasPrefix(l, "Dialogue:") {
-			dialog = append(dialog, l)
+			dialogue = append(dialogue, l)
 		}
 	}
-	if len(dialog) != 3 {
-		t.Fatalf("dapat %d baris Dialogue, ingin 3 (satu per kata)", len(dialog))
+	if len(dialogue) != 3 {
+		t.Fatalf("dapat %d baris Dialogue, ingin 3 (satu per kata)", len(dialogue))
 	}
 	for i, want := range []string{"satu", "dua", "tiga"} {
-		if !strings.HasSuffix(dialog[i], want) {
-			t.Errorf("baris %d: %q tidak berakhir dengan kata %q", i, dialog[i], want)
+		if !strings.HasSuffix(dialogue[i], want) {
+			t.Errorf("baris %d: %q tidak berakhir dengan kata %q", i, dialogue[i], want)
 		}
 	}
 }
 
-func TestModeKaraokeMenyorotKataAktif(t *testing.T) {
-	segs := []types.TranscriptSegment{ucapan(0, 0.4, "satu", "dua", "tiga")}
+func TestKaraokeModeHighlightsActiveWord(t *testing.T) {
+	segs := []types.TranscriptSegment{utterance(0, 0.4, "satu", "dua", "tiga")}
 	sub := config.DefaultSubtitle()
 	sub.Mode = config.SubKaraoke
 
@@ -143,6 +143,22 @@ func TestModeKaraokeMenyorotKataAktif(t *testing.T) {
 	n := strings.Count(body, "Dialogue:")
 	if n != 3 {
 		t.Errorf("dapat %d Dialogue, ingin 3 (satu per pergantian sorot)", n)
+	}
+}
+
+// Pacing mengikuti nilai kecepatan bahasa Inggris; nilai lama bahasa Indonesia
+// tidak lagi dikenali dan jatuh ke normal.
+func TestPacingFollowsSpeed(t *testing.T) {
+	sub := config.DefaultSubtitle()
+	sub.Speed = config.SpeedSlow
+	slowDur, slowLines := sub.Pacing()
+	sub.Speed = config.SpeedDense
+	denseDur, denseLines := sub.Pacing()
+	if slowDur <= denseDur {
+		t.Errorf("slow (%.1f) harus menahan tampilan lebih lama dari dense (%.1f)", slowDur, denseDur)
+	}
+	if slowLines >= denseLines {
+		t.Errorf("slow (%d baris) harus lebih sedikit dari dense (%d baris)", slowLines, denseLines)
 	}
 }
 

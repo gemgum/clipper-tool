@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// contoh feed meniru kebiasaan nyata media Indonesia: gambar diselipkan
+// sampleRSS meniru kebiasaan nyata media Indonesia: gambar diselipkan
 // sebagai <img> di dalam description (ANTARA), judul channel menaruh nama
 // media di belakang, dan ada entitas HTML di judul.
-const contohRSS = `<?xml version="1.0" encoding="utf-8"?>
+const sampleRSS = `<?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0"><channel>
   <title>Berita Terkini - ANTARA News</title>
   <item>
@@ -27,102 +27,118 @@ const contohRSS = `<?xml version="1.0" encoding="utf-8"?>
   </item>
 </channel></rss>`
 
-func TestUraiFeedAmbilJudulGambarDanTanggal(t *testing.T) {
-	art, err := uraiFeed([]byte(contohRSS), "ANTARA", 0)
+func TestParseFeedReadsTitleImageAndDate(t *testing.T) {
+	articles, err := parseFeed([]byte(sampleRSS), "ANTARA", 0, "en")
 	if err != nil {
-		t.Fatalf("uraiFeed galat: %v", err)
+		t.Fatalf("parseFeed galat: %v", err)
 	}
-	if len(art) != 2 {
-		t.Fatalf("jumlah artikel = %d, mau 2", len(art))
+	if len(articles) != 2 {
+		t.Fatalf("jumlah artikel = %d, mau 2", len(articles))
 	}
 
-	a := art[0]
-	if a.Judul != "Harga BBM naik & warga mengeluh" {
-		t.Errorf("judul = %q — entitas HTML seharusnya sudah diterjemahkan", a.Judul)
+	a := articles[0]
+	if a.Title != "Harga BBM naik & warga mengeluh" {
+		t.Errorf("title = %q — entitas HTML seharusnya sudah diterjemahkan", a.Title)
 	}
 	// Gambar harus diambil dari <img> di dalam description.
-	if a.Gambar != "https://cdn.antaranews.com/foto.jpg" {
-		t.Errorf("gambar = %q, mau dari <img> di description", a.Gambar)
+	if a.Image != "https://cdn.antaranews.com/foto.jpg" {
+		t.Errorf("image = %q, mau dari <img> di description", a.Image)
 	}
 	// Tag HTML tidak boleh ikut terbawa ke ringkasan.
-	if a.Ringkas != "Pemerintah menaikkan harga." {
-		t.Errorf("ringkas = %q — tag <img> seharusnya dibuang", a.Ringkas)
+	if a.Summary != "Pemerintah menaikkan harga." {
+		t.Errorf("summary = %q — tag <img> seharusnya dibuang", a.Summary)
 	}
-	if a.Tanggal != "Kamis, 30 Juli 2026" {
-		t.Errorf("tanggal = %q, mau %q", a.Tanggal, "Kamis, 30 Juli 2026")
+	if a.Date != "Thursday, 30 July 2026" {
+		t.Errorf("date = %q, mau %q", a.Date, "Thursday, 30 July 2026")
 	}
 	if a.Domain != "antaranews.com" {
 		t.Errorf("domain = %q", a.Domain)
 	}
 	// <enclosure> dipakai bila description tidak memuat gambar.
-	if art[1].Gambar != "https://cdn.antaranews.com/enclosure.jpg" {
-		t.Errorf("gambar item ke-2 = %q, mau dari enclosure", art[1].Gambar)
+	if articles[1].Image != "https://cdn.antaranews.com/enclosure.jpg" {
+		t.Errorf("image item ke-2 = %q, mau dari enclosure", articles[1].Image)
+	}
+}
+
+// Tanggal kartu mengikuti bahasa yang diminta: kartu untuk pembaca Indonesia
+// harus bertanggal Indonesia walau antarmukanya berbahasa Inggris.
+func TestFormatDateFollowsLanguage(t *testing.T) {
+	const pub = "Thu, 30 Jul 2026 19:51:57 +0700"
+	if got := formatDate(pub, "id"); got != "Kamis, 30 Juli 2026" {
+		t.Errorf("formatDate(id) = %q, mau %q", got, "Kamis, 30 Juli 2026")
+	}
+	if got := formatDate(pub, "en"); got != "Thursday, 30 July 2026" {
+		t.Errorf("formatDate(en) = %q, mau %q", got, "Thursday, 30 July 2026")
+	}
+	// Bahasa tak dikenal jatuh ke Inggris, bukan panik atau string kosong.
+	if got := formatDate(pub, "zz"); got != "Thursday, 30 July 2026" {
+		t.Errorf("formatDate(zz) = %q, mau jatuh ke Inggris", got)
 	}
 }
 
 // Nama kurasi harus menang atas judul channel. Tanpa ini badge kartu ANTARA
 // berbunyi "Berita Terkini", sebab nama medianya ada di belakang pemisah.
-func TestUraiFeedNamaKurasiMenangAtasJudulChannel(t *testing.T) {
-	art, err := uraiFeed([]byte(contohRSS), "ANTARA", 0)
+func TestParseFeedCuratedNameBeatsChannelTitle(t *testing.T) {
+	articles, err := parseFeed([]byte(sampleRSS), "ANTARA", 0, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art[0].Sumber != "ANTARA" {
-		t.Errorf("sumber = %q, mau %q", art[0].Sumber, "ANTARA")
+	if articles[0].Source != "ANTARA" {
+		t.Errorf("source = %q, mau %q", articles[0].Source, "ANTARA")
 	}
 
 	// Tanpa nama kurasi, tebakan dari judul channel dipakai apa adanya.
-	art, err = uraiFeed([]byte(contohRSS), "", 0)
+	articles, err = parseFeed([]byte(sampleRSS), "", 0, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if art[0].Sumber == "" {
-		t.Error("sumber kosong — seharusnya jatuh ke tebakan judul channel/domain")
+	if articles[0].Source == "" {
+		t.Error("source kosong — seharusnya jatuh ke tebakan judul channel/domain")
 	}
 }
 
-func TestUraiFeedHormatiBatasMaks(t *testing.T) {
-	art, err := uraiFeed([]byte(contohRSS), "ANTARA", 1)
+func TestParseFeedRespectsMaxLimit(t *testing.T) {
+	articles, err := parseFeed([]byte(sampleRSS), "ANTARA", 1, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(art) != 1 {
-		t.Errorf("jumlah artikel = %d, mau dibatasi 1", len(art))
+	if len(articles) != 1 {
+		t.Errorf("jumlah artikel = %d, mau dibatasi 1", len(articles))
 	}
 }
 
-func TestUraiFeedTolakIsiBukanFeed(t *testing.T) {
-	if _, err := uraiFeed([]byte(`<html><body>bukan feed</body></html>`), "", 0); err == nil {
+func TestParseFeedRejectsNonFeedContent(t *testing.T) {
+	if _, err := parseFeed([]byte(`<html><body>not a feed</body></html>`), "", 0, "en"); err == nil {
 		t.Error("mau galat untuk isi yang bukan feed, dapat nil")
 	}
 }
 
-func TestPotongBerhentiDiBatasKata(t *testing.T) {
-	got := potong("satu dua tiga empat lima enam", 12)
+func TestTruncateStopsAtWordBoundary(t *testing.T) {
+	got := truncate("satu dua tiga empat lima enam", 12)
 	if got != "satu dua…" {
-		t.Errorf("potong = %q, mau %q", got, "satu dua…")
+		t.Errorf("truncate = %q, mau %q", got, "satu dua…")
 	}
 	// Teks pendek tidak boleh diubah.
-	if got := potong("pendek", 50); got != "pendek" {
-		t.Errorf("potong teks pendek = %q", got)
+	if got := truncate("pendek", 50); got != "pendek" {
+		t.Errorf("truncate teks pendek = %q", got)
 	}
 }
 
-func TestNamaMediaPakaiDomainBilaJudulTakMasukAkal(t *testing.T) {
+func TestMediaNameFallsBackToDomain(t *testing.T) {
 	// Judul channel yang kepanjangan bukan nama media — pakai domain saja.
-	panjang := "Portal Berita Terlengkap Dan Terpercaya Sepanjang Masa Sekali"
-	if got := namaMedia(panjang, "https://www.contoh.co.id/a"); got != "contoh.co.id" {
-		t.Errorf("namaMedia = %q, mau %q", got, "contoh.co.id")
+	long := "Portal Berita Terlengkap Dan Terpercaya Sepanjang Masa Sekali"
+	if got := mediaName(long, "https://www.contoh.co.id/a"); got != "contoh.co.id" {
+		t.Errorf("mediaName = %q, mau %q", got, "contoh.co.id")
 	}
 	// Pemisah "|" di depan: bagian pertama memang nama medianya.
-	if got := namaMedia("CNN Indonesia | Berita Terkini", "https://cnnindonesia.com/a"); got != "CNN Indonesia" {
-		t.Errorf("namaMedia = %q, mau %q", got, "CNN Indonesia")
+	if got := mediaName("CNN Indonesia | Berita Terkini", "https://cnnindonesia.com/a"); got != "CNN Indonesia" {
+		t.Errorf("mediaName = %q, mau %q", got, "CNN Indonesia")
 	}
 }
 
-// bacaMeta adalah jalan masuk fitur "tempel link", jadi pola penulisan meta
+// readMeta adalah jalan masuk fitur "tempel link", jadi pola penulisan meta
 // yang berbeda-beda antar situs harus tetap terbaca.
-func TestBacaMetaBerbagaiUrutanAtribut(t *testing.T) {
+func TestReadMetaHandlesAttributeOrder(t *testing.T) {
 	h := `<html><head>
 	<meta property="og:title" content="Judul OG">
 	<meta content="Ringkasan OG" name="og:description">
@@ -130,7 +146,7 @@ func TestBacaMetaBerbagaiUrutanAtribut(t *testing.T) {
 	<title>Judul Tag</title>
 	</head><body><meta property="og:title" content="JANGAN DIPAKAI"></body></html>`
 
-	m := bacaMeta(h)
+	m := readMeta(h)
 	if m["og:title"] != "Judul OG" {
 		t.Errorf("og:title = %q", m["og:title"])
 	}
@@ -149,7 +165,7 @@ func TestBacaMetaBerbagaiUrutanAtribut(t *testing.T) {
 
 // --- ekstraksi paragraf ---
 
-const contohArtikel = `<html><body>
+const sampleArticle = `<html><body>
 <nav><p>Beranda Ekonomi Olahraga Teknologi Nasional Internasional</p></nav>
 <script>var iklan = "Pasang iklan di sini sekarang juga hubungi kami";</script>
 <div class="isi">
@@ -162,212 +178,217 @@ const contohArtikel = `<html><body>
 <footer><p>Copyright 2026 Redaksi Pedoman Media Siber Karier Kontak Kami Semua</p></footer>
 </body></html>`
 
-func TestUraiParagrafBuangMenuSkripDanDuplikat(t *testing.T) {
-	par := uraiParagraf(contohArtikel)
-	if len(par) != 2 {
-		for _, p := range par {
-			t.Logf("[%d] %s", p.Indeks, p.Teks)
+func TestParseParagraphsDropsMenusScriptsAndDuplicates(t *testing.T) {
+	paragraphs := parseParagraphs(sampleArticle)
+	if len(paragraphs) != 2 {
+		for _, p := range paragraphs {
+			t.Logf("[%d] %s", p.Index, p.Text)
 		}
-		t.Fatalf("jumlah paragraf = %d, mau 2", len(par))
+		t.Fatalf("jumlah paragraf = %d, mau 2", len(paragraphs))
 	}
-	if !strings.HasPrefix(par[0].Teks, "Menteri Keuangan menyatakan") {
-		t.Errorf("paragraf pertama = %q", par[0].Teks)
+	if !strings.HasPrefix(paragraphs[0].Text, "Menteri Keuangan menyatakan") {
+		t.Errorf("paragraf pertama = %q", paragraphs[0].Text)
 	}
 	// Nomor harus berurutan mulai 0 — inilah yang dipakai LLM untuk menunjuk.
-	for i, p := range par {
-		if p.Indeks != i {
-			t.Errorf("indeks paragraf ke-%d = %d", i, p.Indeks)
+	for i, p := range paragraphs {
+		if p.Index != i {
+			t.Errorf("index paragraf ke-%d = %d", i, p.Index)
 		}
 	}
-	for _, p := range par {
-		low := strings.ToLower(p.Teks)
+	for _, p := range paragraphs {
+		low := strings.ToLower(p.Text)
 		if strings.Contains(low, "baca juga") || strings.Contains(low, "beranda") ||
 			strings.Contains(low, "iklan") || strings.Contains(low, "copyright") {
-			t.Errorf("blok sampah ikut terbawa: %q", p.Teks)
+			t.Errorf("blok sampah ikut terbawa: %q", p.Text)
 		}
 	}
 }
 
-func TestUraiParagrafTolakHalamanTanpaIsi(t *testing.T) {
-	if par := uraiParagraf(`<html><body><p>Terlalu pendek</p></body></html>`); len(par) != 0 {
-		t.Errorf("mau 0 paragraf, dapat %d", len(par))
+func TestParseParagraphsRejectsEmptyPage(t *testing.T) {
+	if paragraphs := parseParagraphs(`<html><body><p>Terlalu pendek</p></body></html>`); len(paragraphs) != 0 {
+		t.Errorf("mau 0 paragraf, dapat %d", len(paragraphs))
 	}
 }
 
 // --- tagar ---
 
-func TestTagarHanyaTerimaKataYangAdaDiArtikel(t *testing.T) {
-	isi := Isi{Paragraf: []Paragraf{{0, "Bank Indonesia menahan suku bunga acuan di Jakarta pekan ini."}}}
-	got := isi.Tagar([]string{"Bank Indonesia", "Jakarta", "Bitcoin melambung"}, 8)
-	mau := []string{"#BankIndonesia", "#Jakarta"}
-	if len(got) != len(mau) {
-		t.Fatalf("tagar = %v, mau %v", got, mau)
+func TestHashtagsOnlyAcceptWordsPresentInArticle(t *testing.T) {
+	c := Content{Paragraphs: []Paragraph{{0, "Bank Indonesia menahan suku bunga acuan di Jakarta pekan ini."}}}
+	got := c.Hashtags([]string{"Bank Indonesia", "Jakarta", "Bitcoin melambung"}, 8)
+	want := []string{"#BankIndonesia", "#Jakarta"}
+	if len(got) != len(want) {
+		t.Fatalf("hashtags = %v, mau %v", got, want)
 	}
-	for i := range mau {
-		if got[i] != mau[i] {
-			t.Errorf("tagar[%d] = %q, mau %q", i, got[i], mau[i])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("hashtags[%d] = %q, mau %q", i, got[i], want[i])
 		}
 	}
 }
 
-func TestTagarHormatiBatasJumlah(t *testing.T) {
-	isi := Isi{Paragraf: []Paragraf{{0, "satu dua tiga empat lima"}}}
-	if got := isi.Tagar([]string{"satu", "dua", "tiga", "empat"}, 2); len(got) != 2 {
-		t.Errorf("tagar = %v, mau dibatasi 2", got)
+func TestHashtagsRespectMaxCount(t *testing.T) {
+	c := Content{Paragraphs: []Paragraph{{0, "satu dua tiga empat lima"}}}
+	if got := c.Hashtags([]string{"satu", "dua", "tiga", "empat"}, 2); len(got) != 2 {
+		t.Errorf("hashtags = %v, mau dibatasi 2", got)
 	}
 }
 
-// --- susun: pagar pengaman terhadap balasan LLM ---
+// --- build: pagar pengaman terhadap balasan LLM ---
 
-func isiUji() Isi {
-	return Isi{
-		Artikel: Artikel{Judul: "Uji", URL: "https://contoh.id/a"},
-		Paragraf: []Paragraf{
+func sampleContent() Content {
+	return Content{
+		Article: Article{Title: "Uji", URL: "https://contoh.id/a"},
+		Paragraphs: []Paragraph{
 			{0, "Paragraf nol berisi kalimat pembuka berita yang cukup panjang."},
 			{1, "Paragraf satu berisi angka mengejutkan sebesar dua belas persen."},
 		},
 	}
 }
 
-func TestSusunAmbilTeksDariArtikelBukanDariLLM(t *testing.T) {
-	b := balasan{Kartu: 1, Caption: 0}
-	b.Peringkat = append(b.Peringkat, struct {
-		Indeks int     `json:"indeks"`
-		Skor   float64 `json:"skor"`
-		Alasan string  `json:"alasan"`
-	}{Indeks: 1, Skor: 9, Alasan: "ada angka"})
+// rankingReply merangkai satu entri "rankings" pada balasan LLM.
+func rankingReply(index int, score float64, reason string) struct {
+	Index  int     `json:"index"`
+	Score  float64 `json:"score"`
+	Reason string  `json:"reason"`
+} {
+	return struct {
+		Index  int     `json:"index"`
+		Score  float64 `json:"score"`
+		Reason string  `json:"reason"`
+	}{Index: index, Score: score, Reason: reason}
+}
 
-	p := susun(isiUji(), b, "uji")
-	if p.Peringkat[0].Teks != "Paragraf satu berisi angka mengejutkan sebesar dua belas persen." {
-		t.Errorf("teks = %q — harus diambil dari artikel", p.Peringkat[0].Teks)
+func TestBuildTakesTextFromArticleNotFromLLM(t *testing.T) {
+	r := reply{Card: 1, Caption: 0}
+	r.Rankings = append(r.Rankings, rankingReply(1, 9, "has a number"))
+
+	s := build(sampleContent(), r, "test")
+	if s.Rankings[0].Text != "Paragraf satu berisi angka mengejutkan sebesar dua belas persen." {
+		t.Errorf("text = %q — harus diambil dari artikel", s.Rankings[0].Text)
 	}
-	if p.Kartu != 1 || p.Caption != 0 {
-		t.Errorf("kartu=%d caption=%d", p.Kartu, p.Caption)
+	if s.Card != 1 || s.Caption != 0 {
+		t.Errorf("card=%d caption=%d", s.Card, s.Caption)
 	}
 }
 
-func TestSusunAbaikanNomorDiLuarJangkauan(t *testing.T) {
-	b := balasan{Kartu: 99, Caption: 99}
+func TestBuildIgnoresOutOfRangeIndexes(t *testing.T) {
+	r := reply{Card: 99, Caption: 99}
 	for _, ix := range []int{0, 42} { // 42 tidak ada
-		b.Peringkat = append(b.Peringkat, struct {
-			Indeks int     `json:"indeks"`
-			Skor   float64 `json:"skor"`
-			Alasan string  `json:"alasan"`
-		}{Indeks: ix, Skor: 5})
+		r.Rankings = append(r.Rankings, rankingReply(ix, 5, ""))
 	}
-	p := susun(isiUji(), b, "uji")
+	s := build(sampleContent(), r, "test")
 	// Nomor 42 dibuang, tapi kedua paragraf artikel tetap muncul: yang tak
 	// dinilai LLM dilengkapi heuristik supaya semuanya bisa dipilih pengguna.
-	if len(p.Peringkat) != 2 {
-		t.Fatalf("peringkat = %d, mau 2 (semua paragraf artikel)", len(p.Peringkat))
+	if len(s.Rankings) != 2 {
+		t.Fatalf("rankings = %d, mau 2 (semua paragraf artikel)", len(s.Rankings))
 	}
-	for _, r := range p.Peringkat {
-		if r.Indeks == 42 {
+	for _, item := range s.Rankings {
+		if item.Index == 42 {
 			t.Error("nomor 42 tidak ada di artikel — seharusnya dibuang")
 		}
 	}
-	// Kartu/caption di luar jangkauan jatuh ke peringkat teratas, bukan menebak.
-	// Caption lalu digeser agar tidak kembar dengan kartu.
-	if p.Kartu != 0 {
-		t.Errorf("kartu = %d, mau peringkat teratas (0)", p.Kartu)
+	// Card/caption di luar jangkauan jatuh ke peringkat teratas, bukan menebak.
+	// Caption lalu digeser agar tidak kembar dengan card.
+	if s.Card != 0 {
+		t.Errorf("card = %d, mau peringkat teratas (0)", s.Card)
 	}
-	if _, ok := isiUji().Teks(p.Caption); !ok || p.Caption == p.Kartu {
-		t.Errorf("caption = %d — harus paragraf sah yang berbeda dari kartu", p.Caption)
+	if _, ok := sampleContent().TextAt(s.Caption); !ok || s.Caption == s.Card {
+		t.Errorf("caption = %d — harus paragraf sah yang berbeda dari card", s.Caption)
 	}
 }
 
-// Model lokal kerap membalas "peringkat": [] padahal kartu/caption-nya sah.
+// Model lokal kerap membalas "rankings": [] padahal card/caption-nya sah.
 // Dulu ini ditolak mentah-mentah; sekarang harus tetap menghasilkan pilihan.
-func TestSusunTetapJalanSaatPeringkatKosong(t *testing.T) {
-	p := susun(isiUji(), balasan{Kartu: 1, Caption: 0}, "uji")
-	if len(p.Peringkat) != 2 {
-		t.Fatalf("peringkat = %d, mau 2 dari heuristik", len(p.Peringkat))
+func TestBuildStillWorksWhenRankingsEmpty(t *testing.T) {
+	s := build(sampleContent(), reply{Card: 1, Caption: 0}, "test")
+	if len(s.Rankings) != 2 {
+		t.Fatalf("rankings = %d, mau 2 dari heuristik", len(s.Rankings))
 	}
-	for _, r := range p.Peringkat {
-		if r.Sumber != SumberHeuristik {
-			t.Errorf("sumber = %q, mau %q", r.Sumber, SumberHeuristik)
+	for _, item := range s.Rankings {
+		if item.Source != SourceHeuristic {
+			t.Errorf("source = %q, mau %q", item.Source, SourceHeuristic)
 		}
-		if r.Teks == "" {
-			t.Error("teks kosong — harus diambil dari artikel")
+		if item.Text == "" {
+			t.Error("text kosong — harus diambil dari artikel")
 		}
 	}
-	if p.Kartu != 1 || p.Caption != 0 {
-		t.Errorf("kartu=%d caption=%d — nomor sah dari LLM harus dihormati", p.Kartu, p.Caption)
+	if s.Card != 1 || s.Caption != 0 {
+		t.Errorf("card=%d caption=%d — nomor sah dari LLM harus dihormati", s.Card, s.Caption)
 	}
-	if p.Catatan == "" {
-		t.Error("catatan kosong — penggantian tidak boleh senyap")
+	if s.Note == "" {
+		t.Error("note kosong — penggantian tidak boleh senyap")
 	}
 }
 
-// Nomor kartu/caption ngawur + peringkat kosong: tetap harus memberi hasil,
+// Nomor card/caption ngawur + rankings kosong: tetap harus memberi hasil,
 // jatuh ke paragraf berperingkat teratas.
-func TestSusunTidakPernahGagalWalauBalasanNgawur(t *testing.T) {
-	p := susun(isiUji(), balasan{Kartu: 99, Caption: -3}, "uji")
-	if len(p.Peringkat) == 0 {
-		t.Fatal("peringkat kosong — fitur tidak boleh gagal total")
+func TestBuildNeverFailsOnNonsenseReply(t *testing.T) {
+	s := build(sampleContent(), reply{Card: 99, Caption: -3}, "test")
+	if len(s.Rankings) == 0 {
+		t.Fatal("rankings kosong — fitur tidak boleh gagal total")
 	}
-	if _, ok := isiUji().Teks(p.Kartu); !ok {
-		t.Errorf("kartu = %d, bukan nomor paragraf yang ada", p.Kartu)
+	if _, ok := sampleContent().TextAt(s.Card); !ok {
+		t.Errorf("card = %d, bukan nomor paragraf yang ada", s.Card)
 	}
-	if _, ok := isiUji().Teks(p.Caption); !ok {
-		t.Errorf("caption = %d, bukan nomor paragraf yang ada", p.Caption)
+	if _, ok := sampleContent().TextAt(s.Caption); !ok {
+		t.Errorf("caption = %d, bukan nomor paragraf yang ada", s.Caption)
 	}
 }
 
 // Paragraf berkutipan langsung & berangka harus menang atas paragraf
 // penyambung yang diawali kata rujukan.
-func TestSkorHookUtamakanKutipanDanAngka(t *testing.T) {
-	kuat := Paragraf{0, `"Kerugian negara mencapai 1,2 triliun rupiah," kata Ketua KPK dalam konferensi pers di Jakarta hari ini.`}
-	lemah := Paragraf{5, "Sementara itu, ia menambahkan bahwa proses masih terus berjalan sebagaimana mestinya di lapangan."}
-	sKuat, _ := skorHook(kuat, 10)
-	sLemah, _ := skorHook(lemah, 10)
-	if sKuat <= sLemah {
-		t.Errorf("skor kutipan+angka (%.1f) harus di atas paragraf penyambung (%.1f)", sKuat, sLemah)
+func TestHookScorePrefersQuotesAndNumbers(t *testing.T) {
+	strong := Paragraph{0, `"Kerugian negara mencapai 1,2 triliun rupiah," kata Ketua KPK dalam konferensi pers di Jakarta hari ini.`}
+	weak := Paragraph{5, "Sementara itu, ia menambahkan bahwa proses masih terus berjalan sebagaimana mestinya di lapangan."}
+	strongScore, _ := hookScore(strong, 10)
+	weakScore, _ := hookScore(weak, 10)
+	if strongScore <= weakScore {
+		t.Errorf("skor kutipan+angka (%.1f) harus di atas paragraf penyambung (%.1f)", strongScore, weakScore)
 	}
 }
 
-// Model lokal cenderung menjawab paragraf 0 untuk kartu sekaligus caption.
+// Model lokal cenderung menjawab paragraf 0 untuk card sekaligus caption.
 // Kalau dibiarkan, teks kartu dan captionnya kembar.
-func TestSusunBedakanCaptionDariKartu(t *testing.T) {
-	p := susun(isiUji(), balasan{Kartu: 0, Caption: 0}, "uji")
-	if p.Kartu != 0 {
-		t.Errorf("kartu = %d, mau 0 (pilihan LLM dihormati)", p.Kartu)
+func TestBuildKeepsCaptionDifferentFromCard(t *testing.T) {
+	s := build(sampleContent(), reply{Card: 0, Caption: 0}, "test")
+	if s.Card != 0 {
+		t.Errorf("card = %d, mau 0 (pilihan LLM dihormati)", s.Card)
 	}
-	if p.Caption == p.Kartu {
-		t.Error("caption kembar dengan kartu — seharusnya digeser ke peringkat berikutnya")
+	if s.Caption == s.Card {
+		t.Error("caption kembar dengan card — seharusnya digeser ke peringkat berikutnya")
 	}
-	if _, ok := isiUji().Teks(p.Caption); !ok {
-		t.Errorf("caption = %d, bukan paragraf yang ada di artikel", p.Caption)
+	if _, ok := sampleContent().TextAt(s.Caption); !ok {
+		t.Errorf("caption = %d, bukan paragraf yang ada di artikel", s.Caption)
 	}
 }
 
 // Artikel satu paragraf tidak punya pilihan lain — kembar diterima apa adanya.
-func TestSusunSatuParagrafBolehKembar(t *testing.T) {
-	isi := Isi{Paragraf: []Paragraf{{0, "Satu-satunya paragraf yang ada di artikel pendek ini."}}}
-	p := susun(isi, balasan{Kartu: 0, Caption: 0}, "uji")
-	if p.Kartu != 0 || p.Caption != 0 {
-		t.Errorf("kartu=%d caption=%d, mau 0 keduanya", p.Kartu, p.Caption)
+func TestBuildAllowsDuplicateWhenOnlyOneParagraph(t *testing.T) {
+	c := Content{Paragraphs: []Paragraph{{0, "Satu-satunya paragraf yang ada di artikel pendek ini."}}}
+	s := build(c, reply{Card: 0, Caption: 0}, "test")
+	if s.Card != 0 || s.Caption != 0 {
+		t.Errorf("card=%d caption=%d, mau 0 keduanya", s.Card, s.Caption)
 	}
 }
 
 // Sebagian situs menulis og:url dengan entitas HTML menempel di ujungnya.
 // Diteruskan mentah, alamat hasilnya membawa sampah itu dan berujung 404.
-func TestUraiArtikelBersihkanEntitasDiOgUrl(t *testing.T) {
+func TestParseArticleCleansEntitiesInOgURL(t *testing.T) {
 	h := `<html><head>
 	<meta property="og:title" content="Cegah Narkoba dari Keluarga">
 	<meta property="og:url" content="https://contoh.go.id/Cegah_Narkoba&nbsp;&nbsp;">
 	<meta property="og:image" content="https://contoh.go.id/foto.jpg&nbsp;">
 	</head><body></body></html>`
 	u, _ := url.Parse("https://news.google.com/rss/articles/CBMiabc")
-	a, err := uraiArtikel(h, u)
+	a, err := parseArticle(h, u, "en")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.URL != "https://contoh.go.id/Cegah_Narkoba" {
 		t.Errorf("url = %q — entitas di ujung harus dibuang", a.URL)
 	}
-	if a.Gambar != "https://contoh.go.id/foto.jpg" {
-		t.Errorf("gambar = %q — entitas di ujung harus dibuang", a.Gambar)
+	if a.Image != "https://contoh.go.id/foto.jpg" {
+		t.Errorf("image = %q — entitas di ujung harus dibuang", a.Image)
 	}
 	// og:url menang atas alamat pengalih yang dipakai untuk membuka halaman.
 	if a.Domain != "contoh.go.id" {

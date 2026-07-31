@@ -204,7 +204,7 @@ Next.js (GUI web lokal)  --HTTP+SSE-->  Go (engine)  --stdin/NDJSON-->  C++ work
 - **engine/** — Go: orkestrasi, HTTP API, pemilihan momen, panggil whisper.cpp & ffmpeg
 - **worker/** — C++: analisis audio (`features`); face-follow menyusul
 - **gui/** — Next.js: antarmuka pengguna
-- **catatan/** — dokumentasi & keputusan desain (baca bila ingin mengembangkan)
+- **notes/** — dokumentasi & keputusan desain (baca bila ingin mengembangkan)
 
 ---
 
@@ -220,14 +220,18 @@ Next.js (GUI web lokal)  --HTTP+SSE-->  Go (engine)  --stdin/NDJSON-->  C++ work
 | `-model` | tiny\|base\|small\|medium\|large-v3 | model pengenal suara |
 | `-provider` | claude \| ollama \| heuristic | pemilih momen (default ikut mode) |
 | `-ollama-model` | mis. `qwen2.5` | model lokal untuk provider ollama |
+| `-transcript-fix` | on \| off | LLM membenahi tanda baca, struktur & kata salah dengar sebelum klip dipotong (default on) |
 | `-llm-model` | mis. `claude-haiku-4-5` | model Claude |
 | `-duration` | auto\|30\|60\|90\|120\|180 | panjang klip (detik) |
 | `-max` | angka | jumlah klip maksimum |
 | `-min-score` | 0–100 | buang klip di bawah skor ini |
 | `-sub-mode` | normal \| karaoke \| word | gaya subtitle |
-| `-sub-speed` | lambat \| normal \| padat | kecepatan tampil subtitle |
+| `-sub-speed` | slow \| normal \| dense | kecepatan tampil subtitle |
 | `-save` | burn \| clean \| both | bersubtitle / polos / keduanya (+ `.srt`) |
-| `-reframe` | center \| fit | isi penuh (zoom) atau muat utuh (latar blur) |
+| `-reframe` | center \| face_follow | letak bingkai pada video (`fit` = alias `-zoom 0`) |
+| `-background` | blur \| black | isi ruang kosong yang tersisa |
+| `-frame-visible` | 0–100 | berapa persen frame asli tetap terlihat; 100 = utuh, 0 = isi penuh (default 0) |
+| `-picture-size` | 5–100 | seberapa besar gambar duduk di bingkai; <100 = mengecil di tengah (default 100) |
 | `-resolution` | 720p\|1080p\|1440p | resolusi keluaran |
 | `-quality` | draft\|hd\|max | kecepatan vs ketajaman |
 | `-fps` | 0\|24\|30\|60 | 0 = ikut sumber |

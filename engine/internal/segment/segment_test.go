@@ -7,9 +7,9 @@ import (
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
-// transkripUji membuat transkrip sintetis: segmen 3 detik, tiap segmen ke-4
+// sampleTranscript membuat transkrip sintetis: segmen 3 detik, tiap segmen ke-4
 // mengakhiri kalimat (ada titik).
-func transkripUji(n int) types.Transcript {
+func sampleTranscript(n int) types.Transcript {
 	var tr types.Transcript
 	for i := 0; i < n; i++ {
 		text := fmt.Sprintf("kalimat bagian %d", i)
@@ -25,8 +25,8 @@ func transkripUji(n int) types.Transcript {
 	return tr
 }
 
-func TestKandidatMengikutiPresetDurasi(t *testing.T) {
-	tr := transkripUji(120) // 6 menit
+func TestCandidatesFollowDurationPreset(t *testing.T) {
+	tr := sampleTranscript(120) // 6 menit
 	targetMin, targetMax := 48.0, 75.0
 	cands := BuildCandidates(tr, targetMin, targetMax)
 	if len(cands) < 2 {
@@ -45,8 +45,8 @@ func TestKandidatMengikutiPresetDurasi(t *testing.T) {
 }
 
 // Dulu semua klip menempel di batas bawah (preset auto → semua ~30 detik).
-func TestKandidatTidakMenempelBatasBawah(t *testing.T) {
-	tr := transkripUji(200)
+func TestCandidatesDoNotStickToLowerBound(t *testing.T) {
+	tr := sampleTranscript(200)
 	targetMin, targetMax := 45.0, 120.0
 	cands := BuildCandidates(tr, targetMin, targetMax)
 	if len(cands) < 2 {
@@ -61,7 +61,7 @@ func TestKandidatTidakMenempelBatasBawah(t *testing.T) {
 }
 
 // Jeda diam panjang di akhir kalimat boleh memotong lebih awal (pergantian topik).
-func TestJedaPanjangMemotongLebihAwal(t *testing.T) {
+func TestLongSilenceCutsEarlier(t *testing.T) {
 	tr := types.Transcript{Segments: []types.TranscriptSegment{
 		{Start: 0, End: 25, Text: "bagian pertama panjang"},
 		{Start: 25, End: 50, Text: "dan ini penutupnya."},

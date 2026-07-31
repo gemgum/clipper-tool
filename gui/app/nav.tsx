@@ -2,27 +2,43 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { LANGUAGES, useI18n, type MessageKey } from "./i18n";
 
-const TAB = [
-  { href: "/", label: "Klip video" },
-  { href: "/berita", label: "Kartu berita" },
+const TABS: { href: string; label: MessageKey }[] = [
+  { href: "/", label: "tabClips" },
+  { href: "/news", label: "tabNews" },
 ];
 
 export default function Nav() {
   const path = usePathname();
+  const { lang, setLang, t } = useI18n();
+
   return (
     <nav className="nav">
       <div className="nav-inner">
         <span className="brand">Clipper</span>
-        {TAB.map((t) => (
+        {TABS.map((tab) => (
           <Link
-            key={t.href}
-            href={t.href}
-            className={"nav-tab" + (path === t.href ? " aktif" : "")}
+            key={tab.href}
+            href={tab.href}
+            className={"nav-tab" + (path === tab.href ? " active" : "")}
           >
-            {t.label}
+            {t(tab.label)}
           </Link>
         ))}
+        <div className="lang-switch">
+          {LANGUAGES.map((l) => (
+            <button
+              key={l}
+              type="button"
+              className={l === lang ? "active" : ""}
+              aria-pressed={l === lang}
+              onClick={() => setLang(l)}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
     </nav>
   );

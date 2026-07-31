@@ -33,12 +33,12 @@ func (c *Client) Duration(ctx context.Context, input string) (float64, error) {
 	}
 	out, err := exec.CommandContext(ctx, c.FFprobe, args...).Output()
 	if err != nil {
-		return 0, fmt.Errorf("ffprobe durasi: %w", err)
+		return 0, fmt.Errorf("ffprobe duration: %w", err)
 	}
 	s := strings.TrimSpace(string(out))
 	d, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, fmt.Errorf("parse durasi %q: %w", s, err)
+		return 0, fmt.Errorf("parse duration %q: %w", s, err)
 	}
 	return d, nil
 }
@@ -54,7 +54,7 @@ func (c *Client) Dimensions(ctx context.Context, input string) (w, h int, err er
 	}
 	out, err := exec.CommandContext(ctx, c.FFprobe, args...).Output()
 	if err != nil {
-		return 0, 0, fmt.Errorf("ffprobe dimensi: %w", err)
+		return 0, 0, fmt.Errorf("ffprobe dimensions: %w", err)
 	}
 	var parsed struct {
 		Streams []struct {
@@ -63,10 +63,10 @@ func (c *Client) Dimensions(ctx context.Context, input string) (w, h int, err er
 		} `json:"streams"`
 	}
 	if err := json.Unmarshal(out, &parsed); err != nil {
-		return 0, 0, fmt.Errorf("parse dimensi: %w", err)
+		return 0, 0, fmt.Errorf("parse dimensions: %w", err)
 	}
 	if len(parsed.Streams) == 0 {
-		return 0, 0, fmt.Errorf("tidak ada stream video")
+		return 0, 0, fmt.Errorf("no video stream found")
 	}
 	return parsed.Streams[0].Width, parsed.Streams[0].Height, nil
 }
@@ -83,68 +83,76 @@ func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string) erro
 		"-c:a", "pcm_s16le",
 		outWAV,
 	}
-	return c.run(ctx, "ekstrak audio", args)
+	return c.run(ctx, "extract audio", args)
 }
 
 // EncodeOpts parameter encoding & subtitle.
 type EncodeOpts struct {
-	CRF      string
-	Preset   string
-	AssPath  string // subtitle .ass; kosong = tanpa subtitle
-	FontsDir string // dir font untuk libass
-	Mode     string // "fit" (frame utuh) | selain itu = center (crop/zoom)
-	Latar    string // blur | hitam — isi ruang kosong di sekeliling video
-	Zoom     int    // persen ukuran video dalam bingkai; 0/100 = isi penuh
-	FPS      int    // 0 = ikut sumber
+	CRF          string
+	Preset       string
+	AssPath      string // subtitle .ass; kosong = tanpa subtitle
+	FontsDir     string // dir font untuk libass
+	Mode         string // center | face_follow (di mana bingkai duduk)
+	Background   string // blur | black — isi ruang kosong yang tersisa
+	FrameVisible int    // 100 = frame asli utuh, 0 = memenuhi kotaknya
+	PictureSize  int    // 100 = gambar memenuhi bingkai, <100 = mengecil di tengah
+	FPS          int    // 0 = ikut sumber
 }
 
-// ReframeFilter membangun rantai filter penyesuai rasio.
+// Layout menempatkan video ke bingkai target.
 //
 // Dipakai bersama oleh render klip DAN preview satu frame — sengaja satu
 // sumber, sebab dulu keduanya menyusun filter sendiri-sendiri dan preview
-// tertinggal (selalu crop tengah) ketika mode "fit" ditambahkan ke render.
+// tertinggal ketika perilaku render berubah.
 //
-// "fit"  : frame utuh, tanpa zoom (paling tajam).
-// selain : crop tengah, isi penuh.
+// Ada DUA sumbu yang berdiri sendiri. Keduanya sengaja dipisah: dulu satu
+// kendali mencampur keduanya, dan itulah yang membuat zoom terasa salah.
 //
-// Zoom mengecilkan video di dalam bingkai (100 = isi penuh). Ruang sisa diisi
-// menurut Latar: blur dari videonya sendiri, atau hitam polos.
-type Tata struct {
-	Mode  string // center | fit
-	Latar string // blur | hitam
-	Zoom  int    // persen; <=0 dianggap 100
+// FrameVisible = berapa banyak frame ASLI yang tersisa terlihat.
+//
+//	100 = seluruh frame asli terlihat (contain) — tidak ada yang terpotong;
+//	  0 = gambar memenuhi kotaknya (cover) — tepi yang berlebih dipotong.
+//
+// PictureSize = seberapa besar gambar itu duduk di dalam bingkai.
+//
+//	 100 = gambar memenuhi bingkai dari tepi ke tepi;
+//	<100 = gambar mengecil di tengah, latar mengelilingi keempat sisinya.
+//
+// Contoh: FrameVisible 0 + PictureSize 50 memberi potongan penuh yang mengecil
+// di tengah — persis tampilan yang dulu dihasilkan zoom 50.
+type Layout struct {
+	Mode         string // center | face_follow (di mana bingkai duduk)
+	Background   string // blur | black — mengisi ruang kosong yang tersisa
+	FrameVisible int    // 0..100
+	PictureSize  int    // 5..100; <=0 dianggap 100
 }
 
 // ReframeFilter menyusun rantai filter -vf untuk menempatkan video ke bingkai
 // target.
-func ReframeFilter(t Tata, targetW, targetH int) string {
-	zoom := t.Zoom
-	if zoom <= 0 || zoom > 100 {
-		zoom = 100
+func ReframeFilter(l Layout, targetW, targetH int) string {
+	visible := clampPercent(l.FrameVisible)
+	size := l.PictureSize
+	if size <= 0 {
+		size = 100
 	}
-	// Ukuran video di dalam bingkai. Dibulatkan genap: encoder h264 menolak
+	size = clampPercent(size)
+
+	// Kotak tempat gambar diletakkan. Dibulatkan genap: encoder h264 menolak
 	// dimensi ganjil.
-	fw := genap(targetW * zoom / 100)
-	fh := genap(targetH * zoom / 100)
+	boxW := evenBox(targetW * size / 100)
+	boxH := evenBox(targetH * size / 100)
 
-	// Depan: "fit" memuat frame utuh (decrease), selain itu menutupi lalu
-	// dipotong tengah (increase + crop).
-	var depan string
-	if t.Mode == "fit" {
-		depan = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos", fw, fh)
-	} else {
-		depan = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d", fw, fh, fw, fh)
+	foreground := fitChain(visible, boxW, boxH)
+
+	// Latar hanya tak terlihat bila kotaknya sebesar bingkai DAN isinya memenuhi
+	// kotak itu. Selain itu selalu ada ruang yang harus diisi.
+	if size >= 100 && visible <= 0 {
+		return foreground
 	}
 
-	// Isi penuh tanpa zoom tidak menyisakan ruang kosong sama sekali, jadi latar
-	// apa pun tidak akan terlihat — rantainya dibiarkan sesederhana mungkin.
-	if t.Mode != "fit" && zoom == 100 {
-		return depan
-	}
-
-	if t.Latar == "hitam" {
+	if l.Background == "black" {
 		// Tidak perlu menggandakan aliran: cukup beri bantalan hitam di sekeliling.
-		return depan + fmt.Sprintf(",pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", targetW, targetH)
+		return foreground + fmt.Sprintf(",pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", targetW, targetH)
 	}
 
 	// Blur: video dipakai dua kali — satu jadi latar yang dibesarkan & diburamkan,
@@ -154,10 +162,59 @@ func ReframeFilter(t Tata, targetW, targetH int) string {
 			"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
 			"[fg]%s[fgb];"+
 			"[bgb][fgb]overlay=(W-w)/2:(H-h)/2",
-		targetW, targetH, targetW, targetH, depan)
+		targetW, targetH, targetW, targetH, foreground)
 }
 
-func genap(n int) int {
+// fitChain memasukkan gambar ke kotak boxW x boxH menurut berapa banyak frame
+// asli yang harus tetap terlihat.
+//
+// Kedua ujungnya memakai bentuk sederhana yang dihitung ffmpeg sendiri; hanya
+// nilai di antaranya yang butuh ekspresi. Selain lebih mudah dibaca, ini juga
+// menjamin ujungnya tepat: pembulatan ekspresi bisa meleset satu piksel, dan
+// pada isi-penuh satu piksel meleset berarti segaris latar terlihat di tepi.
+func fitChain(visible, boxW, boxH int) string {
+	switch {
+	case visible >= 100:
+		// Contain: seluruh frame asli muat, menyisakan ruang di satu sumbu.
+		return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos", boxW, boxH)
+	case visible <= 0:
+		// Cover: kotak penuh, kelebihannya dipotong di tengah.
+		return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
+			boxW, boxH, boxW, boxH)
+	}
+
+	// Di antaranya: skala diinterpolasi linear dari contain ke cover. Makin
+	// KECIL FrameVisible, makin dekat ke cover — jadi bobotnya dibalik.
+	//
+	//	contain = min(BW/iw, BH/ih)      cover = max(BW/iw, BH/ih)
+	//	skala   = contain + (cover-contain) * (100-visible)/100
+	//
+	// Dihitung ffmpeg lewat ekspresi supaya dimensi sumber tidak perlu diprobe
+	// lebih dulu. Ekspresinya dikutip tunggal agar koma di dalam min()/max()
+	// tidak dibaca sebagai pemisah filter — di dalam kutip, koma tidak
+	// ditafsirkan, jadi TIDAK boleh di-escape dengan backslash.
+	toward := float64(100-visible) / 100
+	contain := fmt.Sprintf("min(%d/iw,%d/ih)", boxW, boxH)
+	cover := fmt.Sprintf("max(%d/iw,%d/ih)", boxW, boxH)
+	scale := fmt.Sprintf("(%s+(%s-%s)*%.4f)", contain, cover, contain, toward)
+
+	return fmt.Sprintf(
+		"scale=w='trunc(iw*%s/2)*2':h='trunc(ih*%s/2)*2':flags=lanczos"+
+			",crop='min(iw,%d)':'min(ih,%d)'",
+		scale, scale, boxW, boxH)
+}
+
+func clampPercent(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > 100 {
+		return 100
+	}
+	return n
+}
+
+func evenBox(n int) int {
 	if n < 2 {
 		return 2
 	}
@@ -168,12 +225,12 @@ func genap(n int) int {
 }
 
 // ClipReframe memotong [start,end], menyesuaikan ke rasio target, dan membakar
-// subtitle .ass bila diisi. Mode "fit" menampilkan frame utuh di atas latar blur
-// (tanpa zoom, paling tajam); selain itu crop tengah (isi penuh, ada zoom).
+// subtitle .ass bila diisi. Penempatan gambarnya ditentukan
+// EncodeOpts.FrameVisible & EncodeOpts.PictureSize.
 func (c *Client) ClipReframe(ctx context.Context, input string, start, end float64, targetW, targetH int, enc EncodeOpts, out string) error {
 	dur := end - start
 	if dur <= 0 {
-		return fmt.Errorf("durasi klip tidak valid: %.2f", dur)
+		return fmt.Errorf("invalid clip duration: %.2f", dur)
 	}
 	// Pastikan folder tujuan ada. Render satu job bisa berjalan puluhan menit;
 	// bila foldernya sempat terhapus atau dipindah di tengah jalan, ffmpeg baru
@@ -181,7 +238,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 	// terbuang. Ini folder kerja job sendiri, jadi membuatnya ulang aman.
 	if dir := filepath.Dir(out); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return fmt.Errorf("folder keluaran %q: %w", dir, err)
+			return fmt.Errorf("output folder %q: %w", dir, err)
 		}
 	}
 	// Filter subtitle (ditempel di akhir rantai).
@@ -193,7 +250,8 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		}
 	}
 
-	vf := ReframeFilter(Tata{Mode: enc.Mode, Latar: enc.Latar, Zoom: enc.Zoom}, targetW, targetH)
+	vf := ReframeFilter(Layout{Mode: enc.Mode, Background: enc.Background,
+		FrameVisible: enc.FrameVisible, PictureSize: enc.PictureSize}, targetW, targetH)
 	if enc.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", enc.FPS)
 	}
@@ -234,8 +292,8 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 // memakai mode reframe yang sama dengan render, dikembalikan sebagai JPEG
 // (untuk preview subtitle di GUI). Hasilnya = satu frame dari klip jadi,
 // jadi koordinat subtitle yang diatur di preview berlaku apa adanya.
-func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int, tata Tata) ([]byte, error) {
-	vf := ReframeFilter(tata, targetW, targetH)
+func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targetW, targetH int, layout Layout) ([]byte, error) {
+	vf := ReframeFilter(layout, targetW, targetH)
 	args := []string{
 		"-y",
 		"-ss", fmt.Sprintf("%.3f", t),
@@ -251,7 +309,7 @@ func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targ
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("ekstrak frame gagal: %w", err)
+		return nil, fmt.Errorf("frame extraction failed: %w", err)
 	}
 	return out.Bytes(), nil
 }
@@ -261,30 +319,30 @@ func (c *Client) run(ctx context.Context, label string, args []string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s gagal: %w: %s", label, err, ringkasGalat(stderr.String()))
+		return fmt.Errorf("%s failed: %w: %s", label, err, summarizeError(stderr.String()))
 	}
 	return nil
 }
 
-// kataGalat = penanda baris stderr yang benar-benar menjelaskan kegagalan.
-var kataGalat = []string{
+// errorKeywords = penanda baris stderr yang benar-benar menjelaskan kegagalan.
+var errorKeywords = []string{
 	"error", "invalid", "no such", "permission", "unable",
 	"not found", "denied", "no space", "cannot", "failed",
 }
 
-// ringkasGalat menyaring baris stderr ffmpeg yang menjelaskan sebab kegagalan.
+// summarizeError menyaring baris stderr ffmpeg yang menjelaskan sebab kegagalan.
 //
 // Dulu bagian ini hanya memotong 500 karakter TERAKHIR — padahal ekor keluaran
 // ffmpeg selalu berisi blok statistik x264, bagian yang paling tidak berguna,
 // sementara baris sebabnya tercetak jauh lebih awal dan ikut terbuang. Kasus
 // nyatanya: "exit status 254" yang ternyata "No such file or directory" karena
 // folder keluaran hilang saat render, tapi pesan itu tidak pernah terlihat.
-func ringkasGalat(stderr string) string {
-	var penting []string
-	terlihat := map[string]bool{}
+func summarizeError(stderr string) string {
+	var important []string
+	seen := map[string]bool{}
 	for _, ln := range strings.Split(stderr, "\n") {
 		ln = strings.TrimSpace(ln)
-		if ln == "" || terlihat[ln] {
+		if ln == "" || seen[ln] {
 			continue
 		}
 		low := strings.ToLower(ln)
@@ -293,15 +351,15 @@ func ringkasGalat(stderr string) string {
 		if low == "conversion failed!" {
 			continue
 		}
-		for _, k := range kataGalat {
+		for _, k := range errorKeywords {
 			if strings.Contains(low, k) {
-				penting = append(penting, ln)
-				terlihat[ln] = true
+				important = append(important, ln)
+				seen[ln] = true
 				break
 			}
 		}
 	}
-	if len(penting) == 0 {
+	if len(important) == 0 {
 		// Tak ada baris yang cocok: kembali ke ekor keluaran seadanya.
 		tail := strings.TrimSpace(stderr)
 		if len(tail) > 300 {
@@ -311,29 +369,29 @@ func ringkasGalat(stderr string) string {
 	}
 	// Baris terakhir yang cocok biasanya sebab paling dekat dengan kegagalan;
 	// dua baris sebelumnya ikut dibawa sebagai konteks.
-	if len(penting) > 3 {
-		penting = penting[len(penting)-3:]
+	if len(important) > 3 {
+		important = important[len(important)-3:]
 	}
-	pesan := strings.Join(penting, " | ")
-	if p := petunjukGalat(pesan); p != "" {
-		pesan += " — " + p
+	message := strings.Join(important, " | ")
+	if hint := errorHint(message); hint != "" {
+		message += " — " + hint
 	}
-	return pesan
+	return message
 }
 
-// petunjukGalat menerjemahkan galat ffmpeg yang sering muncul jadi langkah
-// yang bisa ditindaklanjuti pengguna.
-func petunjukGalat(msg string) string {
+// errorHint menerjemahkan galat ffmpeg yang sering muncul jadi langkah yang
+// bisa ditindaklanjuti pengguna.
+func errorHint(msg string) string {
 	low := strings.ToLower(msg)
 	switch {
 	case strings.Contains(low, "no such file or directory"):
-		return "folder atau berkas keluaran tidak ada (mungkin terhapus/dipindah saat render)"
+		return "the output folder or file is missing (deleted or moved during the render?)"
 	case strings.Contains(low, "permission denied"):
-		return "izin tulis ditolak untuk folder keluaran"
+		return "write permission denied for the output folder"
 	case strings.Contains(low, "no space left"):
-		return "ruang disk habis"
+		return "the disk is full"
 	case strings.Contains(low, "invalid data found"):
-		return "berkas sumber rusak atau formatnya tidak didukung"
+		return "the source file is corrupt or its format is unsupported"
 	}
 	return ""
 }

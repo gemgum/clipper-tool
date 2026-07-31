@@ -17,60 +17,91 @@ type Chunk struct {
 	End   float64 // detik akhir potongan
 }
 
+// languageNames memetakan kode bahasa transkrip ke nama yang dimengerti model.
+// Dipakai untuk memberi tahu model dalam bahasa apa judul & tagar harus ditulis:
+// judul mengikuti bahasa VIDEO, bukan bahasa antarmuka.
+var languageNames = map[string]string{
+	"id": "Indonesian",
+	"en": "English",
+	"ms": "Malay",
+	"jv": "Javanese",
+	"su": "Sundanese",
+}
+
+// LanguageName mengembalikan nama bahasa yang bisa dipakai di dalam prompt.
+// Kode yang tidak dikenal dikembalikan apa adanya — model umumnya masih paham.
+func LanguageName(code string) string {
+	code = strings.ToLower(strings.TrimSpace(code))
+	if code == "" {
+		return "Indonesian"
+	}
+	if name, ok := languageNames[code]; ok {
+		return name
+	}
+	return code
+}
+
 // SystemPrompt menyusun instruksi yang dipakai SAMA PERSIS oleh Claude maupun
 // Ollama, supaya hasil kedua mesin bisa dibandingkan. Ditulis detail karena
 // keluaran model kini dijamin bentuknya (JSON Schema di Ollama) sehingga prompt
 // panjang tidak lagi merusak format balasan.
-func SystemPrompt(targetMin, targetMax float64, ch Chunk) string {
-	var b strings.Builder
-	b.WriteString(`Kamu kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).
-Kamu diberi transkrip bertimestamp (detik). Tugasmu MEMILIH momen terbaik untuk klip pendek vertikal.
+//
+// contentLang = bahasa isi video; judul & tagar ditulis dalam bahasa itu,
+// sedangkan instruksinya sendiri selalu bahasa Inggris.
+func SystemPrompt(targetMin, targetMax float64, ch Chunk, contentLang string) string {
+	lang := LanguageName(contentLang)
 
-ATURAN BATAS WAKTU — paling penting:
-- 'start' dan 'end' WAJIB diambil dari angka timestamp yang benar-benar ADA di transkrip.
-  'start' = angka awal sebuah baris, 'end' = angka akhir sebuah baris. DILARANG mengarang angka.
-- Momen harus mulai di awal kalimat dan berakhir di akhir kalimat. Jangan memotong di tengah ucapan.
-- Momen tidak boleh saling tumpang tindih.
+	var b strings.Builder
+	b.WriteString(`You curate viral short-form video clips (TikTok, Reels, Shorts).
+You are given a timestamped transcript (in seconds). Your job is to SELECT the best moments for short vertical clips.
+
+TIME BOUNDARY RULES — the most important part:
+- 'start' and 'end' MUST come from timestamp numbers that actually APPEAR in the transcript.
+  'start' = the opening number of a line, 'end' = the closing number of a line. NEVER invent numbers.
+- A moment must begin at the start of a sentence and end at the end of a sentence. Never cut mid-utterance.
+- Moments must not overlap each other.
 `)
-	fmt.Fprintf(&b, "- Incar durasi %.0f-%.0f detik. Boleh menyimpang demi momen yang utuh, tapi jangan di bawah %.0f detik.\n",
+	fmt.Fprintf(&b, "- Aim for %.0f-%.0f seconds. You may deviate to keep a moment whole, but never go below %.0f seconds.\n",
 		targetMin, targetMax, targetMin*0.6)
 
 	if ch.Total > 1 {
 		fmt.Fprintf(&b, `
-POTONGAN: ini bagian %d dari %d, mencakup detik %.0f sampai %.0f dari video utuh.
-- Pilih momen HANYA di dalam rentang detik itu.
-- Bila momen terbaik masih BERLANJUT melewati detik %.0f, set "berlanjut": true dan tulis "end" = %.0f.
-  Sisa momen akan diambil dari potongan berikutnya dan disambung otomatis.
-- Selain itu "berlanjut": false.
+CHUNK: this is part %d of %d, covering seconds %.0f through %.0f of the full video.
+- Only pick moments inside that time range.
+- If the best moment still CONTINUES past second %.0f, set "continues": true and write "end" = %.0f.
+  The rest of the moment will be taken from the next chunk and joined automatically.
+- Otherwise set "continues": false.
 `, ch.Index, ch.Total, ch.Start, ch.End, ch.End, ch.End)
 	}
 
 	b.WriteString(`
-KRITERIA SKOR (0-100 tiap dimensi):
-- hook: 3 detik pertama menahan orang agar tidak scroll?
-- emotion: muatan emosi (kaget, lucu, marah, haru, menginspirasi)
-- clarity: mudah dipahami tanpa konteks video lain
-- shareability: layak dibagikan atau memancing komentar
-- standalone: utuh sebagai satu cerita (hook -> isi -> penutup)
-- score: penilaian keseluruhan, bukan rata-rata mentah kelima dimensi
+SCORING CRITERIA (0-100 per dimension):
+- hook: do the first 3 seconds stop someone from scrolling?
+- emotion: emotional charge (surprise, humour, anger, tenderness, inspiration)
+- clarity: understandable without the rest of the video
+- shareability: worth sharing, or likely to draw comments
+- standalone: complete as a single story (hook -> body -> close)
+- score: an overall judgement, not a raw average of the five dimensions
 
-JUDUL & TAGAR:
-- title: judul catchy bahasa Indonesia, maksimal 60 karakter, tanpa tanda kutip.
-- hashtags: 3-5 tagar relevan berbahasa Indonesia, tiap tagar diawali #.
+TITLE & HASHTAGS:
+`)
+	fmt.Fprintf(&b, "- title: a catchy title in %s, at most 60 characters, no quotation marks.\n", lang)
+	fmt.Fprintf(&b, "- hashtags: 3-5 relevant hashtags in %s, each starting with #.\n", lang)
 
-Balas HANYA JSON valid tanpa penjelasan apa pun, bentuk persis:
-{"moments":[{"start":<detik>,"end":<detik>,"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<judul>","hashtags":["#..","#.."],"berlanjut":false}]}`)
+	b.WriteString(`
+Reply with VALID JSON ONLY, no explanation, in exactly this shape:
+{"moments":[{"start":<seconds>,"end":<seconds>,"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<title>","hashtags":["#..","#.."],"continues":false}]}`)
 	return b.String()
 }
 
 // UserPrompt merangkai transkrip bertimestamp + permintaan jumlah momen.
 func UserPrompt(tr types.Transcript, maxClips int) string {
 	var b strings.Builder
-	b.WriteString("Transkrip:\n")
+	b.WriteString("Transcript:\n")
 	for _, s := range tr.Segments {
 		fmt.Fprintf(&b, "[%.1f-%.1f] %s\n", s.Start, s.End, s.Text)
 	}
-	fmt.Fprintf(&b, "\nPilih maksimal %d momen terbaik.", maxClips)
+	fmt.Fprintf(&b, "\nSelect at most %d of the best moments.", maxClips)
 	return b.String()
 }
 
@@ -99,7 +130,7 @@ func ResponseSchema() map[string]any {
 						},
 						"title":     map[string]any{"type": "string"},
 						"hashtags":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-						"berlanjut": map[string]any{"type": "boolean"},
+						"continues": map[string]any{"type": "boolean"},
 					},
 					"required": []string{"start", "end", "score", "title"},
 				},

@@ -115,7 +115,7 @@ static int cmdFeatures(const std::string& input, int hopMs) {
     std::vector<float> samples;
     int sr = 16000;
     if (!readWav(input, samples, sr)) {
-        emitError("gagal baca WAV: " + input);
+        emitError("could not read WAV: " + input);
         return 1;
     }
     if (hopMs <= 0) hopMs = 100;
@@ -147,7 +147,7 @@ static int cmdReframe(const std::string& input, const std::string& output) {
     // Placeholder: engine (Go) menangani center-crop via ffmpeg untuk MVP.
     // Milestone berikut: baca frame dengan OpenCV, hitung crop ikut wajah.
     (void)input;
-    emitError("reframe belum diimplementasi di worker (dipakai ffmpeg oleh engine); output=" + output);
+    emitError("reframe is not implemented in the worker (the engine uses ffmpeg); output=" + output);
     return 2;
 }
 
@@ -157,11 +157,11 @@ int main() {
     if (cmd == "features") {
         std::string input = jsonString(req, "input");
         int hopMs = (int)jsonInt(req, "hop_ms", 100);
-        if (input.empty()) { emitError("field 'input' kosong"); return 1; }
+        if (input.empty()) { emitError("the 'input' field is empty"); return 1; }
         return cmdFeatures(input, hopMs);
     } else if (cmd == "reframe") {
         return cmdReframe(jsonString(req, "input"), jsonString(req, "output"));
     }
-    emitError("perintah tidak dikenal: " + cmd);
+    emitError("unknown command: " + cmd);
     return 1;
 }

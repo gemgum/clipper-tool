@@ -62,6 +62,17 @@ func transcriptCachePath(dataDir, key string) string {
 	return filepath.Join(dataDir, "cache", "transcripts", key+".json")
 }
 
+// correctedCachePath lokasi transkrip yang sudah dikoreksi.
+//
+// Kuncinya menyertakan nama mesin & versi prompt: mengganti model atau
+// memperbaiki prompt harus menghasilkan koreksi baru, bukan memakai ulang hasil
+// lama yang bentuknya sudah berbeda. Disimpan terpisah dari transkrip mentah
+// supaya mematikan koreksi tidak memaksa transkripsi ulang — tahap termahal.
+func correctedCachePath(dataDir, transcriptKey, engine, version string) string {
+	h := sha256.Sum256([]byte(transcriptKey + "\x00" + engine + "\x00" + version))
+	return filepath.Join(dataDir, "cache", "corrected", hex.EncodeToString(h[:16])+".json")
+}
+
 // loadTranscriptCache membaca transkrip tersimpan (ok=false bila belum ada).
 func loadTranscriptCache(path string) (types.Transcript, bool) {
 	raw, err := os.ReadFile(path)

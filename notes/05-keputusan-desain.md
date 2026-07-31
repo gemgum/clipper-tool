@@ -38,7 +38,7 @@ CPU-only: default whisper.cpp model `small`/`base`, reframe center-crop dulu.
 
 ```
 clipper/
-├── catatan/            # dokumentasi & diskusi (ini)
+├── notes/            # dokumentasi & diskusi (ini)
 ├── engine/             # Go
 │   ├── cmd/clipper/    # entrypoint: CLI + server
 │   └── internal/
@@ -59,4 +59,4 @@ clipper/
 
 ## Soal /init
 Belum perlu sekarang (folder kosong). Urutan: kunci desain → scaffold →
-baru /init atau tulis CLAUDE.md manual. catatan/ + CLAUDE.md = pilar dokumentasi.
+baru /init atau tulis CLAUDE.md manual. notes/ + CLAUDE.md = pilar dokumentasi.

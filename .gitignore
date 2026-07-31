@@ -28,7 +28,7 @@
 *.srt
 *.ass
 # tapi jangan ignore dokumentasi
-!catatan/**
+!notes/**
 
 # --- Sampah WSL/Windows (mark-of-the-web) ---
 *:Zone.Identifier

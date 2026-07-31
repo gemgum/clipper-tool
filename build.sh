@@ -15,4 +15,4 @@ cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev
 cmake --build "$ROOT/worker/build" >/dev/null
 echo "    bin/clipper-worker"
 
-echo "Selesai."
+echo "Done."

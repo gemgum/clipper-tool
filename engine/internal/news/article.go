@@ -8,65 +8,65 @@ import (
 	"strings"
 )
 
-// Ambil membaca satu artikel dari URL yang ditempel pengguna dan mengembalikan
-// bahan untuk kartu.
+// FetchArticle membaca satu artikel dari URL yang ditempel pengguna dan
+// mengembalikan bahan untuk kartu.
 //
 // Sumber datanya adalah tag Open Graph (og:title, og:image, …) — bukan isi
 // badan halaman. Alasannya: og: memang dipasang media supaya tautannya tampil
 // rapi saat dibagikan ke media sosial, jadi isinya sudah berupa judul, ringkasan
 // dan gambar utama yang mereka pilih sendiri. Menebaknya dari badan HTML jauh
 // lebih rapuh dan berbeda-beda tiap situs.
-func Ambil(ctx context.Context, halaman string) (Artikel, error) {
-	u, err := url.Parse(strings.TrimSpace(halaman))
+func FetchArticle(ctx context.Context, page, lang string) (Article, error) {
+	u, err := url.Parse(strings.TrimSpace(page))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return Artikel{}, fmt.Errorf("URL tidak valid — tempel tautan lengkap yang diawali https://")
+		return Article{}, fmt.Errorf("invalid URL — paste a full link starting with https://")
 	}
-	raw, err := ambil(ctx, u.String())
+	raw, err := download(ctx, u.String())
 	if err != nil {
-		return Artikel{}, err
+		return Article{}, err
 	}
-	return uraiArtikel(string(raw), u)
+	return parseArticle(string(raw), u, lang)
 }
 
-// uraiArtikel membaca metadata dari HTML yang sudah di tangan. Dipisah dari
-// Ambil supaya bisa dipakai juga untuk DOM hasil browser (tautan Google News),
-// yang tidak melewati pengunduhan biasa.
-func uraiArtikel(htmlStr string, u *url.URL) (Artikel, error) {
-	meta := bacaMeta(htmlStr)
-	judul := firstNonEmpty(meta["og:title"], meta["twitter:title"], tagTitle(htmlStr))
-	if judul == "" {
-		return Artikel{}, fmt.Errorf("tidak menemukan judul di %s — halaman itu mungkin bukan artikel, atau memuat isinya lewat JavaScript", domain(u.String()))
+// parseArticle membaca metadata dari HTML yang sudah di tangan. Dipisah dari
+// FetchArticle supaya bisa dipakai juga untuk DOM hasil browser (tautan Google
+// News), yang tidak melewati pengunduhan biasa.
+func parseArticle(htmlStr string, u *url.URL, lang string) (Article, error) {
+	meta := readMeta(htmlStr)
+	title := firstNonEmpty(meta["og:title"], meta["twitter:title"], tagTitle(htmlStr))
+	if title == "" {
+		return Article{}, fmt.Errorf("no title found at %s — that page may not be an article, or it loads its content via JavaScript", domain(u.String()))
 	}
 	// og:url menyebut alamat kanonik artikel. Untuk halaman hasil resolusi
 	// Google News, inilah satu-satunya tempat alamat aslinya muncul.
-	alamat := u
-	// bersih() wajib di sini: sebagian situs menulis og:url dengan entitas HTML
+	address := u
+	// clean() wajib di sini: sebagian situs menulis og:url dengan entitas HTML
 	// menempel di ujungnya (mis. "…/artikel&nbsp;&nbsp;"). Diteruskan mentah,
 	// alamat yang dihasilkan ikut membawa sampah itu dan berujung 404.
-	if canon := bersih(firstNonEmpty(meta["og:url"], meta["twitter:url"])); canon != "" {
+	if canon := clean(firstNonEmpty(meta["og:url"], meta["twitter:url"])); canon != "" {
 		if abs, err := u.Parse(canon); err == nil && abs.Host != "" {
-			alamat = abs
+			address = abs
 		}
 	}
-	ringkas := firstNonEmpty(meta["og:description"], meta["twitter:description"], meta["description"])
-	gambar := bersih(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"]))
-	if gambar != "" {
+	summary := firstNonEmpty(meta["og:description"], meta["twitter:description"], meta["description"])
+	image := clean(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"]))
+	if image != "" {
 		// Sebagian situs menulis og:image sebagai path relatif.
-		if abs, err := alamat.Parse(gambar); err == nil {
-			gambar = abs.String()
+		if abs, err := address.Parse(image); err == nil {
+			image = abs.String()
 		}
 	}
-	terbit := firstNonEmpty(meta["article:published_time"], meta["og:updated_time"], meta["date"])
+	published := firstNonEmpty(meta["article:published_time"], meta["og:updated_time"], meta["date"])
 
-	return Artikel{
-		Judul:   bersih(judul),
-		Ringkas: potong(bersih(ringkas), 300),
-		URL:     alamat.String(),
-		Gambar:  gambar,
-		Sumber:  firstNonEmpty(bersih(meta["og:site_name"]), domain(alamat.String())),
-		Domain:  domain(alamat.String()),
-		Tanggal: formatTanggal(terbit),
-		Terbit:  rfc3339(terbit),
+	return Article{
+		Title:     clean(title),
+		Summary:   truncate(clean(summary), 300),
+		URL:       address.String(),
+		Image:     image,
+		Source:    firstNonEmpty(clean(meta["og:site_name"]), domain(address.String())),
+		Domain:    domain(address.String()),
+		Date:      formatDate(published, lang),
+		Published: rfc3339(published),
 	}, nil
 }
 
@@ -80,8 +80,8 @@ var (
 	reHead     = regexp.MustCompile(`(?is)</head>`)
 )
 
-// bacaMeta mengumpulkan seluruh tag meta jadi peta kunci→isi.
-func bacaMeta(h string) map[string]string {
+// readMeta mengumpulkan seluruh tag meta jadi peta kunci→isi.
+func readMeta(h string) map[string]string {
 	// Cukup pindai bagian <head>; badan artikel bisa sangat panjang dan tidak
 	// pernah berisi tag og:.
 	if loc := reHead.FindStringIndex(h); loc != nil {
@@ -94,11 +94,11 @@ func bacaMeta(h string) map[string]string {
 		if len(k) != 2 || len(v) != 2 {
 			continue
 		}
-		kunci := strings.ToLower(strings.TrimSpace(k[1]))
-		if _, ada := out[kunci]; ada {
+		key := strings.ToLower(strings.TrimSpace(k[1]))
+		if _, exists := out[key]; exists {
 			continue // pakai yang pertama; duplikat biasanya kurang spesifik
 		}
-		out[kunci] = v[1]
+		out[key] = v[1]
 	}
 	return out
 }

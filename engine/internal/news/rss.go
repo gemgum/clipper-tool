@@ -18,41 +18,41 @@ import (
 	"time"
 )
 
-// Sumber satu feed berita.
-type Sumber struct {
+// Source satu feed berita.
+type Source struct {
 	ID    string `json:"id"`
-	Nama  string `json:"nama"`
+	Name  string `json:"name"`
 	URL   string `json:"url"`
-	Topik string `json:"topik"`
+	Topic string `json:"topic"`
 }
 
-// SumberBawaan = feed media Indonesia yang dipakai GUI sebagai titik awal.
+// DefaultSources = feed media Indonesia yang dipakai GUI sebagai titik awal.
 // Pengguna tetap bisa menempel URL feed lain lewat parameter ?feed=.
-var SumberBawaan = []Sumber{
-	{"antara", "ANTARA", "https://www.antaranews.com/rss/terkini.xml", "Terkini"},
-	{"antara-ekonomi", "ANTARA", "https://www.antaranews.com/rss/ekonomi.xml", "Ekonomi"},
-	{"antara-olahraga", "ANTARA", "https://www.antaranews.com/rss/olahraga.xml", "Olahraga"},
-	{"antara-tekno", "ANTARA", "https://www.antaranews.com/rss/tekno.xml", "Teknologi"},
-	{"detik", "detikcom", "https://rss.detik.com/index.php/detiknews", "Terkini"},
-	{"detik-finance", "detikcom", "https://rss.detik.com/index.php/finance", "Ekonomi"},
-	{"detik-inet", "detikcom", "https://rss.detik.com/index.php/inet", "Teknologi"},
-	{"cnn", "CNN Indonesia", "https://www.cnnindonesia.com/nasional/rss", "Nasional"},
-	{"cnn-ekonomi", "CNN Indonesia", "https://www.cnnindonesia.com/ekonomi/rss", "Ekonomi"},
-	{"tempo", "Tempo", "https://rss.tempo.co/nasional", "Nasional"},
-	{"liputan6", "Liputan6", "https://feed.liputan6.com/rss", "Terkini"},
-	{"kumparan", "kumparan", "https://kumparan.com/kumparannews/rss", "Terkini"},
+var DefaultSources = []Source{
+	{"antara", "ANTARA", "https://www.antaranews.com/rss/terkini.xml", "Latest"},
+	{"antara-economy", "ANTARA", "https://www.antaranews.com/rss/ekonomi.xml", "Economy"},
+	{"antara-sports", "ANTARA", "https://www.antaranews.com/rss/olahraga.xml", "Sports"},
+	{"antara-tech", "ANTARA", "https://www.antaranews.com/rss/tekno.xml", "Technology"},
+	{"detik", "detikcom", "https://rss.detik.com/index.php/detiknews", "Latest"},
+	{"detik-finance", "detikcom", "https://rss.detik.com/index.php/finance", "Economy"},
+	{"detik-inet", "detikcom", "https://rss.detik.com/index.php/inet", "Technology"},
+	{"cnn", "CNN Indonesia", "https://www.cnnindonesia.com/nasional/rss", "National"},
+	{"cnn-economy", "CNN Indonesia", "https://www.cnnindonesia.com/ekonomi/rss", "Economy"},
+	{"tempo", "Tempo", "https://rss.tempo.co/nasional", "National"},
+	{"liputan6", "Liputan6", "https://feed.liputan6.com/rss", "Latest"},
+	{"kumparan", "kumparan", "https://kumparan.com/kumparannews/rss", "Latest"},
 }
 
-// Artikel satu item berita — bentuk yang dipakai kartu.
-type Artikel struct {
-	Judul   string `json:"judul"`
-	Ringkas string `json:"ringkas"`
-	URL     string `json:"url"`
-	Gambar  string `json:"gambar"`
-	Sumber  string `json:"sumber"`  // nama media, mis. "ANTARA"
-	Domain  string `json:"domain"`  // mis. "antaranews.com"
-	Tanggal string `json:"tanggal"` // sudah diformat untuk manusia
-	Terbit  string `json:"terbit"`  // RFC3339 bila terbaca
+// Article satu item berita — bentuk yang dipakai kartu.
+type Article struct {
+	Title     string `json:"title"`
+	Summary   string `json:"summary"`
+	URL       string `json:"url"`
+	Image     string `json:"image"`
+	Source    string `json:"source"`    // nama media, mis. "ANTARA"
+	Domain    string `json:"domain"`    // mis. "antaranews.com"
+	Date      string `json:"date"`      // sudah diformat untuk manusia
+	Published string `json:"published"` // RFC3339 bila terbaca
 }
 
 // bentuk XML RSS 2.0. Field yang tidak dipakai sengaja tidak didaftarkan.
@@ -84,7 +84,7 @@ type rssItem struct {
 	// Google News mengisi <source> dengan nama media & domainnya. Lebih akurat
 	// daripada daftar kurasi kita, sebab mencakup media mana pun.
 	Source struct {
-		Nama string `xml:",chardata"`
+		Name string `xml:",chardata"`
 		URL  string `xml:"url,attr"`
 	} `xml:"source"`
 }
@@ -98,51 +98,51 @@ type atomEntry struct {
 	} `xml:"link"`
 }
 
-var klien = &http.Client{Timeout: 25 * time.Second}
+var httpClient = &http.Client{Timeout: 25 * time.Second}
 
-// batasUnduh membatasi besar respons agar satu URL nakal tidak menghabiskan RAM.
-const batasUnduh = 4 << 20 // 4 MB
+// downloadLimit membatasi besar respons agar satu URL nakal tidak menghabiskan RAM.
+const downloadLimit = 4 << 20 // 4 MB
 
-// ambil mengunduh URL sebagai teks dengan batas ukuran & User-Agent yang jelas.
-func ambil(ctx context.Context, url string) ([]byte, error) {
+// download mengunduh URL sebagai teks dengan batas ukuran & User-Agent yang jelas.
+func download(ctx context.Context, url string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("URL tidak valid: %v", err)
+		return nil, fmt.Errorf("invalid URL: %v", err)
 	}
 	// Jujur menyebut diri; beberapa media memblokir User-Agent kosong.
-	req.Header.Set("User-Agent", "Clipper/0.1 (+pembuat konten; pembaca RSS)")
+	req.Header.Set("User-Agent", "Clipper/0.1 (+content creator; RSS reader)")
 	req.Header.Set("Accept-Language", "id-ID,id;q=0.9")
-	res, err := klien.Do(req)
+	res, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("gagal menghubungi %s: %v", url, err)
+		return nil, fmt.Errorf("could not reach %s: %v", url, err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("%s membalas HTTP %d", url, res.StatusCode)
+		return nil, fmt.Errorf("%s replied HTTP %d", url, res.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(res.Body, batasUnduh))
+	return io.ReadAll(io.LimitReader(res.Body, downloadLimit))
 }
 
-// Daftar mengambil isi satu feed dan mengubahnya jadi daftar artikel.
+// ListFeed mengambil isi satu feed dan mengubahnya jadi daftar artikel.
 //
-// nama = nama media untuk badge kartu. Diisi pemanggil bila feednya ada di
-// SumberBawaan, sebab judul channel RSS tidak bisa dipercaya: ANTARA menulis
+// name = nama media untuk badge kartu. Diisi pemanggil bila feednya ada di
+// DefaultSources, sebab judul channel RSS tidak bisa dipercaya: ANTARA menulis
 // "Berita Terkini - ANTARA News" (nama medianya di belakang) sedangkan CNN
 // menulis "CNN Indonesia | ..." (di depan). Bila kosong, judul channel dipakai
 // sebagai tebakan, lalu domain sebagai jaring terakhir.
-func Daftar(ctx context.Context, feedURL, nama string, maks int) ([]Artikel, error) {
-	raw, err := ambil(ctx, feedURL)
+func ListFeed(ctx context.Context, feedURL, name string, max int, lang string) ([]Article, error) {
+	raw, err := download(ctx, feedURL)
 	if err != nil {
 		return nil, err
 	}
-	return uraiFeed(raw, nama, maks)
+	return parseFeed(raw, name, max, lang)
 }
 
-// uraiFeed mengubah isi XML jadi daftar artikel. Dipisah dari Daftar supaya
+// parseFeed mengubah isi XML jadi daftar artikel. Dipisah dari ListFeed supaya
 // penguraiannya bisa diuji tanpa menyentuh jaringan.
-func uraiFeed(raw []byte, nama string, maks int) ([]Artikel, error) {
-	if maks <= 0 {
-		maks = 20
+func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error) {
+	if max <= 0 {
+		max = 20
 	}
 	var f rssFeed
 	dec := xml.NewDecoder(strings.NewReader(string(raw)))
@@ -151,63 +151,63 @@ func uraiFeed(raw []byte, nama string, maks int) ([]Artikel, error) {
 	dec.Strict = false
 	dec.CharsetReader = func(_ string, r io.Reader) (io.Reader, error) { return r, nil }
 	if err := dec.Decode(&f); err != nil {
-		return nil, fmt.Errorf("isi feed tidak terbaca sebagai RSS/Atom: %v", err)
+		return nil, fmt.Errorf("the feed content is not readable as RSS/Atom: %v", err)
 	}
 
-	namaFeed := bersih(f.Channel.Title)
-	if namaFeed == "" {
-		namaFeed = bersih(f.AtomTitle)
+	feedName := clean(f.Channel.Title)
+	if feedName == "" {
+		feedName = clean(f.AtomTitle)
 	}
 
-	var out []Artikel
+	var out []Article
 	for _, it := range f.Channel.Items {
-		if len(out) >= maks {
+		if len(out) >= max {
 			break
 		}
-		link := bersih(it.Link)
+		link := clean(it.Link)
 		if link == "" {
 			continue
 		}
-		gambar := firstNonEmpty(it.Enclosure.URL, it.MediaContent.URL, it.MediaThumb.URL, gambarDalam(it.Description))
+		image := firstNonEmpty(it.Enclosure.URL, it.MediaContent.URL, it.MediaThumb.URL, imageInHTML(it.Description))
 		// <source> (dipakai Google News) menang atas tebakan apa pun: ia menyebut
 		// nama media per artikel, bukan per feed.
-		media := bersih(it.Source.Nama)
+		media := clean(it.Source.Name)
 		dom := domain(link)
 		if it.Source.URL != "" {
 			dom = domain(it.Source.URL)
 		}
-		out = append(out, Artikel{
-			Judul:   bersih(buangEkorMedia(it.Title, media)),
-			Ringkas: potong(bersih(buangTag(it.Description)), 300),
-			URL:     link,
-			Gambar:  gambar,
-			Sumber:  firstNonEmpty(media, nama, namaMedia(namaFeed, link)),
-			Domain:  dom,
-			Tanggal: formatTanggal(it.PubDate),
-			Terbit:  rfc3339(it.PubDate),
+		out = append(out, Article{
+			Title:     clean(stripSourceSuffix(it.Title, media)),
+			Summary:   truncate(clean(stripTags(it.Description)), 300),
+			URL:       link,
+			Image:     image,
+			Source:    firstNonEmpty(media, name, mediaName(feedName, link)),
+			Domain:    dom,
+			Date:      formatDate(it.PubDate, lang),
+			Published: rfc3339(it.PubDate),
 		})
 	}
 	for _, e := range f.AtomEntries {
-		if len(out) >= maks {
+		if len(out) >= max {
 			break
 		}
-		link := bersih(e.Link.Href)
+		link := clean(e.Link.Href)
 		if link == "" {
 			continue
 		}
-		out = append(out, Artikel{
-			Judul:   bersih(e.Title),
-			Ringkas: potong(bersih(buangTag(e.Summary)), 300),
-			URL:     link,
-			Gambar:  gambarDalam(e.Summary),
-			Sumber:  firstNonEmpty(nama, namaMedia(namaFeed, link)),
-			Domain:  domain(link),
-			Tanggal: formatTanggal(e.Updated),
-			Terbit:  rfc3339(e.Updated),
+		out = append(out, Article{
+			Title:     clean(e.Title),
+			Summary:   truncate(clean(stripTags(e.Summary)), 300),
+			URL:       link,
+			Image:     imageInHTML(e.Summary),
+			Source:    firstNonEmpty(name, mediaName(feedName, link)),
+			Domain:    domain(link),
+			Date:      formatDate(e.Updated, lang),
+			Published: rfc3339(e.Updated),
 		})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("feed terbaca tapi tidak berisi artikel — periksa URL feed")
+		return nil, fmt.Errorf("the feed parsed but contains no articles — check the feed URL")
 	}
 	return out, nil
 }
@@ -220,44 +220,44 @@ var (
 	reWS  = regexp.MustCompile(`\s+`)
 )
 
-func buangTag(s string) string { return reTag.ReplaceAllString(s, " ") }
+func stripTags(s string) string { return reTag.ReplaceAllString(s, " ") }
 
-// gambarDalam mencari <img src> yang diselipkan di dalam deskripsi RSS —
+// imageInHTML mencari <img src> yang diselipkan di dalam deskripsi RSS —
 // kebiasaan ANTARA dan beberapa media lain.
-func gambarDalam(s string) string {
+func imageInHTML(s string) string {
 	if m := reImg.FindStringSubmatch(s); len(m) == 2 {
 		return html.UnescapeString(m[1])
 	}
 	return ""
 }
 
-// buangEkorMedia memangkas " - Nama Media" di ujung judul. Google News
+// stripSourceSuffix memangkas " - Nama Media" di ujung judul. Google News
 // menempelkannya ke SETIAP judul (terbukti 100 dari 100 pada uji), padahal nama
 // medianya sudah tampil di lencana kartu — kalau dibiarkan, tiap judul berakhir
 // dengan pengulangan.
-func buangEkorMedia(judul, media string) string {
-	judul = strings.TrimSpace(judul)
+func stripSourceSuffix(title, media string) string {
+	title = strings.TrimSpace(title)
 	media = strings.TrimSpace(media)
 	if media == "" {
-		return judul
+		return title
 	}
 	for _, sep := range []string{" - ", " – ", " — ", " | "} {
-		ekor := sep + media
-		if strings.HasSuffix(judul, ekor) {
-			return strings.TrimSpace(strings.TrimSuffix(judul, ekor))
+		suffix := sep + media
+		if strings.HasSuffix(title, suffix) {
+			return strings.TrimSpace(strings.TrimSuffix(title, suffix))
 		}
 	}
-	return judul
+	return title
 }
 
-func bersih(s string) string {
+func clean(s string) string {
 	s = html.UnescapeString(s)
-	s = strings.ReplaceAll(s, " ", " ")
+	s = strings.ReplaceAll(s, " ", " ")
 	return strings.TrimSpace(reWS.ReplaceAllString(s, " "))
 }
 
-// potong memangkas teks di batas kata terdekat agar tidak terputus di tengah.
-func potong(s string, n int) string {
+// truncate memangkas teks di batas kata terdekat agar tidak terputus di tengah.
+func truncate(s string, n int) string {
 	if len([]rune(s)) <= n {
 		return s
 	}
@@ -289,32 +289,32 @@ func domain(u string) string {
 	return s
 }
 
-// namaMedia memilih nama yang enak dibaca untuk badge kartu. Judul channel RSS
+// mediaName memilih nama yang enak dibaca untuk badge kartu. Judul channel RSS
 // sering panjang ("ANTARA News - Berita Terkini..."), jadi dipangkas di
 // pemisah umum; bila tetap tidak masuk akal, pakai domainnya.
-func namaMedia(judulFeed, link string) string {
-	j := judulFeed
+func mediaName(feedTitle, link string) string {
+	t := feedTitle
 	for _, sep := range []string{" - ", " | ", " – ", ":"} {
-		if i := strings.Index(j, sep); i > 0 {
-			j = j[:i]
+		if i := strings.Index(t, sep); i > 0 {
+			t = t[:i]
 		}
 	}
-	j = strings.TrimSpace(j)
-	if j == "" || len([]rune(j)) > 24 {
+	t = strings.TrimSpace(t)
+	if t == "" || len([]rune(t)) > 24 {
 		return domain(link)
 	}
-	return j
+	return t
 }
 
-// formatWaktu = pola tanggal yang muncul di feed Indonesia.
-var formatWaktu = []string{
+// timeFormats = pola tanggal yang muncul di feed Indonesia.
+var timeFormats = []string{
 	time.RFC1123Z, time.RFC1123, time.RFC822Z, time.RFC822,
 	time.RFC3339, "Mon, 2 Jan 2006 15:04:05 -0700", "2006-01-02 15:04:05",
 }
 
-func parseWaktu(s string) (time.Time, bool) {
+func parseTime(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
-	for _, f := range formatWaktu {
+	for _, f := range timeFormats {
 		if t, err := time.Parse(f, s); err == nil {
 			return t, true
 		}
@@ -322,26 +322,50 @@ func parseWaktu(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-var namaBulan = []string{"", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
-	"Juli", "Agustus", "September", "Oktober", "November", "Desember"}
-
-var namaHari = map[time.Weekday]string{
-	time.Sunday: "Minggu", time.Monday: "Senin", time.Tuesday: "Selasa",
-	time.Wednesday: "Rabu", time.Thursday: "Kamis", time.Friday: "Jumat",
-	time.Saturday: "Sabtu",
+// Nama bulan & hari per bahasa. Ini DATA bahasa, bukan bahasa kode: kartu yang
+// terbit untuk pembaca Indonesia harus bertanggal Indonesia.
+var monthNames = map[string][]string{
+	"en": {"", "January", "February", "March", "April", "May", "June",
+		"July", "August", "September", "October", "November", "December"},
+	"id": {"", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+		"Juli", "Agustus", "September", "Oktober", "November", "Desember"},
 }
 
-// formatTanggal menulis tanggal dalam bahasa Indonesia untuk ditempel di kartu.
-func formatTanggal(s string) string {
-	t, ok := parseWaktu(s)
+var dayNames = map[string]map[time.Weekday]string{
+	"en": {
+		time.Sunday: "Sunday", time.Monday: "Monday", time.Tuesday: "Tuesday",
+		time.Wednesday: "Wednesday", time.Thursday: "Thursday", time.Friday: "Friday",
+		time.Saturday: "Saturday",
+	},
+	"id": {
+		time.Sunday: "Minggu", time.Monday: "Senin", time.Tuesday: "Selasa",
+		time.Wednesday: "Rabu", time.Thursday: "Kamis", time.Friday: "Jumat",
+		time.Saturday: "Sabtu",
+	},
+}
+
+// normalizeLang menjatuhkan bahasa yang tidak dikenal ke bahasa Inggris.
+func normalizeLang(lang string) string {
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if _, ok := monthNames[lang]; ok {
+		return lang
+	}
+	return "en"
+}
+
+// formatDate menulis tanggal dalam bahasa yang diminta, untuk ditempel di kartu.
+func formatDate(s, lang string) string {
+	t, ok := parseTime(s)
 	if !ok {
 		return ""
 	}
-	return fmt.Sprintf("%s, %d %s %d", namaHari[t.Weekday()], t.Day(), namaBulan[t.Month()], t.Year())
+	l := normalizeLang(lang)
+	return fmt.Sprintf("%s, %d %s %d",
+		dayNames[l][t.Weekday()], t.Day(), monthNames[l][t.Month()], t.Year())
 }
 
 func rfc3339(s string) string {
-	if t, ok := parseWaktu(s); ok {
+	if t, ok := parseTime(s); ok {
 		return t.Format(time.RFC3339)
 	}
 	return ""

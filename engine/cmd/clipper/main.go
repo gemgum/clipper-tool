@@ -45,29 +45,41 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `clipper `+version+`
 
-Penggunaan:
-  clipper run <video> [flag]     Proses satu video (CLI)
-  clipper serve [flag]           Jalankan HTTP API untuk GUI
+Usage:
+  clipper run <video> [flags]    Process a single video (CLI)
+  clipper serve [flags]          Run the HTTP API for the GUI
   clipper version
 
-Flag 'run':
-  -mode        offline|hybrid|online  (default offline)
-  -model       model whisper: tiny|base|small|medium|large-v3 (default small)
-  -reframe     center|face_follow (default center)
+'run' flags:
+  -mode        offline|hybrid|online (default offline)
+  -model       whisper model: tiny|base|small|medium|large-v3 (default small)
+  -reframe     center|face_follow — where the frame sits (default center).
+               "fit" is still accepted as an alias for -zoom 0.
+  -background  blur|black — fills whatever empty space is left
+  -frame-visible 0..100 — how much of the ORIGINAL frame stays visible.
+               100 keeps the whole frame (nothing cropped); 0 fills the frame
+               and crops the overflowing edges. Default 0.
+  -picture-size 5..100 — how big that picture sits inside the frame.
+               100 fills it edge to edge; lower shrinks it into the middle with
+               the background all around. Default 100.
   -style       plain|viral (default plain)
-  -sub-mode    normal|karaoke|word — gaya subtitle (default normal)
-  -sub-speed   lambat|normal|padat — kecepatan tampil subtitle (default normal)
-  -save        burn|clean|both — simpan bersubtitle / polos / keduanya (default burn)
-  -duration    auto|30|60|90|120|180 — panjang klip (default auto)
-  -provider    claude|ollama|heuristic — pemilih momen (default ikut mode)
-  -ollama-model  model lokal untuk provider ollama (default qwen2.5)
-  -max         jumlah maksimum klip (default 10)
-  -min-score   skor minimum 0-100 (default 0)
-  -llm-model   model Claude (default claude-haiku-4-5)
-  -out         folder output klip (default data/cli)
+  -sub-mode    normal|karaoke|word — subtitle style (default normal)
+  -sub-speed   slow|normal|dense — subtitle pacing (default normal)
+  -save        burn|clean|both — burned-in / clean / both (default burn)
+  -duration    auto|30|60|90|120|180 — clip length (default auto)
+  -provider    claude|ollama|heuristic — moment selector (default follows -mode)
+  -ollama-model  local model for the ollama provider (default qwen2.5)
+  -transcript-fix on|off — let an LLM fix the transcript's punctuation, sentence
+               structure and misheard words before clips are cut (default on).
+               Needs an LLM even when -provider is heuristic: Claude in hybrid
+               mode, Ollama otherwise. Turn it off to use the raw transcript.
+  -max         maximum number of clips (default 10)
+  -min-score   minimum score 0-100 (default 0)
+  -llm-model   Claude model (default claude-haiku-4-5)
+  -out         clip output folder (default data/cli)
 
-Flag 'serve':
-  -addr        alamat listen (default 127.0.0.1:8787)
+'serve' flags:
+  -addr        listen address (default 127.0.0.1:8787)
 `)
 }
 
@@ -81,6 +93,9 @@ func cmdRun(root string, args []string) {
 	mode := fs.String("mode", string(opts.Mode), "")
 	model := fs.String("model", opts.WhisperModel, "")
 	reframe := fs.String("reframe", string(opts.Reframe), "")
+	background := fs.String("background", opts.Background, "")
+	frameVisible := fs.Int("frame-visible", opts.FrameVisible, "")
+	pictureSize := fs.Int("picture-size", opts.PictureSize, "")
 	fps := fs.Int("fps", opts.FPS, "")
 	resolution := fs.String("resolution", opts.Resolution, "")
 	quality := fs.String("quality", opts.Quality, "")
@@ -90,6 +105,7 @@ func cmdRun(root string, args []string) {
 	save := fs.String("save", opts.SubtitleOutput, "")
 	provider := fs.String("provider", opts.Provider, "")
 	ollamaModel := fs.String("ollama-model", opts.OllamaModel, "")
+	transcriptFix := fs.String("transcript-fix", opts.TranscriptFix, "")
 	duration := fs.String("duration", opts.DurationPreset, "")
 	maxClips := fs.Int("max", opts.MaxClips, "")
 	minScore := fs.Int("min-score", opts.MinScore, "")
@@ -98,13 +114,16 @@ func cmdRun(root string, args []string) {
 	_ = fs.Parse(flagArgs)
 
 	if input == "" {
-		fmt.Fprintln(os.Stderr, "error: path video wajib. Contoh: clipper run video.mp4")
+		fmt.Fprintln(os.Stderr, "error: the video path is required. Example: clipper run video.mp4")
 		os.Exit(1)
 	}
 
 	opts.Mode = config.Mode(*mode)
 	opts.WhisperModel = *model
 	opts.Reframe = config.Reframe(*reframe)
+	opts.Background = *background
+	opts.FrameVisible = *frameVisible
+	opts.PictureSize = *pictureSize
 	opts.FPS = *fps
 	opts.Resolution = *resolution
 	opts.Quality = *quality
@@ -114,6 +133,7 @@ func cmdRun(root string, args []string) {
 	opts.SubtitleOutput = *save
 	opts.Provider = *provider
 	opts.OllamaModel = *ollamaModel
+	opts.TranscriptFix = *transcriptFix
 	opts.DurationPreset = *duration
 	opts.MaxClips = *maxClips
 	opts.MinScore = *minScore
@@ -126,7 +146,7 @@ func cmdRun(root string, args []string) {
 
 	paths := config.ResolvePaths(root, opts)
 	if opts.Mode != config.ModeOffline && paths.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "peringatan: mode", opts.Mode, "tapi ANTHROPIC_API_KEY kosong — scoring pakai heuristik saja")
+		fmt.Fprintln(os.Stderr, "warning: mode", opts.Mode, "but ANTHROPIC_API_KEY is empty — the job will stop when the selected engine is called")
 	}
 
 	dir := "cli_" + time.Now().Format("2006-01-02_15-04-05")
@@ -143,17 +163,17 @@ func cmdRun(root string, args []string) {
 		}
 	})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "GAGAL:", err)
+		fmt.Fprintln(os.Stderr, "FAILED:", err)
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "\n%d klip dihasilkan di %s:\n", len(clips), destDir)
+	fmt.Fprintf(os.Stderr, "\n%d clips written to %s:\n", len(clips), destDir)
 	for _, c := range clips {
 		title := c.Title
 		if title == "" {
 			title = firstWords(c.Transcript, 8)
 		}
-		fmt.Fprintf(os.Stderr, "  %s  skor %3d  %6.1fs-%6.1fs  %s\n", c.ID, c.Score, c.Start, c.End, title)
+		fmt.Fprintf(os.Stderr, "  %s  score %3d  %6.1fs-%6.1fs  %s\n", c.ID, c.Score, c.Start, c.End, title)
 	}
 	// JSON lengkap ke stdout (bisa di-pipe).
 	enc := json.NewEncoder(os.Stdout)
@@ -170,7 +190,7 @@ func cmdServe(root string, args []string) {
 	opts := config.DefaultOptions()
 	paths := config.ResolvePaths(root, opts)
 	if err := os.MkdirAll(paths.DataDir, 0o755); err != nil {
-		fmt.Fprintln(os.Stderr, "error data dir:", err)
+		fmt.Fprintln(os.Stderr, "data dir error:", err)
 		os.Exit(1)
 	}
 	mgr := job.NewManager(root, paths, *jobsN)
@@ -195,9 +215,10 @@ func splitInput(args []string) (input string, flagArgs []string) {
 	valueFlags := map[string]bool{
 		"-mode": true, "-model": true, "-reframe": true, "-style": true,
 		"-max": true, "-min-score": true, "-llm-model": true, "-out": true, "-fps": true,
-		"-resolution": true, "-quality": true,
+		"-resolution": true, "-quality": true, "-background": true,
+		"-frame-visible": true, "-picture-size": true,
 		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,
-		"-provider": true, "-ollama-model": true,
+		"-provider": true, "-ollama-model": true, "-transcript-fix": true,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -264,12 +285,12 @@ func loadDotEnv(path string) {
 
 func maskKey(k string) string {
 	if k == "" {
-		return "(kosong — mode offline)"
+		return "(empty — offline mode)"
 	}
 	if len(k) > 10 {
 		return k[:8] + "…"
 	}
-	return "(terisi)"
+	return "(set)"
 }
 
 func firstWords(s string, n int) string {

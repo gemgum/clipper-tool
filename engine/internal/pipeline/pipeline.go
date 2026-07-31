@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/gemgum/clipper/engine/internal/config"
+	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/score/heuristic"
 	"github.com/gemgum/clipper/engine/internal/score/llm"
@@ -77,11 +78,11 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		outDir = workDir
 	}
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return nil, fmt.Errorf("folder output %q: %w", outDir, err)
+		return nil, fmt.Errorf("output folder %q: %w", outDir, err)
 	}
 	tmpDir := filepath.Join(workDir, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
-		return nil, fmt.Errorf("folder kerja %q: %w", tmpDir, err)
+		return nil, fmt.Errorf("work folder %q: %w", tmpDir, err)
 	}
 
 	// 1. Cache transkrip: kunci dari isi video + model + bahasa. Transkripsi
@@ -90,12 +91,15 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	var tr types.Transcript
 	cacheHit := false
 	cachePath := ""
+	// Kunci ini dipakai ulang oleh cache koreksi, jadi hidup di luar blok if.
+	cacheKey := ""
 	if key, err := transcriptCacheKey(input, p.Opts.WhisperModel, p.Opts.Language); err == nil {
+		cacheKey = key
 		cachePath = transcriptCachePath(p.Paths.DataDir, key)
 		if cached, ok := loadTranscriptCache(cachePath); ok {
 			tr, cacheHit = cached, true
-			emit(onProgress, Progress{Stage: "transcribing", Value: 0.53,
-				Message: "Transkrip diambil dari cache (tidak perlu transkripsi ulang)"})
+			emit(onProgress, Progress{Stage: "transcribing", Value: 0.48,
+				Message: "Transcript loaded from cache (no re-transcription needed)"})
 		}
 	}
 
@@ -105,13 +109,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	wav := filepath.Join(tmpDir, "audio.wav")
 	var rms worker.FeaturesResult
 	if needAudio {
-		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Mengekstrak audio"})
+		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Extracting audio"})
 		if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
 			return nil, err
 		}
 		// 2. Fitur audio (opsional, dari worker C++).
 		if p.wk.Available() {
-			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analisis energi audio (worker C++)"})
+			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy (C++ worker)"})
 			if r, err := p.wk.Features(ctx, wav, 100); err == nil {
 				rms = r
 			}
@@ -120,14 +124,14 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 
 	// 3. Transkripsi (bagian paling lama; progress diparse dari whisper).
 	if !cacheHit {
-		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transkripsi (whisper.cpp)"})
+		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transcribing (whisper.cpp)"})
 		outBase := filepath.Join(tmpDir, "transcript")
 		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
-			// Petakan 0..1 transkripsi ke pita 0.20..0.53 dari total.
+			// Petakan 0..1 transkripsi ke pita 0.20..0.48 dari total.
 			emit(onProgress, Progress{
 				Stage:   "transcribing",
-				Value:   0.20 + 0.33*f,
-				Message: fmt.Sprintf("Transkripsi %.0f%%", f*100),
+				Value:   0.20 + 0.28*f,
+				Message: fmt.Sprintf("Transcribing %.0f%%", f*100),
 			})
 		})
 		if err != nil {
@@ -140,7 +144,18 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		}
 	}
 	if len(tr.Segments) == 0 {
-		return nil, fmt.Errorf("transkrip kosong — cek audio/bahasa")
+		return nil, fmt.Errorf("the transcript is empty — check the audio/language")
+	}
+
+	// 3b. Koreksi transkrip. Dijalankan SEBELUM segmentasi & scoring, bukan
+	// hanya sebelum subtitle: tanda baca yang salah tempat membuat
+	// segment.BuildCandidates memotong klip di tengah kalimat.
+	if p.Opts.TranscriptFix != config.TranscriptFixOff {
+		fixed, err := p.correctTranscript(ctx, tr, cacheKey, onProgress)
+		if err != nil {
+			return nil, err
+		}
+		tr = fixed
 	}
 
 	// 4-5. Pemilihan momen. Mesin dipilih pengguna dan TIDAK diganti diam-diam:
@@ -156,23 +171,23 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		sel = ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
 		engineName = "Ollama (" + p.Opts.OllamaModel + ")"
 	case "heuristic":
-		engineName = "heuristik"
+		engineName = "heuristic"
 	default:
-		return nil, fmt.Errorf("mesin skor %q tidak dikenal — pilih claude, ollama, atau heuristic", p.Opts.Provider)
+		return nil, fmt.Errorf("unknown score engine %q — choose claude, ollama, or heuristic", p.Opts.Provider)
 	}
 
 	if sel != nil {
 		clips, err := p.selectWith(ctx, tr, sel, engineName, onProgress)
 		if err != nil {
-			return nil, fmt.Errorf("%s gagal memilih momen: %w", engineName, err)
+			return nil, fmt.Errorf("%s failed to select moments: %w", engineName, err)
 		}
 		selected = clips
 	} else {
-		emit(onProgress, Progress{Stage: "segmenting", Value: 0.55, Message: "Memilih klip (heuristik)"})
+		emit(onProgress, Progress{Stage: "segmenting", Value: 0.58, Message: "Selecting clips (heuristic)"})
 		selected = p.heuristicSelect(tr, rms)
 	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("%s tidak menghasilkan klip — coba longgarkan preset durasi atau turunkan skor minimum", engineName)
+		return nil, fmt.Errorf("%s produced no clips — try loosening the duration preset or lowering the minimum score", engineName)
 	}
 
 	// 6. Render klip.
@@ -184,20 +199,21 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		cl.JobID = jobID
 		frac := 0.75 + 0.24*float64(i+1)/float64(len(selected))
 		emit(onProgress, Progress{Stage: "rendering", Value: frac,
-			Message: fmt.Sprintf("Render %s (skor %d)", cl.ID, cl.Score)})
+			Message: fmt.Sprintf("Rendering %s (score %d)", cl.ID, cl.Score)})
 
 		segs := segmentsInRange(tr, cl.Start, cl.End)
 
 		enc := ffmpeg.EncodeOpts{
 			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
-			Mode: string(p.Opts.Reframe), Latar: p.Opts.Latar, Zoom: p.Opts.Zoom,
+			Mode: string(p.Opts.Reframe), Background: p.Opts.Background,
+			FrameVisible: p.Opts.FrameVisible, PictureSize: p.Opts.PictureSize,
 			FPS: p.Opts.FPS,
 		}
 		// Varian polos (tanpa subtitle) — untuk mode clean & both.
 		if p.Opts.SubtitleOutput == config.OutputClean || p.Opts.SubtitleOutput == config.OutputBoth {
 			name := cl.ID + ".mp4"
 			if p.Opts.SubtitleOutput == config.OutputBoth {
-				name = cl.ID + "_polos.mp4"
+				name = cl.ID + "_clean.mp4"
 			}
 			raw := filepath.Join(outDir, name)
 			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, raw); err != nil {
@@ -234,8 +250,88 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		emit(onProgress, Progress{Stage: "rendering", Value: frac, Clip: cl})
 	}
 
-	emit(onProgress, Progress{Stage: "done", Value: 1.0, Message: fmt.Sprintf("Selesai: %d klip", len(selected))})
+	emit(onProgress, Progress{Stage: "done", Value: 1.0, Message: fmt.Sprintf("Done: %d clips", len(selected))})
 	return selected, nil
+}
+
+// correctionTemperature sengaja rendah. Koreksi transkrip adalah tugas
+// menyalin-ulang, bukan tugas kreatif: pada suhu bawaan (0.4) model lokal
+// memberi hasil berbeda tiap kali dijalankan atas transkrip yang sama.
+const correctionTemperature = 0.1
+
+// correctionProvider memilih LLM untuk koreksi transkrip.
+//
+// Koreksi butuh LLM walau mesin skornya heuristik, jadi providernya diturunkan
+// dari MODE, bukan dari Provider: hybrid/online → Claude, selain itu → Ollama.
+func correctionProvider(o config.Options) string {
+	if o.Mode == config.ModeHybrid || o.Mode == config.ModeOnline {
+		return "claude"
+	}
+	return "ollama"
+}
+
+// correctTranscript membenahi transkrip sebelum dipakai tahap berikutnya.
+//
+// Hasilnya di-cache terpisah dari transkrip mentah: mematikan koreksi tidak
+// boleh memaksa transkripsi ulang, dan menyalakannya lagi tidak perlu memanggil
+// LLM dua kali untuk video yang sama.
+func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, cacheKey string, onProgress ProgressFunc) (types.Transcript, error) {
+	provider := correctionProvider(p.Opts)
+
+	var complete correct.Completer
+	var engineName string
+	switch provider {
+	case "claude":
+		c := llm.New(p.Paths.APIKey, p.Opts.LLMModel)
+		c.Temperature = correctionTemperature
+		engineName = "Claude (" + c.Model + ")"
+		// Claude tidak punya parameter skema; bentuk balasannya dijaga prompt.
+		complete = func(ctx context.Context, system, user string, _ any) (string, error) {
+			return c.Complete(ctx, system, user, 8192)
+		}
+	default:
+		c := ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
+		c.Temperature = correctionTemperature
+		engineName = "Ollama (" + c.Model + ")"
+		complete = func(ctx context.Context, system, user string, schema any) (string, error) {
+			return c.Complete(ctx, system, user, schema, 4096)
+		}
+	}
+
+	cachePath := ""
+	if cacheKey != "" {
+		cachePath = correctedCachePath(p.Paths.DataDir, cacheKey, engineName, correct.PromptVersion)
+		if cached, ok := loadTranscriptCache(cachePath); ok {
+			emit(onProgress, Progress{Stage: "correcting", Value: 0.58,
+				Message: "Corrected transcript loaded from cache"})
+			return cached, nil
+		}
+	}
+
+	emit(onProgress, Progress{Stage: "correcting", Value: 0.48,
+		Message: fmt.Sprintf("%s is correcting the transcript", engineName)})
+
+	fixed, report, err := correct.Correct(ctx, tr, complete, engineName, func(done, total int) {
+		emit(onProgress, Progress{
+			Stage:   "correcting",
+			Value:   0.48 + 0.10*float64(done)/float64(total),
+			Message: fmt.Sprintf("%s is correcting the transcript — part %d/%d", engineName, done, total),
+		})
+	})
+	if err != nil {
+		// Mesin yang dibutuhkan tidak boleh dilewati diam-diam (notes/12).
+		// Pesannya menyebut cara mematikan koreksi, supaya pengguna tanpa LLM
+		// tidak kehabisan jalan.
+		return types.Transcript{}, fmt.Errorf(
+			"transcript correction failed: %w — fix the engine above, or turn correction off (-transcript-fix off in the CLI, or the checkbox in the GUI)", err)
+	}
+
+	emit(onProgress, Progress{Stage: "correcting", Value: 0.58, Message: report.Summary()})
+	if cachePath != "" {
+		// Gagal menyimpan cache tidak boleh menggagalkan job.
+		_ = saveTranscriptCache(cachePath, fixed)
+	}
+	return fixed, nil
 }
 
 // momentSelector adalah mesin yang memilih momen dari transkrip (Claude/Ollama).
@@ -249,7 +345,7 @@ type momentSelector interface {
 func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel momentSelector, engineName string, onProgress ProgressFunc) ([]types.Clip, error) {
 	parts := chunkTranscript(tr, chunkSeconds(p.Opts.Provider), chunkOverlap)
 	if len(parts) == 0 {
-		return nil, fmt.Errorf("transkrip kosong")
+		return nil, fmt.Errorf("the transcript is empty")
 	}
 	// Tiap potongan diminta secukupnya; penyaringan akhir tetap di topN.
 	perChunk := p.Opts.MaxClips/len(parts) + 1
@@ -259,20 +355,20 @@ func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel mome
 
 	var moments []llm.Moment
 	for i, part := range parts {
-		msg := fmt.Sprintf("%s memilih momen", engineName)
+		msg := fmt.Sprintf("%s is selecting moments", engineName)
 		if len(parts) > 1 {
-			msg = fmt.Sprintf("%s memilih momen — bagian %d/%d (menit %.0f–%.0f)",
+			msg = fmt.Sprintf("%s is selecting moments — part %d/%d (minute %.0f–%.0f)",
 				engineName, i+1, len(parts), part.info.Start/60, part.info.End/60)
 		}
 		emit(onProgress, Progress{
 			Stage:   "scoring",
-			Value:   0.55 + 0.17*float64(i)/float64(len(parts)),
+			Value:   0.58 + 0.15*float64(i)/float64(len(parts)),
 			Message: msg,
 		})
 		ms, err := sel.SelectMoments(ctx, part.tr, perChunk, p.Opts.TargetMin, p.Opts.TargetMax, part.info)
 		if err != nil {
 			if len(parts) > 1 {
-				return nil, fmt.Errorf("bagian %d dari %d (menit %.0f–%.0f): %w",
+				return nil, fmt.Errorf("part %d of %d (minute %.0f–%.0f): %w",
 					i+1, len(parts), part.info.Start/60, part.info.End/60, err)
 			}
 			return nil, err
@@ -281,13 +377,13 @@ func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel mome
 	}
 
 	merged := mergeMoments(moments)
-	valid, ditolak, err := validateMoments(merged, tr, engineName)
+	valid, rejected, err := validateMoments(merged, tr, engineName)
 	if err != nil {
 		return nil, err
 	}
-	if len(ditolak) > 0 {
+	if len(rejected) > 0 {
 		emit(onProgress, Progress{Stage: "scoring", Value: 0.73,
-			Message: fmt.Sprintf("%d momen dibuang karena batas waktunya tidak valid", len(ditolak))})
+			Message: fmt.Sprintf("%d moments dropped for invalid time boundaries", len(rejected))})
 	}
 
 	clips := momentsToClips(valid, tr)

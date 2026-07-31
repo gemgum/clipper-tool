@@ -8,101 +8,103 @@ import (
 // Penilaian hook tanpa LLM.
 //
 // Gunanya dua: (1) melengkapi paragraf yang tidak ikut dinilai model — model
-// lokal kerap membalas "peringkat": [] karena menilai selusin paragraf itu
+// lokal kerap membalas "rankings": [] karena menilai selusin paragraf itu
 // tugas panjang yang gampang dilewatkan; (2) menjadi jaring supaya fitur ini
 // tidak pernah gagal total hanya karena model malas.
 //
 // Ini BUKAN pengganti mesin skor yang dipilih pengguna: yang dinilai di sini
 // cuma urutan tampilan paragraf, sedangkan isinya tetap verbatim dari artikel.
-// Setiap paragraf yang skornya berasal dari sini ditandai Sumber="heuristik"
-// agar terlihat di GUI — bukan penggantian diam-diam (catatan/12).
+// Setiap paragraf yang skornya berasal dari sini ditandai Source="heuristic"
+// agar terlihat di GUI — bukan penggantian diam-diam (notes/12).
 
 var (
-	reAngka   = regexp.MustCompile(`\d`)
-	reAngkaBs = regexp.MustCompile(`\d[\d.,]{2,}|\d+\s*(persen|%|juta|miliar|triliun|ribu)`)
-	reKutip   = regexp.MustCompile(`["“”']`)
+	reDigit     = regexp.MustCompile(`\d`)
+	reBigNumber = regexp.MustCompile(`\d[\d.,]{2,}|\d+\s*(persen|%|juta|miliar|triliun|ribu)`)
+	reQuote     = regexp.MustCompile(`["“”']`)
 )
 
-// rujukanAwal = pembuka yang menandakan paragraf ini menyambung paragraf
-// sebelumnya, jadi tidak dimengerti bila berdiri sendiri di sebuah kartu.
-var rujukanAwal = []string{
+// backReferencePrefixes = pembuka yang menandakan paragraf ini menyambung
+// paragraf sebelumnya, jadi tidak dimengerti bila berdiri sendiri di sebuah
+// kartu. Daftarnya bahasa Indonesia karena artikel yang dinilai berbahasa
+// Indonesia.
+var backReferencePrefixes = []string{
 	"ia ", "dia ", "beliau ", "hal itu", "hal tersebut", "sementara itu",
 	"selain itu", "menurutnya", "ujarnya", "katanya", "lebih lanjut",
 	"adapun ", "sedangkan ", "kemudian ", "selanjutnya", "pihaknya",
 }
 
-// kataKuat = penanda kabar yang biasanya menarik perhatian pembaca Indonesia.
-var kataKuat = []string{
+// strongWords = penanda kabar yang biasanya menarik perhatian pembaca Indonesia.
+var strongWords = []string{
 	"tewas", "meninggal", "korban", "korupsi", "ditangkap", "tersangka",
 	"darurat", "bencana", "gagal", "rugi", "anjlok", "melonjak", "rekor",
 	"tertinggi", "terbesar", "pertama kali", "terungkap", "diduga", "protes",
 	"tolak", "kecam", "viral", "dilarang", "denda", "sanksi",
 }
 
-// skorHook menilai satu paragraf 0..10 beserta alasan singkat.
-func skorHook(p Paragraf, jumlah int) (float64, string) {
-	teks := p.Teks
-	low := strings.ToLower(teks)
-	kata := len(strings.Fields(teks))
+// hookScore menilai satu paragraf 0..10 beserta alasan singkat.
+func hookScore(p Paragraph, total int) (float64, string) {
+	text := p.Text
+	low := strings.ToLower(text)
+	words := len(strings.Fields(text))
 
-	skor := 4.0
-	var sebab []string
+	score := 4.0
+	var reasons []string
 
-	if reAngkaBs.MatchString(low) {
-		skor += 2
-		sebab = append(sebab, "memuat angka")
-	} else if reAngka.MatchString(teks) {
-		skor += 0.8
+	if reBigNumber.MatchString(low) {
+		score += 2
+		reasons = append(reasons, "contains a number")
+	} else if reDigit.MatchString(text) {
+		score += 0.8
 	}
-	if reKutip.MatchString(teks) {
-		skor += 1.8
-		sebab = append(sebab, "kutipan langsung")
+	if reQuote.MatchString(text) {
+		score += 1.8
+		reasons = append(reasons, "direct quote")
 	}
-	for _, k := range kataKuat {
-		if strings.Contains(low, k) {
-			skor += 1.2
-			sebab = append(sebab, "kata bermuatan kuat")
+	for _, w := range strongWords {
+		if strings.Contains(low, w) {
+			score += 1.2
+			reasons = append(reasons, "strongly charged word")
 			break
 		}
 	}
 
 	// Paragraf pembuka berita Indonesia hampir selalu memuat intinya
 	// (piramida terbalik), jadi diberi keunggulan kecil.
-	if p.Indeks == 0 {
-		skor += 1.5
-		sebab = append(sebab, "paragraf pembuka")
-	} else if jumlah > 0 && p.Indeks < jumlah/3 {
-		skor += 0.5
+	if p.Index == 0 {
+		score += 1.5
+		reasons = append(reasons, "opening paragraph")
+	} else if total > 0 && p.Index < total/3 {
+		score += 0.5
 	}
 
 	switch {
-	case kata >= 15 && kata <= 45:
-		skor += 1
-	case kata > 70:
-		skor -= 1.5
-		sebab = append(sebab, "terlalu panjang untuk kartu")
-	case kata < 15:
-		skor -= 1
-		sebab = append(sebab, "terlalu pendek")
+	case words >= 15 && words <= 45:
+		score += 1
+	case words > 70:
+		score -= 1.5
+		reasons = append(reasons, "too long for a card")
+	case words < 15:
+		score -= 1
+		reasons = append(reasons, "too short")
 	}
 
-	for _, r := range rujukanAwal {
-		if strings.HasPrefix(low, r) {
-			skor -= 1.8
-			sebab = append(sebab, "menyambung paragraf sebelumnya")
+	for _, prefix := range backReferencePrefixes {
+		if strings.HasPrefix(low, prefix) {
+			score -= 1.8
+			reasons = append(reasons, "continues the previous paragraph")
 			break
 		}
 	}
 
-	if skor < 0 {
-		skor = 0
+	if score < 0 {
+		score = 0
 	}
-	if skor > 10 {
-		skor = 10
+	if score > 10 {
+		score = 10
 	}
-	alasan := "dinilai otomatis"
-	if len(sebab) > 0 {
-		alasan = strings.Join(sebab, ", ")
+	reason := "scored automatically"
+	if len(reasons) > 0 {
+		reason = strings.Join(reasons, ", ")
 	}
-	return skor, alasan
+	return score, reason
 }

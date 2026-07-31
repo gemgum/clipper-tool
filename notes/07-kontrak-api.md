@@ -3,6 +3,60 @@
 Keputusan: **Metode C** (worker C++ sendiri, aditif — whisper.cpp & ffmpeg tetap dipakai).
 Bahasa sumber: **Indonesia** → default `language: "id"`, model Whisper `small`/`medium` (CPU).
 
+> ## Pembaruan: kontrak di-Inggris-kan
+>
+> Catatan di bawah adalah rancangan awal. Sejak revamp penamaan, **seluruh
+> kontrak memakai bahasa Inggris** — jalur, nama field JSON, nilai enum, dan
+> nama event SSE. Yang berubah dari rancangan/implementasi lama:
+>
+> | Lama | Sekarang |
+> | --- | --- |
+> | `POST /api/news/analisis` | `POST /api/news/analyze` |
+> | `?maks=` | `?max=` |
+> | `?varian=polos` | `?variant=clean` |
+> | `?latar=` (endpoint `/api/frame`) | `?background=` |
+> | `options.latar: "blur"\|"hitam"` | `options.background: "blur"\|"black"` |
+> | `subtitle.speed: "lambat"\|"padat"` | `subtitle.speed: "slow"\|"dense"` |
+> | Article: `judul, ringkas, gambar, sumber, tanggal, terbit` | `title, summary, image, source, date, published` |
+> | Feed: `nama, topik` | `name, topic` |
+> | Card request: `artikel, gaya, rasio, rata, foto{geser_x,geser_y}, hashtag` | `article, style, ratio, align, photo{offset_x,offset_y}, hashtags` |
+> | Gaya kartu `gelap\|terang\|kutipan` | `dark\|light\|quote` |
+> | Perataan `kiri\|tengah\|kanan\|penuh` | `left\|center\|right\|justify` |
+> | Analyze response: `artikel, paragraf, pilihan` | `article, paragraphs, selection` |
+> | Selection: `kartu, peringkat{indeks,skor,alasan,teks,sumber}, mesin, catatan` | `card, rankings{index,score,reason,text,source}, engine, note` |
+> | `/api/news/feeds`: `ada_browser, gaya, rasio, rata` | `has_browser, styles, ratios, aligns` |
+> | Momen LLM: `"berlanjut"` | `"continues"` |
+> | Card PNG: `kartu.png`, `sumber.txt` | `card.png`, `source.txt` |
+> | Folder kartu: `data/kartu/kartu-<id>` | `data/cards/card-<id>` |
+>
+> **Diganti:** `options.zoom` dipecah jadi DUA sumbu yang berdiri sendiri, sebab
+> satu angka dulu mencampur dua pertanyaan berbeda:
+>
+> | field | 0 | 100 |
+> | --- | --- | --- |
+> | `frame_visible` | gambar memenuhi kotaknya, tepi terpotong | seluruh frame asli terlihat |
+> | `picture_size` | (min 5) gambar kecil di tengah | gambar memenuhi bingkai |
+>
+> Default `frame_visible: 0, picture_size: 100` = isi penuh 9:16, sama dengan
+> keluaran sejak awal. `frame_visible` 0 SAH; `picture_size` 0 diperlakukan
+> sebagai "belum diisi" dan jatuh ke 100.
+>
+> `options.reframe: "fit"` turun jadi alias: Validate menerjemahkannya ke
+> `center` + `frame_visible 100`. Nilai reframe yang tersisa hanya `center` dan
+> `face_follow` (belum tersedia). Param preview `/api/frame` ikut berubah dari
+> `?zoom=` jadi `?frame_visible=` & `?picture_size=`.
+> Lihat `notes/15-sumbu-zoom.md`.
+>
+> **Baru:** `options.transcript_fix: "on"|"off"` pada `POST /api/jobs` (default
+> `"on"`) — koreksi transkrip oleh LLM sebelum segmentasi, scoring, dan subtitle.
+> Menambah tahap SSE `"correcting"` di antara `transcribing` dan `scoring`
+> (pita progres 0.48–0.58). Lihat `notes/14-koreksi-transkrip.md`.
+>
+> **Baru:** parameter `lang` (query untuk GET, field body untuk POST) pada
+> endpoint news & card. Menentukan bahasa teks yang DITULIS engine ke kartu —
+> tanggal, kaki kartu, dan berkas pendamping. Default `en`; GUI mengirim bahasa
+> antarmuka yang sedang dipilih. Isi artikel tidak pernah diterjemahkan.
+
 ## Alur data
 
 ```

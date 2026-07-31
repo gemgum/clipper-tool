@@ -22,42 +22,59 @@ const (
 type Reframe string
 
 const (
-	ReframeCenter     Reframe = "center"      // isi penuh (crop/zoom)
-	ReframeFit        Reframe = "fit"         // muat utuh + latar blur (tanpa zoom)
+	ReframeCenter     Reframe = "center"      // bingkai duduk di tengah
 	ReframeFaceFollow Reframe = "face_follow" // ikut wajah (BELUM TERSEDIA)
+
+	// ReframeFit adalah alias lama. Dulu ia satu-satunya cara menampilkan frame
+	// asli secara utuh; sekarang itu cuma ujung atas FrameVisible, jadi Validate
+	// menerjemahkannya jadi ReframeCenter + FrameVisible 100. Dipertahankan
+	// supaya preset tersimpan dan permintaan lama tidak rusak.
+	ReframeFit Reframe = "fit"
 )
 
-// Cek melaporkan apakah mode reframe ini sudah bisa dipakai.
+// Check melaporkan apakah mode reframe ini sudah bisa dipakai.
 //
 // face_follow sudah punya nama dan rencana, tapi deteksi wajahnya belum ada di
 // worker C++. Tanpa pemeriksaan ini ffmpeg diam-diam merendernya sebagai center
-// — persis jenis penggantian senyap yang dilarang di catatan/12.
-func (r Reframe) Cek() error {
+// — persis jenis penggantian senyap yang dilarang di notes/12.
+func (r Reframe) Check() error {
 	switch r {
 	case ReframeCenter, ReframeFit:
 		return nil
 	case ReframeFaceFollow:
-		return fmt.Errorf("mode reframe %q belum tersedia (deteksi wajah di worker C++ belum dibuat) — pakai %q atau %q",
+		return fmt.Errorf("reframe mode %q is not available yet (face detection in the C++ worker is not built) — use %q or %q",
 			r, ReframeCenter, ReframeFit)
 	default:
-		return fmt.Errorf("mode reframe %q tidak dikenal — pilih %q atau %q", r, ReframeCenter, ReframeFit)
+		return fmt.Errorf("unknown reframe mode %q — choose %q or %q", r, ReframeCenter, ReframeFit)
 	}
 }
 
-// Latar = isi ruang kosong saat video tidak memenuhi bingkai 9:16 — terjadi di
-// mode "fit", atau di mode "center" ketika Zoom di bawah 100%.
+// Background = isi ruang kosong saat gambar tidak memenuhi bingkai 9:16 —
+// terjadi saat FrameVisible di atas 0, atau PictureSize di bawah 100.
 const (
-	LatarBlur  = "blur"
-	LatarHitam = "hitam"
+	BackgroundBlur  = "blur"
+	BackgroundBlack = "black"
 )
 
-// Batas zoom video di dalam bingkai. 100% = isi penuh (video menutupi bingkai);
-// makin kecil, makin banyak video yang terlihat dan makin lebar latarnya.
-// Kelipatan 5 supaya pilihannya terbatas dan hasilnya bisa diulang.
+// Dua sumbu terpisah untuk menempatkan video di bingkai 9:16. Dipisah karena
+// dulu satu kendali mencampur keduanya, dan itu yang membuat zoom terasa salah.
+//
+// FrameVisible = berapa persen frame ASLI yang tersisa terlihat.
+// 100 = seluruh gambar tampak (tidak ada yang terpotong), 0 = gambar memenuhi
+// kotaknya dan tepi yang berlebih dipotong.
 const (
-	ZoomMin  = 5
-	ZoomMaks = 100
-	ZoomStep = 5
+	FrameVisibleMin  = 0
+	FrameVisibleMax  = 100
+	FrameVisibleStep = 5
+)
+
+// PictureSize = seberapa besar gambar itu duduk di dalam bingkai.
+// 100 = memenuhi bingkai dari tepi ke tepi, lebih kecil = mengecil di tengah
+// dengan latar mengelilingi keempat sisinya.
+const (
+	PictureSizeMin  = 5
+	PictureSizeMax  = 100
+	PictureSizeStep = 5
 )
 
 // Pilihan berkas keluaran klip.
@@ -65,6 +82,18 @@ const (
 	OutputBurn  = "burn"  // 1 file: video dengan subtitle dibakar
 	OutputClean = "clean" // 1 file: video polos tanpa subtitle
 	OutputBoth  = "both"  // 2 file: polos + bersubtitle
+)
+
+// Koreksi transkrip sebelum dipakai pipeline. Menyala secara default: keluaran
+// mentah whisper membawa tanda hubung dialog, tanda baca salah tempat, dan kata
+// salah dengar — semuanya ikut terbakar ke subtitle DAN menyesatkan segmentasi.
+//
+// Butuh LLM, termasuk saat mesin skornya heuristik. Bila mesinnya tak
+// terjangkau job berhenti dengan pesan sebabnya, bukan diam-diam dilewati
+// (notes/12); matikan lewat "off" bila memang ingin transkrip mentah.
+const (
+	TranscriptFixOn  = "on"
+	TranscriptFixOff = "off"
 )
 
 // ScoreEngine menentukan mesin penilaian.
@@ -106,7 +135,7 @@ type Subtitle struct {
 	// sisa kalimat tetap terlihat), "word" (satu kata per layar).
 	Mode           string `json:"mode"`
 	HighlightColor string `json:"highlight_color"` // warna sorot untuk karaoke/word
-	Speed          string `json:"speed"`           // lambat | normal | padat
+	Speed          string `json:"speed"`           // slow | normal | dense
 
 	// Karaoke: field lama, dipertahankan agar preset tersimpan tidak rusak.
 	// Diterjemahkan ke Mode="karaoke" saat Validate.
@@ -120,13 +149,20 @@ const (
 	SubWord    = "word"
 )
 
+// Kecepatan tampil subtitle yang dikenali.
+const (
+	SpeedSlow   = "slow"
+	SpeedNormal = "normal"
+	SpeedDense  = "dense"
+)
+
 // Pacing menerjemahkan Speed ke durasi minimum satu tampilan (detik) dan
 // maksimum baris per tampilan. Makin lambat = makin sedikit teks sekaligus.
 func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 	switch s.Speed {
-	case "lambat":
+	case SpeedSlow:
 		return 1.6, 2
-	case "padat":
+	case SpeedDense:
 		return 0.9, 3
 	default: // normal
 		return 1.2, 2
@@ -144,8 +180,9 @@ type Options struct {
 	Quality        string      `json:"quality"`    // draft | hd | max
 	FPS            int         `json:"fps"`        // 0 = ikut sumber
 	Reframe        Reframe     `json:"reframe"`
-	Latar          string      `json:"latar"`          // blur | hitam
-	Zoom           int         `json:"zoom"`           // persen 5..100, kelipatan 5
+	Background     string      `json:"background"`     // blur | black
+	FrameVisible   int         `json:"frame_visible"`  // 0..100, kelipatan 5
+	PictureSize    int         `json:"picture_size"`   // 5..100, kelipatan 5
 	SubtitleStyle  string      `json:"subtitle_style"` // plain | viral (fallback warna)
 	Subtitle       Subtitle    `json:"subtitle"`
 	SubtitleOutput string      `json:"subtitle_output"` // burn | clean | both
@@ -154,10 +191,11 @@ type Options struct {
 	TargetMin      float64     `json:"target_min"`
 	TargetMax      float64     `json:"target_max"`
 	ScoreEngine    ScoreEngine `json:"score_engine"`
-	Provider       string      `json:"provider"`     // claude | ollama (mesin scoring)
-	LLMModel       string      `json:"llm_model"`    // model Claude (mode hybrid)
-	OllamaModel    string      `json:"ollama_model"` // model lokal (mode offline)
-	OllamaURL      string      `json:"ollama_url"`   // default http://localhost:11434
+	TranscriptFix  string      `json:"transcript_fix"` // on | off (default on)
+	Provider       string      `json:"provider"`       // claude | ollama (mesin scoring)
+	LLMModel       string      `json:"llm_model"`      // model Claude (mode hybrid)
+	OllamaModel    string      `json:"ollama_model"`   // model lokal (mode offline)
+	OllamaURL      string      `json:"ollama_url"`     // default http://localhost:11434
 	MinScore       int         `json:"min_score"`
 	OutputDir      string      `json:"output_dir"`
 }
@@ -173,14 +211,16 @@ func DefaultOptions() Options {
 		Resolution:     "1080p",
 		Quality:        "hd",
 		Reframe:        ReframeCenter,
-		Latar:          LatarBlur,
-		Zoom:           ZoomMaks,
+		Background:     BackgroundBlur,
+		FrameVisible:   FrameVisibleMin, // isi penuh — keluaran andalan
+		PictureSize:    PictureSizeMax,
 		SubtitleStyle:  "plain",
 		Subtitle:       DefaultSubtitle(),
 		SubtitleOutput: OutputBurn,
 		MaxClips:       10,
 		DurationPreset: "auto",
 		ScoreEngine:    ScoreHeuristic,
+		TranscriptFix:  TranscriptFixOn,
 		// Provider sengaja kosong: Validate memilih menurut mode (offline →
 		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
 		// pun ikut memanggil API Claude.
@@ -206,7 +246,7 @@ func DefaultSubtitle() Subtitle {
 		Box:            false,
 		Mode:           SubNormal,
 		HighlightColor: "yellow",
-		Speed:          "normal",
+		Speed:          SpeedNormal,
 	}
 }
 
@@ -237,25 +277,43 @@ func (o *Options) Validate() error {
 	if o.Reframe == "" {
 		o.Reframe = d.Reframe
 	}
-	if err := o.Reframe.Cek(); err != nil {
+	if err := o.Reframe.Check(); err != nil {
 		return err
 	}
-	switch o.Latar {
-	case LatarBlur, LatarHitam:
+	// "fit" kini hanyalah ujung bawah sumbu zoom. Diterjemahkan di sini supaya
+	// hanya ada SATU cara menyatakan seberapa besar gambarnya — dua kendali yang
+	// menyatakan hal sama persis itulah yang dulu membuat zoom terasa terbalik.
+	if o.Reframe == ReframeFit {
+		o.Reframe = ReframeCenter
+		o.FrameVisible = FrameVisibleMax
+	}
+	switch o.Background {
+	case BackgroundBlur, BackgroundBlack:
 	default:
-		o.Latar = d.Latar
+		o.Background = d.Background
 	}
-	// Zoom dijepit lalu dibulatkan ke kelipatan 5. Nilai 0 datang dari permintaan
-	// lama yang belum mengenal field ini, jadi diartikan "isi penuh".
-	if o.Zoom <= 0 {
-		o.Zoom = ZoomMaks
+	// FrameVisible: 0 SAH — artinya gambar memenuhi bingkai. Kebetulan itu juga
+	// nilai defaultnya, jadi permintaan yang tidak mengirim field ini tetap
+	// mendapat keluaran andalan.
+	if o.FrameVisible < FrameVisibleMin {
+		o.FrameVisible = FrameVisibleMin
 	}
-	if o.Zoom > ZoomMaks {
-		o.Zoom = ZoomMaks
+	if o.FrameVisible > FrameVisibleMax {
+		o.FrameVisible = FrameVisibleMax
 	}
-	o.Zoom = (o.Zoom / ZoomStep) * ZoomStep
-	if o.Zoom < ZoomMin {
-		o.Zoom = ZoomMin
+	o.FrameVisible = (o.FrameVisible / FrameVisibleStep) * FrameVisibleStep
+
+	// PictureSize: 0 TIDAK sah (gambar tanpa ukuran), jadi dipakai sebagai
+	// penanda "belum diisi" dan jatuh ke memenuhi bingkai.
+	if o.PictureSize <= 0 {
+		o.PictureSize = PictureSizeMax
+	}
+	if o.PictureSize > PictureSizeMax {
+		o.PictureSize = PictureSizeMax
+	}
+	o.PictureSize = (o.PictureSize / PictureSizeStep) * PictureSizeStep
+	if o.PictureSize < PictureSizeMin {
+		o.PictureSize = PictureSizeMin
 	}
 	if o.SubtitleStyle == "" {
 		o.SubtitleStyle = d.SubtitleStyle
@@ -313,6 +371,13 @@ func (o *Options) Validate() error {
 	}
 	if o.DurationPreset == "" {
 		o.DurationPreset = d.DurationPreset
+	}
+	switch o.TranscriptFix {
+	case TranscriptFixOn, TranscriptFixOff:
+	default:
+		// Permintaan lama tidak mengenal field ini; koreksi menyala kecuali
+		// dimatikan secara eksplisit.
+		o.TranscriptFix = d.TranscriptFix
 	}
 	// Preset durasi → target min/max (bila target belum diisi manual).
 	if o.TargetMin <= 0 || o.TargetMax <= 0 {
@@ -447,7 +512,7 @@ func ResolvePaths(root string, o Options) Paths {
 		Worker:  worker,
 		// Browser dicari oleh paket capture (termasuk chrome.exe lewat WSL).
 		// Boleh kosong: hanya fitur kartu berita yang membutuhkannya.
-		Chrome:   capture.Cari(),
+		Chrome:   capture.Find(),
 		DataDir:  dataDir,
 		FontsDir: env("CLIPPER_FONTS_DIR", filepath.Join(root, "assets", "fonts")),
 		APIKey:   os.Getenv("ANTHROPIC_API_KEY"),

@@ -66,7 +66,7 @@ func (c *Client) Features(ctx context.Context, wavPath string, hopMS int) (Featu
 		return FeaturesResult{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return FeaturesResult{}, fmt.Errorf("mulai worker: %w", err)
+		return FeaturesResult{}, fmt.Errorf("start worker: %w", err)
 	}
 
 	var res FeaturesResult
@@ -90,7 +90,7 @@ func (c *Client) Features(ctx context.Context, wavPath string, hopMS int) (Featu
 		if workerErr != "" {
 			return FeaturesResult{}, fmt.Errorf("worker error: %s", workerErr)
 		}
-		return FeaturesResult{}, fmt.Errorf("worker gagal: %w", err)
+		return FeaturesResult{}, fmt.Errorf("worker failed: %w", err)
 	}
 	return res, nil
 }

@@ -25,7 +25,7 @@ const defaultURL = "http://localhost:11434"
 const numCtx = 8192
 
 // minParams = batas bawah ukuran model (miliar parameter) yang masih sanggup
-// mengerjakan prompt pemilihan momen. Dari uji di catatan/12: model 4B membalas
+// mengerjakan prompt pemilihan momen. Dari uji di notes/12: model 4B membalas
 // JSON valid tapi isian kosong, sedangkan 7B mengerjakannya dengan benar.
 const minParams = 6.5
 
@@ -34,7 +34,14 @@ type Client struct {
 	URL   string
 	Model string
 	HTTP  *http.Client
+	// Temperature menimpa nilai bawaan bila > 0. Tugas menyalin-ulang seperti
+	// koreksi transkrip butuh angka jauh lebih rendah daripada tugas kreatif
+	// seperti memilih momen — pada 0.4 keluarannya berbeda-beda tiap kali.
+	Temperature float64
 }
+
+// defaultTemperature dipakai bila Client.Temperature tidak diisi.
+const defaultTemperature = 0.4
 
 func New(url, model string) *Client {
 	if url == "" {
@@ -69,27 +76,31 @@ type chatResp struct {
 // Schema di parameter "format", sehingga prompt panjang tidak lagi membuat
 // model lokal membalas JSON rusak (masalah lama yang memaksa prompt disederhanakan).
 func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error) {
-	isi, err := c.Lengkapi(ctx, llm.SystemPrompt(targetMin, targetMax, ch), llm.UserPrompt(tr, maxClips),
+	content, err := c.Complete(ctx, llm.SystemPrompt(targetMin, targetMax, ch, tr.Language), llm.UserPrompt(tr, maxClips),
 		llm.ResponseSchema(), 3072)
 	if err != nil {
 		return nil, err
 	}
 	var wrap llm.MomentsWrapper
-	if err := json.Unmarshal([]byte(isi), &wrap); err != nil {
-		return nil, fmt.Errorf("model lokal %s membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
-			c.Model, err, trunc(isi, 300))
+	if err := json.Unmarshal([]byte(content), &wrap); err != nil {
+		return nil, fmt.Errorf("local model %s returned JSON that could not be read: %w — reply: %s",
+			c.Model, err, trunc(content, 300))
 	}
 	return wrap.Moments, nil
 }
 
-// Lengkapi mengirim satu pasang prompt ke Ollama dan mengembalikan isi balasan.
+// Complete mengirim satu pasang prompt ke Ollama dan mengembalikan isi balasan.
 //
-// skema (boleh nil) diteruskan ke parameter "format" Ollama sehingga bentuk
+// schema (boleh nil) diteruskan ke parameter "format" Ollama sehingga bentuk
 // balasan dijamin di sisi server — inilah yang membuat model lokal tetap
 // membalas JSON rapi walau promptnya panjang.
-func (c *Client) Lengkapi(ctx context.Context, system, user string, skema any, numPredict int) (string, error) {
+func (c *Client) Complete(ctx context.Context, system, user string, schema any, numPredict int) (string, error) {
 	if numPredict <= 0 {
 		numPredict = 2048
+	}
+	temperature := c.Temperature
+	if temperature <= 0 {
+		temperature = defaultTemperature
 	}
 	reqBody := chatReq{
 		Model: c.Model,
@@ -98,8 +109,8 @@ func (c *Client) Lengkapi(ctx context.Context, system, user string, skema any, n
 			{Role: "user", Content: user},
 		},
 		Stream:  false,
-		Format:  skema,
-		Options: map[string]any{"temperature": 0.4, "num_ctx": numCtx, "num_predict": numPredict},
+		Format:  schema,
+		Options: map[string]any{"temperature": temperature, "num_ctx": numCtx, "num_predict": numPredict},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
@@ -110,14 +121,14 @@ func (c *Client) Lengkapi(ctx context.Context, system, user string, skema any, n
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama tidak terjangkau di %s — pastikan sudah dipasang & jalankan `ollama serve`: %w", c.URL, err)
+		return "", fmt.Errorf("Ollama is unreachable at %s — make sure it is installed and run `ollama serve`: %w", c.URL, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var cr chatResp
 	if err := json.Unmarshal(raw, &cr); err != nil {
-		return "", fmt.Errorf("respons Ollama tidak bisa dibaca (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
+		return "", fmt.Errorf("the Ollama response could not be read (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
 	}
 	if cr.Error != "" {
 		return "", ollamaError(c.Model, cr.Error)
@@ -130,13 +141,13 @@ func ollamaError(model, msg string) error {
 	low := strings.ToLower(msg)
 	switch {
 	case strings.Contains(low, "not found") || strings.Contains(low, "no such model"):
-		return fmt.Errorf("model %q belum terpasang di Ollama — klik \"unduh model\" di GUI atau jalankan `ollama pull %s`", model, model)
+		return fmt.Errorf("model %q is not installed in Ollama — click \"download model\" in the GUI or run `ollama pull %s`", model, model)
 	case strings.Contains(low, "format"):
-		return fmt.Errorf("Ollama menolak skema JSON — perbarui Ollama ke versi yang mendukung structured output (%s)", msg)
+		return fmt.Errorf("Ollama rejected the JSON schema — update Ollama to a version that supports structured output (%s)", msg)
 	case strings.Contains(low, "memory") || strings.Contains(low, "out of"):
-		return fmt.Errorf("RAM/VRAM tidak cukup untuk model %q — pakai model lebih kecil (%s)", model, msg)
+		return fmt.Errorf("not enough RAM/VRAM for model %q — use a smaller model (%s)", model, msg)
 	}
-	return fmt.Errorf("Ollama gagal memproses: %s", msg)
+	return fmt.Errorf("Ollama failed to process the request: %s", msg)
 }
 
 func trunc(s string, n int) string {
@@ -224,13 +235,13 @@ func BaseName(name string) string {
 // judge menilai apakah sebuah model terpasang layak dipakai memilih momen.
 func judge(paramSize string, ctxLen int, caps []string) (bool, string) {
 	if len(caps) > 0 && !slices.Contains(caps, "completion") {
-		return false, "model ini bukan untuk membuat teks (mis. embedding)"
+		return false, "this model does not generate text (e.g. an embedding model)"
 	}
 	if ctxLen > 0 && ctxLen < numCtx {
-		return false, fmt.Sprintf("konteks maksimum %d token, di bawah %d yang dibutuhkan potongan transkrip", ctxLen, numCtx)
+		return false, fmt.Sprintf("maximum context is %d tokens, below the %d a transcript chunk needs", ctxLen, numCtx)
 	}
 	if b := parseParams(paramSize); b > 0 && b < minParams {
-		return false, fmt.Sprintf("hanya %s parameter — dari pengujian, model di bawah %.0fB membalas isian kosong untuk prompt ini", paramSize, minParams)
+		return false, fmt.Sprintf("only %s parameters — in testing, models below %.0fB return empty fields for this prompt", paramSize, minParams)
 	}
 	return true, ""
 }
@@ -273,7 +284,7 @@ func Pull(ctx context.Context, url, model string) error {
 	req.Header.Set("content-type", "application/json")
 	resp, err := cl.Do(req)
 	if err != nil {
-		return fmt.Errorf("Ollama tidak terjangkau (unduh gagal): %w", err)
+		return fmt.Errorf("Ollama is unreachable (download failed): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -283,10 +294,10 @@ func Pull(ctx context.Context, url, model string) error {
 	}
 	_ = json.Unmarshal(raw, &r)
 	if r.Error != "" {
-		return fmt.Errorf("unduh model gagal: %s", r.Error)
+		return fmt.Errorf("model download failed: %s", r.Error)
 	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("unduh model gagal (status %d)", resp.StatusCode)
+		return fmt.Errorf("model download failed (status %d)", resp.StatusCode)
 	}
 	return nil
 }

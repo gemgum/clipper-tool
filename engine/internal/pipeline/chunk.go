@@ -84,7 +84,7 @@ func chunkTranscript(tr types.Transcript, size, overlap float64) []chunkPart {
 }
 
 // mergeMoments menggabungkan momen dari semua potongan:
-//   - momen bertanda "berlanjut" yang ujungnya menempel dengan momen berikutnya
+//   - momen bertanda "continues" yang ujungnya menempel dengan momen berikutnya
 //     disambung jadi satu klip (momen yang terbelah batas potongan);
 //   - duplikat dari area tumpang-tindih dibuang, skor terbaik dipertahankan;
 //   - tumpang-tindih sebagian dirapikan agar klip tidak saling memakan.
@@ -100,14 +100,14 @@ func mergeMoments(ms []llm.Moment) []llm.Moment {
 	for _, m := range sorted[1:] {
 		last := &out[len(out)-1]
 		switch {
-		case m.Start >= last.End-mergeTol && !last.Berlanjut:
+		case m.Start >= last.End-mergeTol && !last.Continues:
 			// Terpisah bersih → klip baru.
 			out = append(out, m)
 
-		case last.Berlanjut && m.Start <= last.End+mergeTol && m.End > last.End:
+		case last.Continues && m.Start <= last.End+mergeTol && m.End > last.End:
 			// Sambungan momen yang terbelah batas potongan.
 			last.End = m.End
-			last.Berlanjut = m.Berlanjut
+			last.Continues = m.Continues
 			if m.Score > last.Score {
 				last.Score = m.Score
 			}
@@ -122,7 +122,7 @@ func mergeMoments(ms []llm.Moment) []llm.Moment {
 			}
 
 		default:
-			// Tumpang-tindih sebagian tanpa tanda berlanjut → geser awalnya.
+			// Tumpang-tindih sebagian tanpa tanda "continues" → geser awalnya.
 			m.Start = last.End
 			if m.End-m.Start >= minMomentDur {
 				out = append(out, m)
@@ -137,39 +137,39 @@ func mergeMoments(ms []llm.Moment) []llm.Moment {
 // engine tidak lagi diam-diam beralih ke heuristik.
 func validateMoments(ms []llm.Moment, tr types.Transcript, engine string) ([]llm.Moment, []string, error) {
 	if len(tr.Segments) == 0 {
-		return nil, nil, fmt.Errorf("transkrip kosong")
+		return nil, nil, fmt.Errorf("the transcript is empty")
 	}
 	lo := tr.Segments[0].Start
 	hi := tr.Segments[len(tr.Segments)-1].End
 
 	var ok []llm.Moment
-	var ditolak []string
-	kosong := 0
+	var rejected []string
+	empty := 0
 	for _, m := range ms {
 		switch {
 		case m.End <= m.Start:
-			ditolak = append(ditolak, fmt.Sprintf("start %.1f >= end %.1f", m.Start, m.End))
+			rejected = append(rejected, fmt.Sprintf("start %.1f >= end %.1f", m.Start, m.End))
 		case m.Start < lo-1 || m.End > hi+1:
-			ditolak = append(ditolak, fmt.Sprintf("%.1f-%.1f di luar durasi video (%.1f-%.1f)", m.Start, m.End, lo, hi))
+			rejected = append(rejected, fmt.Sprintf("%.1f-%.1f outside the video duration (%.1f-%.1f)", m.Start, m.End, lo, hi))
 		case m.End-m.Start < minMomentDur:
-			ditolak = append(ditolak, fmt.Sprintf("%.1f-%.1f terlalu pendek (%.1f dtk)", m.Start, m.End, m.End-m.Start))
+			rejected = append(rejected, fmt.Sprintf("%.1f-%.1f too short (%.1fs)", m.Start, m.End, m.End-m.Start))
 		case m.Score <= 0 && strings.TrimSpace(m.Title) == "":
 			// Model lemah kadang memenuhi skema dengan isian kosong.
-			kosong++
-			ditolak = append(ditolak, fmt.Sprintf("%.1f-%.1f tanpa judul & skor 0", m.Start, m.End))
+			empty++
+			rejected = append(rejected, fmt.Sprintf("%.1f-%.1f has no title and score 0", m.Start, m.End))
 		default:
 			ok = append(ok, m)
 		}
 	}
 	if len(ok) == 0 {
 		switch {
-		case len(ditolak) == 0:
-			return nil, nil, fmt.Errorf("%s tidak memilih satu momen pun dari transkrip — model kemungkinan terlalu kecil untuk tugas ini, coba model yang lebih kuat (mis. `ollama pull qwen2.5`)", engine)
-		case kosong == len(ditolak):
-			return nil, nil, fmt.Errorf("%s hanya membalas isian kosong (%d momen tanpa judul & skor 0) — model terlalu kecil untuk prompt ini, coba model yang lebih kuat (mis. `ollama pull qwen2.5`)", engine, kosong)
+		case len(rejected) == 0:
+			return nil, nil, fmt.Errorf("%s did not pick a single moment from the transcript — the model is probably too small for this task, try a stronger one (e.g. `ollama pull qwen2.5`)", engine)
+		case empty == len(rejected):
+			return nil, nil, fmt.Errorf("%s only returned empty fields (%d moments with no title and score 0) — the model is too small for this prompt, try a stronger one (e.g. `ollama pull qwen2.5`)", engine, empty)
 		}
-		return nil, nil, fmt.Errorf("%s membalas batas waktu yang tidak valid, semua ditolak: %s",
-			engine, strings.Join(ditolak, "; "))
+		return nil, nil, fmt.Errorf("%s returned invalid time boundaries, all rejected: %s",
+			engine, strings.Join(rejected, "; "))
 	}
-	return ok, ditolak, nil
+	return ok, rejected, nil
 }

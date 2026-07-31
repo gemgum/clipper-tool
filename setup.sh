@@ -10,14 +10,14 @@ WHISPER_DIR="$THIRD/whisper.cpp"
 
 mkdir -p "$ROOT/bin" "$ROOT/models" "$THIRD"
 
-echo "==> 1/3 whisper.cpp"
+echo "==> 1/4 whisper.cpp"
 if [ ! -d "$WHISPER_DIR" ]; then
   git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$WHISPER_DIR"
 fi
 # Bersihkan cache whisper HANYA bila basi (folder dipindah/rename) — agar tak
 # recompile whisper sia-sia setiap setup, tapi kebal pemindahan folder.
 if [ -f "$WHISPER_DIR/build/CMakeCache.txt" ] && ! grep -q "$WHISPER_DIR/" "$WHISPER_DIR/build/CMakeCache.txt" 2>/dev/null; then
-  echo "    (cache CMake basi karena folder pindah — bersihkan)"
+  echo "    (stale CMake cache after a folder move — cleaning)"
   rm -rf "$WHISPER_DIR/build"
 fi
 cmake -S "$WHISPER_DIR" -B "$WHISPER_DIR/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
@@ -30,7 +30,7 @@ cp "$BIN" "$ROOT/bin/whisper-cli"
 cp -a "$WHISPER_DIR/build/bin/"*.so* "$ROOT/bin/" 2>/dev/null || true
 echo "    whisper-cli + .so -> bin/"
 
-echo "==> 2/3 model: $MODEL"
+echo "==> 2/4 model: $MODEL"
 MODEL_PATH="$ROOT/models/ggml-$MODEL.bin"
 if [ ! -f "$MODEL_PATH" ]; then
   URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$MODEL.bin"
@@ -42,19 +42,19 @@ if [ ! -f "$MODEL_PATH" ]; then
 fi
 echo "    model -> $MODEL_PATH"
 
-echo "==> 3/4 worker C++"
+echo "==> 3/4 C++ worker"
 rm -rf "$ROOT/worker/build" # clean build: cache CMake simpan path absolut
 cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
 cmake --build "$ROOT/worker/build" >/dev/null
 echo "    clipper-worker -> bin/clipper-worker"
 
-echo "==> 4/4 font subtitle"
+echo "==> 4/4 subtitle fonts"
 mkdir -p "$ROOT/assets/fonts"
 gf="https://github.com/google/fonts/raw/main/ofl"
-dl() { [ -f "$2" ] || curl -sL --fail "$1" -o "$2" || echo "    (lewati $2)"; }
+dl() { [ -f "$2" ] || curl -sL --fail "$1" -o "$2" || echo "    (skipped $2)"; }
 dl "$gf/montserrat/Montserrat%5Bwght%5D.ttf" "$ROOT/assets/fonts/Montserrat.ttf"
 dl "$gf/anton/Anton-Regular.ttf"             "$ROOT/assets/fonts/Anton.ttf"
 dl "$gf/bebasneue/BebasNeue-Regular.ttf"     "$ROOT/assets/fonts/BebasNeue.ttf"
-echo "    font -> assets/fonts/"
+echo "    fonts -> assets/fonts/"
 
-echo "Selesai. Lanjut: ./build.sh && ./bin/clipper run <video>"
+echo "Done. Next: ./build.sh && ./bin/clipper run <video>"

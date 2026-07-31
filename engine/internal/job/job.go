@@ -74,7 +74,7 @@ func (m *Manager) HasAPIKey() bool {
 }
 
 // APIKey mengembalikan key Claude yang berlaku (dari GUI, atau dari .env).
-// Dipakai fitur di luar pipeline klip — mis. analisis artikel di tab berita.
+// Dipakai fitur di luar pipeline klip — mis. analisis artikel di tab news.
 func (m *Manager) APIKey() string { return m.getAPIKey() }
 
 func (m *Manager) getAPIKey() string {
@@ -111,7 +111,7 @@ func (m *Manager) worker() {
 		j.mu.Unlock()
 		if canceled {
 			// Dibatalkan selagi mengantri.
-			j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Dibatalkan oleh pengguna"}})
+			j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 			j.closeSubs()
 			continue
 		}
@@ -201,7 +201,7 @@ func (m *Manager) run(j *Job) {
 	case StatusError:
 		j.broadcast(Event{Type: "error", Data: map[string]string{"message": errMsg}})
 	case StatusCanceled:
-		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Dibatalkan oleh pengguna"}})
+		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 	default:
 		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": len(clips)}})
 	}

@@ -29,11 +29,11 @@ func New(bin, model string) *Whisper {
 func (w *Whisper) Available() error {
 	if _, err := exec.LookPath(w.Bin); err != nil {
 		if _, err2 := os.Stat(w.Bin); err2 != nil {
-			return fmt.Errorf("whisper binary tidak ditemukan (%s) — jalankan ./setup.sh", w.Bin)
+			return fmt.Errorf("whisper binary not found (%s) — run ./setup.sh", w.Bin)
 		}
 	}
 	if _, err := os.Stat(w.Model); err != nil {
-		return fmt.Errorf("model whisper tidak ditemukan (%s) — jalankan: ./setup.sh %s",
+		return fmt.Errorf("whisper model not found (%s) — run: ./setup.sh %s",
 			w.Model, modelName(w.Model))
 	}
 	return nil
@@ -150,7 +150,7 @@ func (w *Whisper) Transcribe(ctx context.Context, wavPath, outBase, language str
 		return types.Transcript{}, err
 	}
 	if err := cmd.Start(); err != nil {
-		return types.Transcript{}, fmt.Errorf("mulai whisper: %w", err)
+		return types.Transcript{}, fmt.Errorf("start whisper: %w", err)
 	}
 
 	// Baca stderr: parse progress + simpan beberapa baris terakhir untuk pesan error.
@@ -171,16 +171,16 @@ func (w *Whisper) Transcribe(ctx context.Context, wavPath, outBase, language str
 		}
 	}
 	if err := cmd.Wait(); err != nil {
-		return types.Transcript{}, fmt.Errorf("whisper gagal: %w: %s", err, strings.Join(tail, " | "))
+		return types.Transcript{}, fmt.Errorf("whisper failed: %w: %s", err, strings.Join(tail, " | "))
 	}
 
 	raw, err := os.ReadFile(outBase + ".json")
 	if err != nil {
-		return types.Transcript{}, fmt.Errorf("baca output whisper: %w", err)
+		return types.Transcript{}, fmt.Errorf("read whisper output: %w", err)
 	}
 	var parsed jsonOut
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return types.Transcript{}, fmt.Errorf("parse output whisper: %w", err)
+		return types.Transcript{}, fmt.Errorf("parse whisper output: %w", err)
 	}
 
 	tr := types.Transcript{Language: language}

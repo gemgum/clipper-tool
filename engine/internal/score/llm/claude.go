@@ -21,6 +21,9 @@ type Client struct {
 	APIKey string
 	Model  string
 	HTTP   *http.Client
+	// Temperature dikirim hanya bila > 0; selain itu dipakai bawaan API.
+	// Tugas menyalin-ulang seperti koreksi transkrip butuh angka rendah.
+	Temperature float64
 }
 
 func New(apiKey, model string) *Client {
@@ -36,10 +39,11 @@ func New(apiKey, model string) *Client {
 
 // anthropic request/response shapes.
 type msgReq struct {
-	Model     string    `json:"model"`
-	MaxTokens int       `json:"max_tokens"`
-	System    string    `json:"system"`
-	Messages  []anthMsg `json:"messages"`
+	Model       string    `json:"model"`
+	MaxTokens   int       `json:"max_tokens"`
+	System      string    `json:"system"`
+	Messages    []anthMsg `json:"messages"`
+	Temperature *float64  `json:"temperature,omitempty"`
 }
 type anthMsg struct {
 	Role    string `json:"role"`
@@ -65,9 +69,9 @@ type Moment struct {
 	Reasons  MomentReasons `json:"reasons"`
 	Title    string        `json:"title"`
 	Hashtags []string      `json:"hashtags"`
-	// Berlanjut menandai momen yang masih bersambung ke potongan transkrip
+	// Continues menandai momen yang masih bersambung ke potongan transkrip
 	// berikutnya (lihat penggabungan di paket pipeline).
-	Berlanjut bool `json:"berlanjut"`
+	Continues bool `json:"continues"`
 }
 
 // MomentReasons rincian skor (float agar toleran output model lokal).
@@ -84,29 +88,29 @@ type MomentReasons struct {
 // TIDAK boleh diam-diam berpindah ke mesin lain.
 func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch Chunk) ([]Moment, error) {
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("API key Claude kosong — isi di panel Mesin AI (GUI) atau ANTHROPIC_API_KEY di .env")
+		return nil, fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
 	}
-	text, err := c.Lengkapi(ctx, SystemPrompt(targetMin, targetMax, ch), UserPrompt(tr, maxClips), 8192)
+	text, err := c.Complete(ctx, SystemPrompt(targetMin, targetMax, ch, tr.Language), UserPrompt(tr, maxClips), 8192)
 	if err != nil {
 		return nil, err
 	}
 	moments, err := parseMoments(text)
 	if err != nil {
-		return nil, fmt.Errorf("Claude (%s) membalas JSON yang tidak bisa dibaca: %w — balasan: %s",
+		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w — reply: %s",
 			c.Model, err, truncate(text, 300))
 	}
 	return moments, nil
 }
 
-// Lengkapi mengirim satu pasang prompt dan mengembalikan teks balasan apa
+// Complete mengirim satu pasang prompt dan mengembalikan teks balasan apa
 // adanya. Ini lapisan HTTP telanjang yang dipakai bersama oleh pemilihan momen
 // klip dan pemilihan paragraf berita — keduanya cuma berbeda prompt.
 //
 // Seperti SelectMoments: setiap kegagalan dikembalikan apa adanya, TIDAK ada
-// perpindahan diam-diam ke mesin lain (lihat catatan/12).
-func (c *Client) Lengkapi(ctx context.Context, system, user string, maxTokens int) (string, error) {
+// perpindahan diam-diam ke mesin lain (lihat notes/12).
+func (c *Client) Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	if c.APIKey == "" {
-		return "", fmt.Errorf("API key Claude kosong — isi di panel Mesin AI (GUI) atau ANTHROPIC_API_KEY di .env")
+		return "", fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
 	}
 	if maxTokens <= 0 {
 		maxTokens = 4096
@@ -116,6 +120,9 @@ func (c *Client) Lengkapi(ctx context.Context, system, user string, maxTokens in
 		MaxTokens: maxTokens,
 		System:    system,
 		Messages:  []anthMsg{{Role: "user", Content: user}},
+	}
+	if c.Temperature > 0 {
+		reqBody.Temperature = &c.Temperature
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
@@ -128,20 +135,20 @@ func (c *Client) Lengkapi(ctx context.Context, system, user string, maxTokens in
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Claude tidak terjangkau (cek koneksi internet): %w", err)
+		return "", fmt.Errorf("Claude is unreachable (check your internet connection): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var parsed msgResp
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", fmt.Errorf("respons Claude tidak bisa dibaca (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
+		return "", fmt.Errorf("the Claude response could not be read (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	if parsed.Error != nil {
 		return "", claudeError(resp.StatusCode, parsed.Error.Message)
 	}
 	if len(parsed.Content) == 0 {
-		return "", fmt.Errorf("Claude membalas kosong (status %d)", resp.StatusCode)
+		return "", fmt.Errorf("Claude returned an empty reply (status %d)", resp.StatusCode)
 	}
 	return parsed.Content[0].Text, nil
 }
@@ -151,15 +158,15 @@ func claudeError(status int, msg string) error {
 	low := strings.ToLower(msg)
 	switch {
 	case strings.Contains(low, "x-api-key") || status == 401:
-		return fmt.Errorf("API key Claude ditolak — perbarui key di panel Mesin AI (%s)", msg)
+		return fmt.Errorf("the Claude API key was rejected — update it in the AI engine panel (%s)", msg)
 	case status == 429:
-		return fmt.Errorf("kuota/rate limit Claude terlampaui — tunggu sebentar lalu ulangi (%s)", msg)
+		return fmt.Errorf("Claude quota/rate limit exceeded — wait a moment and try again (%s)", msg)
 	case strings.Contains(low, "model"):
-		return fmt.Errorf("model Claude tidak dikenali — pilih model lain di GUI (%s)", msg)
+		return fmt.Errorf("unknown Claude model — pick a different model in the GUI (%s)", msg)
 	case status == 400 && strings.Contains(low, "credit"):
-		return fmt.Errorf("saldo API Claude habis (%s)", msg)
+		return fmt.Errorf("the Claude API balance is exhausted (%s)", msg)
 	}
-	return fmt.Errorf("Claude menolak permintaan (status %d): %s", status, msg)
+	return fmt.Errorf("Claude rejected the request (status %d): %s", status, msg)
 }
 
 // parseMoments menerima bentuk {"moments":[...]} maupun array telanjang [...].
@@ -172,7 +179,7 @@ func parseMoments(text string) ([]Moment, error) {
 	}
 	arr := extractBlock(text, '[', ']')
 	if arr == "" {
-		return nil, fmt.Errorf("tidak ada blok JSON dalam balasan")
+		return nil, fmt.Errorf("no JSON block found in the reply")
 	}
 	var moments []Moment
 	if err := json.Unmarshal([]byte(arr), &moments); err != nil {

@@ -178,7 +178,7 @@ Sekarang `susun()` **tidak pernah mengembalikan galat**; tiga lapis penanganan:
 
 Penggantian ini **tidak senyap**: `Pilihan.Catatan` menjelaskan berapa paragraf
 yang dinilai model dan berapa yang otomatis, dan GUI menampilkannya. Inilah
-batas yang dipakai terhadap catatan/12 — yang dilarang adalah berpindah mesin
+batas yang dipakai terhadap notes/12 — yang dilarang adalah berpindah mesin
 diam-diam, bukan melengkapi urutan tampilan secara terbuka.
 
 Setelah perbaikan: **8 dari 8 berhasil**, dengan 2–8 paragraf dinilai model.

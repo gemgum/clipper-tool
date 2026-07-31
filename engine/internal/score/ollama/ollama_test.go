@@ -36,7 +36,7 @@ func TestJudge(t *testing.T) {
 	if ok, note := judge("7.6B", 32768, []string{"completion", "tools"}); !ok {
 		t.Errorf("qwen2.5 seharusnya siap, malah ditolak: %s", note)
 	}
-	// Model 4B: kasus di catatan/12 — balasannya isian kosong.
+	// Model 4B: kasus di notes/12 — balasannya isian kosong.
 	if ok, _ := judge("4B", 32768, []string{"completion"}); ok {
 		t.Error("model 4B seharusnya ditandai kurang memadai")
 	}

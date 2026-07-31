@@ -8,8 +8,8 @@ import (
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
-// transkrip sintetis: segmen 5 detik sepanjang total detik.
-func transkrip(total float64) types.Transcript {
+// transcript sintetis: segmen 5 detik sepanjang total detik.
+func transcript(total float64) types.Transcript {
 	var tr types.Transcript
 	for t := 0.0; t < total; t += 5 {
 		tr.Segments = append(tr.Segments, types.TranscriptSegment{
@@ -19,8 +19,8 @@ func transkrip(total float64) types.Transcript {
 	return tr
 }
 
-func TestChunkPendekTidakDipecah(t *testing.T) {
-	parts := chunkTranscript(transkrip(600), 720, 120) // 10 mnt, batas 12 mnt
+func TestShortTranscriptIsNotChunked(t *testing.T) {
+	parts := chunkTranscript(transcript(600), 720, 120) // 10 mnt, batas 12 mnt
 	if len(parts) != 1 {
 		t.Fatalf("dapat %d potongan, ingin 1", len(parts))
 	}
@@ -29,8 +29,8 @@ func TestChunkPendekTidakDipecah(t *testing.T) {
 	}
 }
 
-func TestChunkPanjangBertumpangTindih(t *testing.T) {
-	parts := chunkTranscript(transkrip(3600), 720, 120) // 60 mnt, potongan 12 mnt
+func TestLongTranscriptChunksOverlap(t *testing.T) {
+	parts := chunkTranscript(transcript(3600), 720, 120) // 60 mnt, potongan 12 mnt
 	if len(parts) < 5 {
 		t.Fatalf("hanya %d potongan untuk 60 menit", len(parts))
 	}
@@ -55,12 +55,12 @@ func TestChunkPanjangBertumpangTindih(t *testing.T) {
 	}
 }
 
-func TestMomenTerbelahDisambung(t *testing.T) {
-	// Momen berakhir tepat di batas potongan & ditandai berlanjut,
+func TestSplitMomentIsRejoined(t *testing.T) {
+	// Momen berakhir tepat di batas potongan & ditandai "continues",
 	// lalu potongan berikutnya melanjutkannya.
 	ms := []llm.Moment{
-		{Start: 600, End: 720, Score: 80, Title: "bagian A", Berlanjut: true},
-		{Start: 720, End: 790, Score: 70, Title: "bagian B"},
+		{Start: 600, End: 720, Score: 80, Title: "part A", Continues: true},
+		{Start: 720, End: 790, Score: 70, Title: "part B"},
 	}
 	out := mergeMoments(ms)
 	if len(out) != 1 {
@@ -71,11 +71,11 @@ func TestMomenTerbelahDisambung(t *testing.T) {
 	}
 }
 
-func TestDuplikatDariTumpangTindihDibuang(t *testing.T) {
+func TestDuplicatesFromOverlapAreDropped(t *testing.T) {
 	// Momen sama muncul di dua potongan (area tumpang tindih).
 	ms := []llm.Moment{
-		{Start: 640, End: 700, Score: 60, Title: "versi potongan 1"},
-		{Start: 640, End: 700, Score: 75, Title: "versi potongan 2"},
+		{Start: 640, End: 700, Score: 60, Title: "chunk 1 version"},
+		{Start: 640, End: 700, Score: 75, Title: "chunk 2 version"},
 	}
 	out := mergeMoments(ms)
 	if len(out) != 1 {
@@ -86,7 +86,7 @@ func TestDuplikatDariTumpangTindihDibuang(t *testing.T) {
 	}
 }
 
-func TestMomenTerpisahTidakDigabung(t *testing.T) {
+func TestSeparateMomentsAreNotMerged(t *testing.T) {
 	ms := []llm.Moment{
 		{Start: 0, End: 60, Score: 80},
 		{Start: 200, End: 260, Score: 70},
@@ -96,25 +96,25 @@ func TestMomenTerpisahTidakDigabung(t *testing.T) {
 	}
 }
 
-func TestValidasiMenolakBatasNgawur(t *testing.T) {
-	tr := transkrip(600)
+func TestValidateRejectsNonsenseBoundaries(t *testing.T) {
+	tr := transcript(600)
 	ms := []llm.Moment{
 		{Start: 100, End: 60},                             // terbalik
 		{Start: 50, End: 52},                              // terlalu pendek
 		{Start: 900, End: 1000},                           // di luar durasi video
-		{Start: 100, End: 160, Score: 80, Title: "judul"}, // valid
+		{Start: 100, End: 160, Score: 80, Title: "title"}, // valid
 	}
-	ok, ditolak, err := validateMoments(ms, tr, "mesin uji")
+	ok, rejected, err := validateMoments(ms, tr, "test engine")
 	if err != nil {
 		t.Fatalf("tak seharusnya gagal, masih ada 1 momen valid: %v", err)
 	}
-	if len(ok) != 1 || len(ditolak) != 3 {
-		t.Errorf("valid=%d ditolak=%d, ingin 1 dan 3", len(ok), len(ditolak))
+	if len(ok) != 1 || len(rejected) != 3 {
+		t.Errorf("valid=%d rejected=%d, ingin 1 dan 3", len(ok), len(rejected))
 	}
 }
 
-func TestValidasiGagalBilaSemuaNgawur(t *testing.T) {
-	tr := transkrip(600)
+func TestValidateFailsWhenEverythingIsNonsense(t *testing.T) {
+	tr := transcript(600)
 	ms := []llm.Moment{{Start: 5000, End: 5060}}
 	_, _, err := validateMoments(ms, tr, "Ollama (qwen2.5)")
 	if err == nil {

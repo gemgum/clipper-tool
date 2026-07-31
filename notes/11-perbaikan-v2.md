@@ -185,7 +185,7 @@ Catatan biaya: mode `both` meng-encode dua kali → waktu render ±2x.
   preset durasi 60 + gaya normal/karaoke/word.
 - Cek: distribusi durasi klip, tidak ada halaman subtitle <1 dtk, warna sesuai,
   subtitle di dalam area aman platform terpilih.
-- Perbarui `catatan/08-status-mvp.md`.
+- Perbarui `notes/08-status-mvp.md`.
 
 ## Preview & font di GUI (ronde perbaikan setelah uji pakai)
 
@@ -252,7 +252,7 @@ garis tengah tetap sah.
 CLI & pembuatan job berhenti di depan) dan dari `/api/frame`. Di GUI opsinya
 tampil tapi `disabled`. Sebelumnya `enc.Mode == "fit"` yang bernilai false
 membuat face_follow diam-diam dirender sebagai center — persis penggantian
-senyap yang dilarang catatan/12.
+senyap yang dilarang notes/12.
 
 Diuji: frame `center` vs `fit` diambil dari video uji 1280×720 lewat endpoint —
 `center` menampilkan potongan tengah yang di-zoom, `fit` menampilkan frame utuh
@@ -289,7 +289,7 @@ penelusuran). Komentar lama menyebut `.ass` "file sementara" padahal tak pernah
 ada yang menghapusnya.
 
 Ikut dihapus: field `subtitle_path` di `types.Clip` — tidak dipakai GUI maupun
-API, dan sekarang akan menunjuk berkas yang sudah tiada. `catatan/07` disesuaikan.
+API, dan sekarang akan menunjuk berkas yang sudah tiada. `notes/07` disesuaikan.
 
 Diuji end-to-end dengan potongan 90 detik video Indonesia:
 - mode `burn` → folder job berisi `clip_01.mp4` + `tmp/`; nol berkas `.ass`
