@@ -26,8 +26,7 @@ gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
 ./setup.sh [base|small|medium]   # build whisper.cpp + unduh model + build worker (sekali)
 ./build.sh                       # build engine (Go) + worker (C++)
 ./bin/clipper run <video> [-mode -model -duration -max -min-score \
-                           -reframe center -background blur|black \
-                           -frame-visible 0..100 -picture-size 5..100 \
+                           -reframe center|fit -background blur|black -zoom 5..200 \
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
                            -transcript-fix on|off \
                            -save burn|clean|both]                # CLI

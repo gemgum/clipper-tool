@@ -62,34 +62,28 @@ const en = {
   fpsSource: "Match source",
 
   groupFrame: "9:16 frame",
-  framing: "Framing",
-  framingTip: "Where the frame sits on the video",
-  framingCenter: "Centre of the picture",
-  framingFace: "Follow faces — not available yet",
+  fitMode: "How the video fits",
+  fitModeTip: "How the video is placed into the upright 9:16 frame",
+  fitCenter: "Center of the Picture — crop to fill",
+  fitWhole: "Whole Picture — no crop",
+  fitFace: "Follow Face — not available yet",
+  fitWholeNote:
+    "The entire video resolution is used, so nothing is cropped at all. That is why the background exists: it fills the space the video cannot reach.",
   zoomLabel: "Zoom ({n}%)",
   zoomTip:
-    "How much of the original frame stays visible. 100% keeps the whole picture; turning it down magnifies it until it fills the 9:16 frame at 0%.",
-  zoomEndWhole: "100% · whole frame",
-  zoomEndFull: "0% · fills frame",
-  zoomPresetWhole: "Whole frame",
-  zoomPresetFull: "Fill 9:16",
-  zoomWholeNote:
-    "The entire original frame is visible — nothing is cropped, and the leftover space is filled by the background.",
-  zoomFullNote:
-    "The picture fills the whole 9:16 frame and the overflowing edges are cropped.",
-  pictureSizeLabel: "Picture size in the frame ({n}%)",
-  pictureSizeTip:
-    "Shrinks the picture inside the frame without changing what gets cropped",
-  pictureSizeEndSmall: "5% · small",
-  pictureSizeEndFull: "100% · edge to edge",
-  pictureSizeNote:
-    "The picture is shrunk into the middle with the background all around it. What is cropped does not change — only how big it sits.",
+    "How far the video is zoomed in from the starting point of the mode above. Steps of 5%.",
+  zoomEndWhole: "0% · whole video",
+  zoomEndSmall: "5% · small",
+  zoomEndFull: "100% · fills frame",
+  zoomEndBig: "200% · zoomed in",
+  fitWholeCropWarn:
+    "⚠ Above 0% the video is enlarged, so its sides are cropped — it is no longer the whole picture.",
   background: "Background",
   backgroundTip: "Used when the video does not cover the whole frame",
   backgroundBlur: "Blurred from the video",
   backgroundBlack: "Solid black",
   backgroundNoEffect:
-    "At 100% the picture covers the whole frame, so the background is never visible.",
+    "Center of the Picture at 100% covers the whole frame, so the background is never visible.",
 
   groupClips: "Clip output",
   clipDuration: "Clip length",
@@ -381,34 +375,28 @@ const id: Record<MessageKey, string> = {
   fpsSource: "Ikut sumber",
 
   groupFrame: "Bingkai 9:16",
-  framing: "Letak bingkai",
-  framingTip: "Di mana bingkai duduk pada videonya",
-  framingCenter: "Tengah gambar",
-  framingFace: "Ikut wajah — belum tersedia",
+  fitMode: "Cara video dipasang",
+  fitModeTip: "Cara video dimasukkan ke bingkai tegak 9:16",
+  fitCenter: "Center of the Picture — potong tengah",
+  fitWhole: "Whole Picture — tanpa crop",
+  fitFace: "Follow Face — belum tersedia",
+  fitWholeNote:
+    "Seluruh resolusi video dipakai, jadi tidak ada yang terpotong sama sekali. Itulah alasan latar ada: ia mengisi ruang yang tidak terjangkau videonya.",
   zoomLabel: "Zoom ({n}%)",
   zoomTip:
-    "Berapa banyak frame asli yang tersisa terlihat. 100% menyisakan seluruh gambar; diturunkan, gambarnya makin diperbesar sampai memenuhi bingkai 9:16 di 0%.",
-  zoomEndWhole: "100% · frame utuh",
-  zoomEndFull: "0% · isi penuh",
-  zoomPresetWhole: "Frame utuh",
-  zoomPresetFull: "Isi penuh 9:16",
-  zoomWholeNote:
-    "Seluruh frame asli terlihat — tidak ada yang terpotong, dan sisa ruangnya diisi latar.",
-  zoomFullNote:
-    "Gambar memenuhi seluruh bingkai 9:16 dan tepi yang berlebih dipotong.",
-  pictureSizeLabel: "Ukuran gambar dalam bingkai ({n}%)",
-  pictureSizeTip:
-    "Mengecilkan gambar di dalam bingkai tanpa mengubah apa yang terpotong",
-  pictureSizeEndSmall: "5% · kecil",
-  pictureSizeEndFull: "100% · penuh",
-  pictureSizeNote:
-    "Gambar mengecil di tengah dengan latar mengelilingi keempat sisinya. Yang terpotong tidak berubah — hanya seberapa besar ia duduk.",
+    "Seberapa jauh video di-zoom dari titik awal mode di atas. Kelipatan 5%.",
+  zoomEndWhole: "0% · video utuh",
+  zoomEndSmall: "5% · kecil",
+  zoomEndFull: "100% · isi penuh",
+  zoomEndBig: "200% · diperbesar",
+  fitWholeCropWarn:
+    "⚠ Di atas 0% video diperbesar, jadi sisinya mulai terpotong — tidak lagi gambar utuh.",
   background: "Latar",
   backgroundTip: "Dipakai saat video tidak menutupi seluruh bingkai",
   backgroundBlur: "Blur dari videonya",
   backgroundBlack: "Hitam polos",
   backgroundNoEffect:
-    "Pada 100% gambar menutupi seluruh bingkai, jadi latar tidak akan terlihat.",
+    "Center of the Picture pada 100% menutupi seluruh bingkai, jadi latar tidak akan terlihat.",
 
   groupClips: "Hasil klip",
   clipDuration: "Durasi klip",

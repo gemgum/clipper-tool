@@ -8,46 +8,34 @@ import (
 	"testing"
 )
 
-// Rantai filter dipakai bersama render klip & preview satu frame. Tes ini
-// menjaga keduanya tetap satu sumber — kalau salah satu ujung diubah, yang lain
-// ikut berubah dengan sendirinya.
-func TestReframeFilterEnds(t *testing.T) {
-	// Isi penuh: perbesar lalu potong tengah, tanpa pekerjaan latar sama sekali.
-	full := ReframeFilter(Layout{Mode: "center", FrameVisible: 0, PictureSize: 100}, 1080, 1920)
-	if !strings.Contains(full, "force_original_aspect_ratio=increase") || !strings.Contains(full, "crop=1080:1920") {
-		t.Errorf("isi penuh harus memperbesar lalu crop tengah, dapat: %s", full)
-	}
-	for _, forbidden := range []string{"gblur", "split=2", "pad="} {
-		if strings.Contains(full, forbidden) {
-			t.Errorf("isi penuh tidak boleh memakai %q: %s", forbidden, full)
-		}
-	}
+// --- bentuk rantai filter ---
 
-	// Frame utuh: seluruh gambar asli di atas latar blur.
-	none := ReframeFilter(Layout{Mode: "center", Background: "blur", FrameVisible: 100, PictureSize: 100}, 1080, 1920)
+// Whole Picture pada titik awalnya (zoom 0): seluruh gambar masuk, di atas latar.
+func TestWholePictureAtStartShowsEverything(t *testing.T) {
+	whole := ReframeFilter(Layout{Mode: "fit", Background: "blur", Zoom: 0}, 1080, 1920)
 	for _, part := range []string{
 		"split=2[bg][fg]",                      // frame dipakai dua kali
 		"gblur=sigma=20",                       // latar di-blur
 		"force_original_aspect_ratio=decrease", // depan muat utuh, tidak terpotong
 		"overlay=(W-w)/2:(H-h)/2",              // ditaruh persis di tengah
 	} {
-		if !strings.Contains(none, part) {
-			t.Errorf("frame utuh kehilangan %q, dapat: %s", part, none)
+		if !strings.Contains(whole, part) {
+			t.Errorf("Whole Picture zoom 0 kehilangan %q, dapat: %s", part, whole)
 		}
 	}
 }
 
-// "Isi penuh 9:16" adalah keluaran yang paling sering dipakai, dan pernah
-// sekali berubah tanpa disadari saat sumbu zoom ditulis ulang. Rantainya
-// dikunci persis di sini: kalau ada yang menyentuhnya, tes ini yang berteriak
-// lebih dulu, bukan pengguna yang melihat hasil rendernya berbeda.
-func TestFullFrameFilterIsLockedDown(t *testing.T) {
+// "Center of the Picture" pada zoom penuh adalah keluaran yang paling sering
+// dipakai, dan pernah sekali berubah tanpa disadari. Rantainya dikunci persis
+// di sini: kalau ada yang menyentuhnya, tes ini yang berteriak lebih dulu,
+// bukan pengguna yang melihat hasil rendernya berbeda.
+func TestCenterFullZoomFilterIsLockedDown(t *testing.T) {
 	const want = "scale=1080:1920:force_original_aspect_ratio=increase:flags=lanczos,crop=1080:1920"
 	for _, l := range []Layout{
-		{Mode: "center", FrameVisible: 0, PictureSize: 100},                      // tanpa latar
-		{Mode: "center", Background: "blur", FrameVisible: 0, PictureSize: 100},  // latar diabaikan
-		{Mode: "center", Background: "black", FrameVisible: 0, PictureSize: 100}, // latar diabaikan
-		{Mode: "center", FrameVisible: 0},                                        // PictureSize kosong = 100
+		{Mode: "center", Zoom: 100},                      // tanpa latar
+		{Mode: "center", Background: "blur", Zoom: 100},  // latar diabaikan
+		{Mode: "center", Background: "black", Zoom: 100}, // latar diabaikan
+		{Mode: "center"},                                 // zoom kosong = 100
 	} {
 		if got := ReframeFilter(l, 1080, 1920); got != want {
 			t.Errorf("layout %+v:\n dapat: %s\n ingin: %s", l, got, want)
@@ -55,8 +43,8 @@ func TestFullFrameFilterIsLockedDown(t *testing.T) {
 	}
 }
 
-func TestReframeFilterBlackBackgroundDoesNotSplitStream(t *testing.T) {
-	got := ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 100, PictureSize: 100}, 1080, 1920)
+func TestBlackBackgroundDoesNotSplitStream(t *testing.T) {
+	got := ReframeFilter(Layout{Mode: "fit", Background: "black", Zoom: 0}, 1080, 1920)
 	if !strings.Contains(got, "pad=1080:1920") {
 		t.Errorf("latar hitam harus memakai pad, dapat: %s", got)
 	}
@@ -69,22 +57,51 @@ func TestReframeFilterBlackBackgroundDoesNotSplitStream(t *testing.T) {
 	}
 }
 
-// Zoom di antara kedua ujung tetap menyisakan ruang, jadi latar wajib ikut.
-func TestReframeFilterMidZoomKeepsBackground(t *testing.T) {
-	got := ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 50, PictureSize: 100}, 1080, 1920)
-	if !strings.Contains(got, "pad=1080:1920") {
-		t.Errorf("frame terlihat sebagian harus mengisi sisa bingkai, dapat: %s", got)
+// Latar adalah ALASAN mode Whole Picture ada, jadi ia wajib hadir selama masih
+// ada ruang kosong — yaitu di bawah 100, sebelum gambarnya menutupi bingkai.
+func TestWholePictureHasBackgroundBelowFull(t *testing.T) {
+	for _, z := range []int{0, 5, 50, 95} {
+		blur := ReframeFilter(Layout{Mode: "fit", Background: "blur", Zoom: z}, 1080, 1920)
+		if !strings.Contains(blur, "gblur=sigma=20") {
+			t.Errorf("fit zoom %d: latar blur hilang: %s", z, blur)
+		}
+		black := ReframeFilter(Layout{Mode: "fit", Background: "black", Zoom: z}, 1080, 1920)
+		if !strings.Contains(black, "pad=1080:1920") {
+			t.Errorf("fit zoom %d: latar hitam hilang: %s", z, black)
+		}
 	}
-	// Tidak boleh melebihi bingkai: sisi yang kelebihan dipotong lebih dulu.
-	if !strings.Contains(got, "crop='min(iw,1080)':'min(ih,1920)'") {
-		t.Errorf("nilai tengah harus memotong sisi yang melebihi bingkai, dapat: %s", got)
+	// Mulai 100 gambar menutupi bingkai, jadi latar tidak dikerjakan lagi.
+	for _, z := range []int{100, 150, 200} {
+		got := ReframeFilter(Layout{Mode: "fit", Background: "blur", Zoom: z}, 1080, 1920)
+		if strings.Contains(got, "gblur") {
+			t.Errorf("fit zoom %d masih mengerjakan latar padahal bingkai penuh: %s", z, got)
+		}
+	}
+}
+
+// Center of the Picture di bawah 100 mengecil, jadi butuh latar.
+func TestCenterBelowFullNeedsBackground(t *testing.T) {
+	for _, z := range []int{5, 50, 95} {
+		got := ReframeFilter(Layout{Mode: "center", Background: "black", Zoom: z}, 1080, 1920)
+		if !strings.Contains(got, "pad=1080:1920") {
+			t.Errorf("center zoom %d harus mengisi sisa bingkai, dapat: %s", z, got)
+		}
+	}
+}
+
+// Mode tak dikenal jatuh ke center; penolakannya ditangani config.Reframe.Check
+// supaya pesan errornya muncul sebelum ffmpeg dipanggil.
+func TestUnknownModeBehavesLikeCenter(t *testing.T) {
+	if ReframeFilter(Layout{Mode: "anything", Zoom: 100}, 720, 1280) !=
+		ReframeFilter(Layout{Mode: "center", Zoom: 100}, 720, 1280) {
+		t.Error("mode tak dikenal seharusnya sama dengan center")
 	}
 }
 
 // Koma di dalam min()/max() harus terlindung kutip tunggal. Di dalam kutip
 // ffmpeg TIDAK menafsirkan backslash, jadi meng-escape koma justru merusaknya.
-func TestReframeFilterQuotesExpressionsWithoutBackslash(t *testing.T) {
-	got := ReframeFilter(Layout{Mode: "center", FrameVisible: 50, PictureSize: 100}, 1080, 1920)
+func TestExpressionsAreQuotedWithoutBackslash(t *testing.T) {
+	got := ReframeFilter(Layout{Mode: "fit", Zoom: 50}, 1080, 1920)
 	if strings.Contains(got, `\,`) {
 		t.Errorf("koma tidak boleh di-escape di dalam kutip: %s", got)
 	}
@@ -97,14 +114,24 @@ func TestReframeFilterQuotesExpressionsWithoutBackslash(t *testing.T) {
 
 // --- geometri sungguhan lewat ffmpeg ---
 
-// scaledSize menjalankan HANYA tahap penskalaan zoom pada sumber sintetis, lalu
-// melaporkan ukuran hasilnya. Inilah yang membuktikan arah sumbu zoom benar —
-// mencocokkan string filter saja tidak membuktikan apa pun soal geometri.
-func scaledSize(t *testing.T, visible, srcW, srcH, targetW, targetH int) (int, int) {
+func requireFFmpeg(t *testing.T) {
 	t.Helper()
-	chain := fitChain(visible, targetW, targetH)
-	// Tahap crop dibuang: yang diukur besar gambarnya, bukan hasil potongannya.
-	if i := strings.Index(chain, ",crop="); i >= 0 {
+	for _, bin := range []string{"ffmpeg", "ffprobe"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			t.Skip(bin + " tidak tersedia")
+		}
+	}
+}
+
+// scaledSize menjalankan tahap PENSKALAAN saja pada sumber sintetis, lalu
+// melaporkan ukuran gambarnya. Pad sesudahnya selalu mengembalikan hasil ke
+// ukuran bingkai, jadi tidak memberi tahu apa pun tentang besar gambarnya
+// sendiri — dan mencocokkan string filter tidak membuktikan apa pun soal
+// geometri.
+func scaledSize(t *testing.T, mode string, zoom, srcW, srcH, targetW, targetH int) (int, int) {
+	t.Helper()
+	chain := ReframeFilter(Layout{Mode: mode, Background: "black", Zoom: zoom}, targetW, targetH)
+	if i := strings.Index(chain, ",pad="); i >= 0 {
 		chain = chain[:i]
 	}
 
@@ -142,125 +169,113 @@ func itoa(n int) string {
 	return string(b)
 }
 
-// Inti perbaikan: FrameVisible 100 memperlihatkan frame asli utuh, dan
-// menurunkannya memperbesar gambar secara monoton sampai memenuhi bingkai di 0.
-//
-// Sumber 1920x1080 (16:9) ke bingkai 1080x1920 (9:16):
-//   - visible 100 → lebar pas 1080, tinggi 608  (seluruh frame terlihat)
-//   - visible 0   → tinggi pas 1920, lebar 3413 (bingkai penuh, sisi terpotong)
-func TestFrameVisibleAxisGrowsAsItFalls(t *testing.T) {
+// Inti mode Whole Picture: pada zoom 0 SELURUH video masuk, tanpa ada yang
+// terpotong sedikit pun.
+func TestWholePictureStartsWithEverythingVisible(t *testing.T) {
 	requireFFmpeg(t)
 	const tw, th = 1080, 1920
-	const sw, sh = 1920, 1080
-
-	wWhole, hWhole := scaledSize(t, 100, sw, sh, tw, th)
-	// Contain: seluruh frame asli masuk, tidak ada sisi yang melebihi bingkai.
-	if wWhole > tw || hWhole > th {
-		t.Errorf("visible 100 = %dx%d, melebihi bingkai %dx%d — ada yang terpotong", wWhole, hWhole, tw, th)
+	w, h := scaledSize(t, "fit", 0, 1920, 1080, tw, th)
+	if w > tw || h > th {
+		t.Errorf("fit zoom 0 = %dx%d, melebihi bingkai %dx%d — ada yang terpotong", w, h, tw, th)
 	}
-	if wWhole != tw {
-		t.Errorf("visible 100 lebar = %d, ingin pas %d (sumber lanskap menyentuh sisi kiri-kanan)", wWhole, tw)
+	if w != tw {
+		t.Errorf("fit zoom 0 lebar = %d, ingin pas %d (sumber lanskap menyentuh sisi kiri-kanan)", w, tw)
 	}
+}
 
-	wFull, hFull := scaledSize(t, 0, sw, sh, tw, th)
-	// Cover: bingkai tertutup penuh.
-	if wFull < tw || hFull < th {
-		t.Errorf("visible 0 = %dx%d, tidak menutupi bingkai %dx%d", wFull, hFull, tw, th)
-	}
+// Dan menggeser zoom ke kanan MEMBESARKAN gambarnya, sampai memenuhi bingkai di
+// 100 dan terus membesar setelahnya. Terpotongnya sisi itu memang yang diminta.
+//
+// Yang diukur tingginya: lebar sudah mentok di bingkai sejak zoom 0, jadi ia
+// tidak bisa membuktikan apa-apa.
+func TestWholePictureZoomEnlarges(t *testing.T) {
+	requireFFmpeg(t)
+	const tw, th = 1080, 1920
 
-	// Monoton: MENURUNKAN visible harus memperbesar gambar, tidak pernah mengecil.
-	prevW, prevH := wWhole, hWhole
-	for _, v := range []int{75, 50, 25, 0} {
-		w, h := scaledSize(t, v, sw, sh, tw, th)
-		if w <= prevW || h <= prevH {
-			t.Errorf("visible %d = %dx%d, tidak lebih besar dari langkah sebelumnya %dx%d", v, w, h, prevW, prevH)
+	prev := 0
+	for _, z := range []int{0, 25, 50, 75, 100} {
+		w, h := scaledSize(t, "fit", z, 1920, 1080, tw, th)
+		if h <= prev {
+			t.Errorf("fit zoom %d tinggi %d, tidak lebih besar dari langkah sebelumnya %d", z, h, prev)
 		}
-		prevW, prevH = w, h
+		if w > tw || h > th {
+			t.Errorf("fit zoom %d = %dx%d, melewati bingkai", z, w, h)
+		}
+		prev = h
 	}
+	// Pada 100 gambar sudah menutupi bingkai sepenuhnya.
+	if w, h := scaledSize(t, "fit", 100, 1920, 1080, tw, th); w != tw || h != th {
+		t.Errorf("fit zoom 100 = %dx%d, ingin memenuhi bingkai %dx%d", w, h, tw, th)
+	}
+}
 
-	// Dimensi selalu genap — h264 menolak yang ganjil.
-	for _, v := range []int{5, 35, 65, 95} {
-		w, h := scaledSize(t, v, sw, sh, tw, th)
-		if w%2 != 0 || h%2 != 0 {
-			t.Errorf("visible %d menghasilkan dimensi ganjil %dx%d", v, w, h)
+// Center of the Picture: 100 memenuhi bingkai, di bawahnya mengecil, di atasnya
+// punch-in yang tetap memenuhi bingkai.
+func TestCenterZoomBehaviour(t *testing.T) {
+	requireFFmpeg(t)
+	const tw, th = 1080, 1920
+
+	if w, h := scaledSize(t, "center", 100, 1920, 1080, tw, th); w != tw || h != th {
+		t.Errorf("center zoom 100 = %dx%d, ingin pas %dx%d", w, h, tw, th)
+	}
+	if w, h := scaledSize(t, "center", 50, 1920, 1080, tw, th); w >= tw || h >= th {
+		t.Errorf("center zoom 50 = %dx%d, seharusnya mengecil di dalam bingkai", w, h)
+	}
+	for _, z := range []int{150, 200} {
+		if w, h := scaledSize(t, "center", z, 1920, 1080, tw, th); w != tw || h != th {
+			t.Errorf("center zoom %d = %dx%d, punch-in tetap harus pas %dx%d", z, w, h, tw, th)
 		}
 	}
 }
 
-// Sumber potret ke bingkai potret: sumbunya harus tetap benar arahnya walau
-// peran lebar & tinggi bertukar.
-func TestFrameVisibleAxisWorksForPortraitSource(t *testing.T) {
+// Sumber potret ke bingkai potret: arah tiap mode harus tetap benar walau peran
+// lebar & tinggi bertukar.
+func TestModesWorkForPortraitSource(t *testing.T) {
 	requireFFmpeg(t)
 	const tw, th = 1080, 1920
 	const sw, sh = 1080, 1350 // 4:5, lebih persegi daripada bingkainya
 
-	wWhole, hWhole := scaledSize(t, 100, sw, sh, tw, th)
-	if wWhole > tw || hWhole > th {
-		t.Errorf("visible 100 = %dx%d, melebihi bingkai", wWhole, hWhole)
+	if w, h := scaledSize(t, "fit", 0, sw, sh, tw, th); w > tw || h > th {
+		t.Errorf("fit zoom 0 = %dx%d, melebihi bingkai %dx%d", w, h, tw, th)
 	}
-	wFull, hFull := scaledSize(t, 0, sw, sh, tw, th)
-	if wFull < tw || hFull < th {
-		t.Errorf("visible 0 = %dx%d, tidak menutupi bingkai", wFull, hFull)
-	}
-	if wFull <= wWhole || hFull <= hWhole {
-		t.Errorf("visible 0 (%dx%d) harus lebih besar dari visible 100 (%dx%d)", wFull, hFull, wWhole, hWhole)
+	if w, h := scaledSize(t, "center", 100, sw, sh, tw, th); w < tw || h < th {
+		t.Errorf("center = %dx%d, tidak menutupi bingkai %dx%d", w, h, tw, th)
 	}
 }
 
-// PictureSize adalah sumbu KEDUA dan benar-benar berdiri sendiri: ia mengecilkan
-// gambar di dalam bingkai TANPA mengubah apa yang terpotong. Inilah tampilan
-// yang sempat hilang saat sumbu zoom ditulis ulang.
-func TestPictureSizeShrinksWithoutChangingTheCrop(t *testing.T) {
+// Tiap langkah 5% harus benar-benar mengubah ukuran — kalau tidak, menggeser
+// penggeser terasa seperti tidak berfungsi.
+//
+// Yang TIDAK diperiksa: kegenapan dimensi antara. ffmpeg menjaga rasio sumber
+// sehingga hasil skalanya boleh ganjil; crop/pad sesudahnya yang mengembalikan
+// ke ukuran bingkai yang genap, jadi h264 tidak pernah melihatnya. Kegenapan
+// hasil AKHIR dijamin TestClipReframeFillsFrameInEveryMode.
+func TestEveryFivePercentStepChangesSize(t *testing.T) {
 	requireFFmpeg(t)
-	const tw, th = 1080, 1920
-
-	// Potongan penuh (visible 0) di kotak separuh bingkai.
-	half := ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 0, PictureSize: 50}, tw, th)
-	if !strings.Contains(half, "crop=540:960") {
-		t.Errorf("PictureSize 50 harus memotong ke kotak 540x960, dapat: %s", half)
-	}
-	if !strings.Contains(half, "pad=1080:1920") {
-		t.Errorf("gambar yang mengecil harus dibantali sampai ukuran bingkai, dapat: %s", half)
-	}
-
-	// Rasio potongannya sama dengan saat memenuhi bingkai — yang berubah cuma
-	// ukurannya. 540:960 dan 1080:1920 sama-sama 9:16.
-	full := ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 0, PictureSize: 100}, tw, th)
-	if !strings.Contains(full, "crop=1080:1920") {
-		t.Errorf("PictureSize 100 harus memotong ke ukuran bingkai, dapat: %s", full)
-	}
-}
-
-// Tampilan lama yang dilaporkan hilang harus bisa dihasilkan lagi PERSIS.
-// Rantai ini disalin dari implementasi sebelum sumbu zoom ditulis ulang.
-func TestOldShrunkLookIsReproducibleExactly(t *testing.T) {
-	const wantOldZoom50 = "scale=540:960:force_original_aspect_ratio=increase:flags=lanczos,crop=540:960" +
-		",pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
-	got := ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 0, PictureSize: 50}, 1080, 1920)
-	if got != wantOldZoom50 {
-		t.Errorf("tampilan lama tidak kembali persis:\n dapat: %s\n ingin: %s", got, wantOldZoom50)
-	}
-
-	// "fit" lama = frame utuh memenuhi bingkai.
-	const wantOldFit = "scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos" +
-		",pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black"
-	got = ReframeFilter(Layout{Mode: "center", Background: "black", FrameVisible: 100, PictureSize: 100}, 1080, 1920)
-	if got != wantOldFit {
-		t.Errorf("\"fit\" lama tidak kembali persis:\n dapat: %s\n ingin: %s", got, wantOldFit)
-	}
-}
-
-func requireFFmpeg(t *testing.T) {
-	t.Helper()
-	for _, bin := range []string{"ffmpeg", "ffprobe"} {
-		if _, err := exec.LookPath(bin); err != nil {
-			t.Skip(bin + " tidak tersedia")
+	// Whole Picture: tingginya yang bergerak, 0 sampai memenuhi bingkai.
+	seen := map[int]bool{}
+	for z := 0; z <= 100; z += 5 {
+		_, h := scaledSize(t, "fit", z, 1920, 1080, 1080, 1920)
+		if seen[h] {
+			t.Errorf("fit zoom %d menghasilkan tinggi %d yang sama dengan langkah lain", z, h)
 		}
+		seen[h] = true
+	}
+	// Center of the Picture: kotaknya yang bergerak, sampai memenuhi bingkai.
+	seen = map[int]bool{}
+	for z := 5; z <= 100; z += 5 {
+		w, _ := scaledSize(t, "center", z, 1920, 1080, 1080, 1920)
+		if seen[w] {
+			t.Errorf("center zoom %d menghasilkan lebar %d yang sama dengan langkah lain", z, w)
+		}
+		seen[w] = true
 	}
 }
+
+// --- render klip utuh ---
 
 // topCentrePixel merender satu frame dari klip lalu membaca piksel di dekat tepi
-// ATAS-tengah — tempat yang jadi ruang kosong saat zoom rendah.
+// ATAS-tengah — tempat yang jadi ruang kosong saat video tidak memenuhi bingkai.
 //
 // format=rgb24 WAJIB mendahului crop: pada sumber yuv420p, chroma-nya
 // disubsampel, dan memotong petak sekecil ini sebelum konversi membuat ffmpeg
@@ -276,10 +291,10 @@ func topCentrePixel(t *testing.T, clip string) (r, g, b byte) {
 	return out[0], out[1], out[2]
 }
 
-// Uji end-to-end lewat ClipReframe: rantai filter lengkap (skala + crop + pad)
-// harus tetap menghasilkan bingkai berukuran tepat di SEMUA nilai zoom, dan
-// ruang kosong di zoom rendah benar-benar terisi latar.
-func TestClipReframeFillsFrameAtEverySetting(t *testing.T) {
+// Uji end-to-end lewat ClipReframe: rantai filter lengkap harus tetap
+// menghasilkan bingkai berukuran tepat di SEMUA mode & zoom, dan ruang
+// kosongnya benar-benar terisi latar.
+func TestClipReframeFillsFrameInEveryMode(t *testing.T) {
 	requireFFmpeg(t)
 	dir := t.TempDir()
 	src := dir + "/src.mp4"
@@ -292,19 +307,20 @@ func TestClipReframeFillsFrameAtEverySetting(t *testing.T) {
 	c := New("ffmpeg", "ffprobe")
 	const tw, th = 1080, 1920
 	cases := []struct {
-		name             string
-		visible, picture int
-		wantDarkTop      bool
+		name        string
+		mode        string
+		zoom        int
+		wantDarkTop bool
 	}{
-		{"isi-penuh", 0, 100, false}, // menutupi bingkai → tepi atas bergambar
-		{"separuh-frame", 50, 100, true},
-		{"frame-utuh", 100, 100, true}, // ada pita latar di atas & bawah
-		{"mengecil", 0, 50, true},      // potongan penuh, tapi mengecil di tengah
+		{"whole-awal", "fit", 0, true},         // seluruh video, pita latar
+		{"whole-zoom50", "fit", 50, true},      // membesar, latar menyempit
+		{"whole-penuh", "fit", 100, false},     // menutupi bingkai
+		{"center-penuh", "center", 100, false}, // menutupi bingkai
+		{"center-zoom50", "center", 50, true},  // mengecil, ada latar
 	}
 	for _, tc := range cases {
 		out := dir + "/clip_" + tc.name + ".mp4"
-		enc := EncodeOpts{CRF: "30", Preset: "ultrafast", Mode: "center", Background: "black",
-			FrameVisible: tc.visible, PictureSize: tc.picture}
+		enc := EncodeOpts{CRF: "30", Preset: "ultrafast", Mode: tc.mode, Background: "black", Zoom: tc.zoom}
 		if err := c.ClipReframe(context.Background(), src, 0, 0.5, tw, th, enc, out); err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -316,7 +332,6 @@ func TestClipReframeFillsFrameAtEverySetting(t *testing.T) {
 			t.Errorf("%s menghasilkan %dx%d, ingin %dx%d", tc.name, w, h, tw, th)
 		}
 
-		// Tepi atas: hitam saat masih ada ruang kosong, bergambar saat penuh.
 		r, g, b := topCentrePixel(t, out)
 		dark := r < 24 && g < 24 && b < 24
 		if dark != tc.wantDarkTop {

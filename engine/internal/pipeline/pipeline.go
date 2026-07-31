@@ -205,8 +205,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 
 		enc := ffmpeg.EncodeOpts{
 			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
-			Mode: string(p.Opts.Reframe), Background: p.Opts.Background,
-			FrameVisible: p.Opts.FrameVisible, PictureSize: p.Opts.PictureSize,
+			Mode: string(p.Opts.Reframe), Background: p.Opts.Background, Zoom: p.Opts.Zoom,
 			FPS: p.Opts.FPS,
 		}
 		// Varian polos (tanpa subtitle) — untuk mode clean & both.

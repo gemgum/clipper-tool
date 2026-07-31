@@ -88,15 +88,14 @@ func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string) erro
 
 // EncodeOpts parameter encoding & subtitle.
 type EncodeOpts struct {
-	CRF          string
-	Preset       string
-	AssPath      string // subtitle .ass; kosong = tanpa subtitle
-	FontsDir     string // dir font untuk libass
-	Mode         string // center | face_follow (di mana bingkai duduk)
-	Background   string // blur | black — isi ruang kosong yang tersisa
-	FrameVisible int    // 100 = frame asli utuh, 0 = memenuhi kotaknya
-	PictureSize  int    // 100 = gambar memenuhi bingkai, <100 = mengecil di tengah
-	FPS          int    // 0 = ikut sumber
+	CRF        string
+	Preset     string
+	AssPath    string // subtitle .ass; kosong = tanpa subtitle
+	FontsDir   string // dir font untuk libass
+	Mode       string // center | fit | face_follow
+	Background string // blur | black — isi ruang kosong yang tersisa
+	Zoom       int    // 5..100 persen ukuran video dalam bingkai
+	FPS        int    // 0 = ikut sumber
 }
 
 // Layout menempatkan video ke bingkai target.
@@ -105,58 +104,116 @@ type EncodeOpts struct {
 // sumber, sebab dulu keduanya menyusun filter sendiri-sendiri dan preview
 // tertinggal ketika perilaku render berubah.
 //
-// Ada DUA sumbu yang berdiri sendiri. Keduanya sengaja dipisah: dulu satu
-// kendali mencampur keduanya, dan itulah yang membuat zoom terasa salah.
+// Mode menentukan CARA video dipasangkan ke bingkai 9:16 — tiga pilihan yang
+// berdiri sendiri, bukan titik pada satu sumbu:
 //
-// FrameVisible = berapa banyak frame ASLI yang tersisa terlihat.
+//	center      : potong tengah sampai memenuhi bingkai;
+//	fit         : ambil SELURUH resolusi video tanpa crop. Sisa ruangnya diisi
+//	              Background — inilah alasan blur & hitam ada;
+//	face_follow : potong mengikuti wajah (BELUM TERSEDIA).
 //
-//	100 = seluruh frame asli terlihat (contain) — tidak ada yang terpotong;
-//	  0 = gambar memenuhi kotaknya (cover) — tepi yang berlebih dipotong.
+// Zoom dibaca RELATIF terhadap titik awal modenya, jadi artinya berbeda di tiap
+// mode. Itu disengaja: yang sama di keduanya adalah "0 sampai naik = makin
+// diperbesar", bukan angka mutlaknya.
 //
-// PictureSize = seberapa besar gambar itu duduk di dalam bingkai.
-//
-//	 100 = gambar memenuhi bingkai dari tepi ke tepi;
-//	<100 = gambar mengecil di tengah, latar mengelilingi keempat sisinya.
-//
-// Contoh: FrameVisible 0 + PictureSize 50 memberi potongan penuh yang mengecil
-// di tengah — persis tampilan yang dulu dihasilkan zoom 50.
+//	fit    :   0 = seluruh video masuk (titik awal mode ini)
+//	         100 = video memenuhi bingkai, sisinya terpotong
+//	         200 = diperbesar dua kali lipat lagi dari sana
+//	center :   5 = potongan tengah mengecil di tengah bingkai
+//	         100 = potongan tengah memenuhi bingkai (titik awal mode ini)
+//	         200 = punch-in, tetap memenuhi bingkai
 type Layout struct {
-	Mode         string // center | face_follow (di mana bingkai duduk)
-	Background   string // blur | black — mengisi ruang kosong yang tersisa
-	FrameVisible int    // 0..100
-	PictureSize  int    // 5..100; <=0 dianggap 100
+	Mode       string // center | fit | face_follow
+	Background string // blur | black — mengisi ruang kosong yang tersisa
+	Zoom       int    // persen; artinya bergantung Mode (lihat di atas)
 }
+
+// maxZoom harus sama dengan config.ZoomMax. Paket ini sengaja tidak mengimpor
+// config supaya tetap bisa dipakai sendiri.
+const maxZoom = 200
 
 // ReframeFilter menyusun rantai filter -vf untuk menempatkan video ke bingkai
 // target.
 func ReframeFilter(l Layout, targetW, targetH int) string {
-	visible := clampPercent(l.FrameVisible)
-	size := l.PictureSize
-	if size <= 0 {
-		size = 100
+	if l.Mode == "fit" {
+		return wholePictureChain(l, targetW, targetH)
 	}
-	size = clampPercent(size)
+	return centerCropChain(l, targetW, targetH)
+}
 
-	// Kotak tempat gambar diletakkan. Dibulatkan genap: encoder h264 menolak
-	// dimensi ganjil.
-	boxW := evenBox(targetW * size / 100)
-	boxH := evenBox(targetH * size / 100)
+// wholePictureChain: zoom 0 memasukkan SELURUH video, lalu naik = membesar.
+//
+// Skalanya diinterpolasi dari "muat utuh" ke "memenuhi bingkai"; di atas 100
+// rumus yang sama terus membesarkannya. Kedua titik bulat memakai bentuk yang
+// dihitung ffmpeg sendiri supaya tepat — pembulatan ekspresi bisa meleset satu
+// piksel, dan pada 100 satu piksel meleset berarti segaris latar terlihat.
+func wholePictureChain(l Layout, targetW, targetH int) string {
+	zoom := clampZoom(l.Zoom, 0)
 
-	foreground := fitChain(visible, boxW, boxH)
+	var foreground string
+	switch {
+	case zoom <= 0:
+		foreground = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos",
+			targetW, targetH)
+	case zoom == 100:
+		foreground = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
+			targetW, targetH, targetW, targetH)
+	default:
+		//	utuh  = min(TW/iw, TH/ih)      penuh = max(TW/iw, TH/ih)
+		//	skala = utuh + (penuh-utuh) * zoom/100
+		//
+		// Dihitung ffmpeg lewat ekspresi supaya dimensi sumber tidak perlu
+		// diprobe lebih dulu. Ekspresinya dikutip tunggal agar koma di dalam
+		// min()/max() tidak dibaca sebagai pemisah filter — di dalam kutip,
+		// koma TIDAK boleh di-escape dengan backslash.
+		whole := fmt.Sprintf("min(%d/iw,%d/ih)", targetW, targetH)
+		full := fmt.Sprintf("max(%d/iw,%d/ih)", targetW, targetH)
+		scale := fmt.Sprintf("(%s+(%s-%s)*%.4f)", whole, full, whole, float64(zoom)/100)
+		// Dibulatkan genap: encoder h264 menolak dimensi ganjil.
+		foreground = fmt.Sprintf(
+			"scale=w='trunc(iw*%s/2)*2':h='trunc(ih*%s/2)*2':flags=lanczos"+
+				",crop='min(iw,%d)':'min(ih,%d)'",
+			scale, scale, targetW, targetH)
+	}
 
-	// Latar hanya tak terlihat bila kotaknya sebesar bingkai DAN isinya memenuhi
-	// kotak itu. Selain itu selalu ada ruang yang harus diisi.
-	if size >= 100 && visible <= 0 {
+	// Mulai 100 gambar sudah menutupi bingkai, jadi latar tidak terlihat lagi.
+	if zoom >= 100 {
 		return foreground
 	}
+	return withBackground(l.Background, foreground, targetW, targetH)
+}
 
-	if l.Background == "black" {
+// centerCropChain: potongan tengah, zoom mengatur besarnya kotak di dalam
+// bingkai. 100 = memenuhi bingkai.
+func centerCropChain(l Layout, targetW, targetH int) string {
+	zoom := clampZoom(l.Zoom, 100)
+
+	fw := evenBox(targetW * zoom / 100)
+	fh := evenBox(targetH * zoom / 100)
+	foreground := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
+		fw, fh, fw, fh)
+
+	// Di atas 100 kotaknya melewati bingkai; kelebihannya dipangkas di tengah
+	// supaya hasilnya tidak pernah lebih besar dari bingkai — pad juga menolak
+	// masukan yang lebih besar dari keluarannya.
+	if fw > targetW || fh > targetH {
+		foreground += fmt.Sprintf(",crop=%d:%d", targetW, targetH)
+	}
+
+	if zoom >= 100 {
+		return foreground
+	}
+	return withBackground(l.Background, foreground, targetW, targetH)
+}
+
+// withBackground mengisi ruang yang tidak terjangkau video.
+func withBackground(background, foreground string, targetW, targetH int) string {
+	if background == "black" {
 		// Tidak perlu menggandakan aliran: cukup beri bantalan hitam di sekeliling.
 		return foreground + fmt.Sprintf(",pad=%d:%d:(ow-iw)/2:(oh-ih)/2:black", targetW, targetH)
 	}
-
-	// Blur: video dipakai dua kali — satu jadi latar yang dibesarkan & diburamkan,
-	// satu lagi jadi gambar depan yang ditumpuk di tengahnya.
+	// Blur: video dipakai dua kali — satu jadi latar yang dibesarkan &
+	// diburamkan, satu lagi jadi gambar depan yang ditumpuk di tengahnya.
 	return fmt.Sprintf(
 		"split=2[bg][fg];"+
 			"[bg]scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d,gblur=sigma=20[bgb];"+
@@ -165,53 +222,19 @@ func ReframeFilter(l Layout, targetW, targetH int) string {
 		targetW, targetH, targetW, targetH, foreground)
 }
 
-// fitChain memasukkan gambar ke kotak boxW x boxH menurut berapa banyak frame
-// asli yang harus tetap terlihat.
-//
-// Kedua ujungnya memakai bentuk sederhana yang dihitung ffmpeg sendiri; hanya
-// nilai di antaranya yang butuh ekspresi. Selain lebih mudah dibaca, ini juga
-// menjamin ujungnya tepat: pembulatan ekspresi bisa meleset satu piksel, dan
-// pada isi-penuh satu piksel meleset berarti segaris latar terlihat di tepi.
-func fitChain(visible, boxW, boxH int) string {
-	switch {
-	case visible >= 100:
-		// Contain: seluruh frame asli muat, menyisakan ruang di satu sumbu.
-		return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease:flags=lanczos", boxW, boxH)
-	case visible <= 0:
-		// Cover: kotak penuh, kelebihannya dipotong di tengah.
-		return fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
-			boxW, boxH, boxW, boxH)
+// clampZoom menjepit zoom ke rentang yang sah. whenUnset dipakai saat nilainya
+// nol DAN nol bukan nilai yang bermakna di mode itu.
+func clampZoom(zoom, whenUnset int) int {
+	if zoom <= 0 && whenUnset > 0 {
+		return whenUnset
 	}
-
-	// Di antaranya: skala diinterpolasi linear dari contain ke cover. Makin
-	// KECIL FrameVisible, makin dekat ke cover — jadi bobotnya dibalik.
-	//
-	//	contain = min(BW/iw, BH/ih)      cover = max(BW/iw, BH/ih)
-	//	skala   = contain + (cover-contain) * (100-visible)/100
-	//
-	// Dihitung ffmpeg lewat ekspresi supaya dimensi sumber tidak perlu diprobe
-	// lebih dulu. Ekspresinya dikutip tunggal agar koma di dalam min()/max()
-	// tidak dibaca sebagai pemisah filter — di dalam kutip, koma tidak
-	// ditafsirkan, jadi TIDAK boleh di-escape dengan backslash.
-	toward := float64(100-visible) / 100
-	contain := fmt.Sprintf("min(%d/iw,%d/ih)", boxW, boxH)
-	cover := fmt.Sprintf("max(%d/iw,%d/ih)", boxW, boxH)
-	scale := fmt.Sprintf("(%s+(%s-%s)*%.4f)", contain, cover, contain, toward)
-
-	return fmt.Sprintf(
-		"scale=w='trunc(iw*%s/2)*2':h='trunc(ih*%s/2)*2':flags=lanczos"+
-			",crop='min(iw,%d)':'min(ih,%d)'",
-		scale, scale, boxW, boxH)
-}
-
-func clampPercent(n int) int {
-	if n < 0 {
+	if zoom < 0 {
 		return 0
 	}
-	if n > 100 {
-		return 100
+	if zoom > maxZoom {
+		return maxZoom
 	}
-	return n
+	return zoom
 }
 
 func evenBox(n int) int {
@@ -225,8 +248,8 @@ func evenBox(n int) int {
 }
 
 // ClipReframe memotong [start,end], menyesuaikan ke rasio target, dan membakar
-// subtitle .ass bila diisi. Penempatan gambarnya ditentukan
-// EncodeOpts.FrameVisible & EncodeOpts.PictureSize.
+// subtitle .ass bila diisi. Mode "fit" menampilkan seluruh gambar di atas latar;
+// selain itu potong tengah. Zoom mengatur besarnya di dalam bingkai.
 func (c *Client) ClipReframe(ctx context.Context, input string, start, end float64, targetW, targetH int, enc EncodeOpts, out string) error {
 	dur := end - start
 	if dur <= 0 {
@@ -250,8 +273,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		}
 	}
 
-	vf := ReframeFilter(Layout{Mode: enc.Mode, Background: enc.Background,
-		FrameVisible: enc.FrameVisible, PictureSize: enc.PictureSize}, targetW, targetH)
+	vf := ReframeFilter(Layout{Mode: enc.Mode, Background: enc.Background, Zoom: enc.Zoom}, targetW, targetH)
 	if enc.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", enc.FPS)
 	}

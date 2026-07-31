@@ -29,22 +29,14 @@ Bahasa sumber: **Indonesia** → default `language: "id"`, model Whisper `small`
 > | Card PNG: `kartu.png`, `sumber.txt` | `card.png`, `source.txt` |
 > | Folder kartu: `data/kartu/kartu-<id>` | `data/cards/card-<id>` |
 >
-> **Diganti:** `options.zoom` dipecah jadi DUA sumbu yang berdiri sendiri, sebab
-> satu angka dulu mencampur dua pertanyaan berbeda:
+> **Ditegaskan:** `options.reframe` punya TIGA nilai yang berdiri sendiri —
+> `center` (Center of the Picture, potong tengah), `fit` (Whole Picture, seluruh
+> resolusi video tanpa crop), `face_follow` (belum tersedia). `options.zoom`
+> TERPISAH dari ketiganya: 5..100 persen ukuran video di dalam bingkai, kelipatan
+> 5. Latar hanya tak terlihat pada `center` + `zoom 100`.
 >
-> | field | 0 | 100 |
-> | --- | --- | --- |
-> | `frame_visible` | gambar memenuhi kotaknya, tepi terpotong | seluruh frame asli terlihat |
-> | `picture_size` | (min 5) gambar kecil di tengah | gambar memenuhi bingkai |
->
-> Default `frame_visible: 0, picture_size: 100` = isi penuh 9:16, sama dengan
-> keluaran sejak awal. `frame_visible` 0 SAH; `picture_size` 0 diperlakukan
-> sebagai "belum diisi" dan jatuh ke 100.
->
-> `options.reframe: "fit"` turun jadi alias: Validate menerjemahkannya ke
-> `center` + `frame_visible 100`. Nilai reframe yang tersisa hanya `center` dan
-> `face_follow` (belum tersedia). Param preview `/api/frame` ikut berubah dari
-> `?zoom=` jadi `?frame_visible=` & `?picture_size=`.
+> **`POST /api/jobs` menyemai default sebelum mendekode JSON.** Field yang tidak
+> dikirim mempertahankan defaultnya, bukan jatuh ke nilai nol Go.
 > Lihat `notes/15-sumbu-zoom.md`.
 >
 > **Baru:** `options.transcript_fix: "on"|"off"` pada `POST /api/jobs` (default

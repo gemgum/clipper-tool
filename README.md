@@ -228,10 +228,9 @@ Next.js (GUI web lokal)  --HTTP+SSE-->  Go (engine)  --stdin/NDJSON-->  C++ work
 | `-sub-mode` | normal \| karaoke \| word | gaya subtitle |
 | `-sub-speed` | slow \| normal \| dense | kecepatan tampil subtitle |
 | `-save` | burn \| clean \| both | bersubtitle / polos / keduanya (+ `.srt`) |
-| `-reframe` | center \| face_follow | letak bingkai pada video (`fit` = alias `-zoom 0`) |
-| `-background` | blur \| black | isi ruang kosong yang tersisa |
-| `-frame-visible` | 0–100 | berapa persen frame asli tetap terlihat; 100 = utuh, 0 = isi penuh (default 0) |
-| `-picture-size` | 5–100 | seberapa besar gambar duduk di bingkai; <100 = mengecil di tengah (default 100) |
+| `-reframe` | center \| fit \| face_follow | Center of the Picture / Whole Picture (tanpa crop) / Follow Face |
+| `-background` | blur \| black | isi ruang kosong saat `-zoom` di bawah 100 |
+| `-zoom` | langkah 5, batasnya ikut mode | **fit**: 0 = seluruh video masuk → naik = membesar & terpotong, 100 = isi penuh. **center**: 100 = isi penuh, 5 = mengecil, 200 = punch-in. Default = titik awal modenya. |
 | `-resolution` | 720p\|1080p\|1440p | resolusi keluaran |
 | `-quality` | draft\|hd\|max | kecepatan vs ketajaman |
 | `-fps` | 0\|24\|30\|60 | 0 = ikut sumber |

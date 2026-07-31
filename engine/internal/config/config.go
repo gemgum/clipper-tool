@@ -21,15 +21,20 @@ const (
 // Reframe menentukan cara membuat rasio 9:16.
 type Reframe string
 
+// Tiga cara memasangkan video ke bingkai 9:16. Ketiganya pilihan yang berdiri
+// sendiri — bukan titik pada satu sumbu.
 const (
-	ReframeCenter     Reframe = "center"      // bingkai duduk di tengah
-	ReframeFaceFollow Reframe = "face_follow" // ikut wajah (BELUM TERSEDIA)
+	// ReframeCenter: potong tengah sampai memenuhi bingkai. "Center of the
+	// Picture" di antarmuka.
+	ReframeCenter Reframe = "center"
 
-	// ReframeFit adalah alias lama. Dulu ia satu-satunya cara menampilkan frame
-	// asli secara utuh; sekarang itu cuma ujung atas FrameVisible, jadi Validate
-	// menerjemahkannya jadi ReframeCenter + FrameVisible 100. Dipertahankan
-	// supaya preset tersimpan dan permintaan lama tidak rusak.
+	// ReframeFit: ambil seluruh resolusi video tanpa crop, sehingga SELURUH
+	// gambar masuk. Sisa ruangnya diisi Background — inilah alasan pilihan blur
+	// & hitam ada. "Whole Picture" di antarmuka.
 	ReframeFit Reframe = "fit"
+
+	// ReframeFaceFollow: potong mengikuti wajah. "Follow Face" di antarmuka.
+	ReframeFaceFollow Reframe = "face_follow" // BELUM TERSEDIA
 )
 
 // Check melaporkan apakah mode reframe ini sudah bisa dipakai.
@@ -49,33 +54,44 @@ func (r Reframe) Check() error {
 	}
 }
 
-// Background = isi ruang kosong saat gambar tidak memenuhi bingkai 9:16 —
-// terjadi saat FrameVisible di atas 0, atau PictureSize di bawah 100.
+// Background = isi ruang kosong saat video tidak memenuhi bingkai 9:16 —
+// terjadi di mode "fit", atau di mode "center" ketika Zoom di bawah 100%.
 const (
 	BackgroundBlur  = "blur"
 	BackgroundBlack = "black"
 )
 
-// Dua sumbu terpisah untuk menempatkan video di bingkai 9:16. Dipisah karena
-// dulu satu kendali mencampur keduanya, dan itu yang membuat zoom terasa salah.
+// Zoom = seberapa besar video duduk di dalam bingkai, dalam persen dari ukuran
+// ALAMI modenya (100 = ukuran alami). Terpisah dari Reframe.
 //
-// FrameVisible = berapa persen frame ASLI yang tersisa terlihat.
-// 100 = seluruh gambar tampak (tidak ada yang terpotong), 0 = gambar memenuhi
-// kotaknya dan tepi yang berlebih dipotong.
+// Di atas 100 gambar diperbesar dan bagian yang melewati bingkai dipotong —
+// itulah satu-satunya cara memperbesar video di mode Whole Picture, yang pada
+// 100 sudah pas di bingkai. Kelipatan 5 supaya pilihannya terbatas dan hasilnya
+// bisa diulang.
 const (
-	FrameVisibleMin  = 0
-	FrameVisibleMax  = 100
-	FrameVisibleStep = 5
+	ZoomMax  = 200
+	ZoomStep = 5
+
+	// Batas bawah berbeda per mode, sebab titik awal keduanya berbeda:
+	//   fit    → 0 sah dan bermakna (seluruh video masuk);
+	//   center → kotak potongan tidak boleh nol, jadi minimal 5.
+	ZoomWholeMin  = 0
+	ZoomCenterMin = 5
+
+	// Nilai alami tiap mode — dipakai sebagai titik awal & saat zoom tak diisi.
+	// Sengaja BUKAN ZoomMax: keduanya sempat kebetulan sama, dan begitu batas
+	// atas dinaikkan, nilai "belum diisi" ikut melompat tanpa ada yang meminta.
+	ZoomWholeNatural  = 0
+	ZoomCenterNatural = 100
 )
 
-// PictureSize = seberapa besar gambar itu duduk di dalam bingkai.
-// 100 = memenuhi bingkai dari tepi ke tepi, lebih kecil = mengecil di tengah
-// dengan latar mengelilingi keempat sisinya.
-const (
-	PictureSizeMin  = 5
-	PictureSizeMax  = 100
-	PictureSizeStep = 5
-)
+// NaturalZoom mengembalikan titik awal zoom untuk sebuah mode.
+func NaturalZoom(r Reframe) int {
+	if r == ReframeFit {
+		return ZoomWholeNatural
+	}
+	return ZoomCenterNatural
+}
 
 // Pilihan berkas keluaran klip.
 const (
@@ -181,8 +197,7 @@ type Options struct {
 	FPS            int         `json:"fps"`        // 0 = ikut sumber
 	Reframe        Reframe     `json:"reframe"`
 	Background     string      `json:"background"`     // blur | black
-	FrameVisible   int         `json:"frame_visible"`  // 0..100, kelipatan 5
-	PictureSize    int         `json:"picture_size"`   // 5..100, kelipatan 5
+	Zoom           int         `json:"zoom"`           // 0..100, kelipatan 5
 	SubtitleStyle  string      `json:"subtitle_style"` // plain | viral (fallback warna)
 	Subtitle       Subtitle    `json:"subtitle"`
 	SubtitleOutput string      `json:"subtitle_output"` // burn | clean | both
@@ -212,8 +227,7 @@ func DefaultOptions() Options {
 		Quality:        "hd",
 		Reframe:        ReframeCenter,
 		Background:     BackgroundBlur,
-		FrameVisible:   FrameVisibleMin, // isi penuh — keluaran andalan
-		PictureSize:    PictureSizeMax,
+		Zoom:           ZoomCenterNatural,
 		SubtitleStyle:  "plain",
 		Subtitle:       DefaultSubtitle(),
 		SubtitleOutput: OutputBurn,
@@ -280,41 +294,30 @@ func (o *Options) Validate() error {
 	if err := o.Reframe.Check(); err != nil {
 		return err
 	}
-	// "fit" kini hanyalah ujung bawah sumbu zoom. Diterjemahkan di sini supaya
-	// hanya ada SATU cara menyatakan seberapa besar gambarnya — dua kendali yang
-	// menyatakan hal sama persis itulah yang dulu membuat zoom terasa terbalik.
-	if o.Reframe == ReframeFit {
-		o.Reframe = ReframeCenter
-		o.FrameVisible = FrameVisibleMax
-	}
 	switch o.Background {
 	case BackgroundBlur, BackgroundBlack:
 	default:
 		o.Background = d.Background
 	}
-	// FrameVisible: 0 SAH — artinya gambar memenuhi bingkai. Kebetulan itu juga
-	// nilai defaultnya, jadi permintaan yang tidak mengirim field ini tetap
-	// mendapat keluaran andalan.
-	if o.FrameVisible < FrameVisibleMin {
-		o.FrameVisible = FrameVisibleMin
+	// Zoom dijepit lalu dibulatkan ke kelipatan 5. Permintaan yang tidak
+	// mengirim field ini tetap mendapat default, sebab api.createJob menyemai
+	// DefaultOptions sebelum mendekode JSON.
+	// Batas bawah zoom bergantung mode: di fit, 0 berarti "seluruh video masuk"
+	// dan itu titik awalnya; di center, kotak potongan tidak boleh nol.
+	min := ZoomCenterMin
+	if o.Reframe == ReframeFit {
+		min = ZoomWholeMin
+	} else if o.Zoom <= 0 {
+		o.Zoom = ZoomCenterNatural // belum diisi
 	}
-	if o.FrameVisible > FrameVisibleMax {
-		o.FrameVisible = FrameVisibleMax
+	if o.Zoom > ZoomMax {
+		o.Zoom = ZoomMax
 	}
-	o.FrameVisible = (o.FrameVisible / FrameVisibleStep) * FrameVisibleStep
+	o.Zoom = (o.Zoom / ZoomStep) * ZoomStep
+	if o.Zoom < min {
+		o.Zoom = min
+	}
 
-	// PictureSize: 0 TIDAK sah (gambar tanpa ukuran), jadi dipakai sebagai
-	// penanda "belum diisi" dan jatuh ke memenuhi bingkai.
-	if o.PictureSize <= 0 {
-		o.PictureSize = PictureSizeMax
-	}
-	if o.PictureSize > PictureSizeMax {
-		o.PictureSize = PictureSizeMax
-	}
-	o.PictureSize = (o.PictureSize / PictureSizeStep) * PictureSizeStep
-	if o.PictureSize < PictureSizeMin {
-		o.PictureSize = PictureSizeMin
-	}
 	if o.SubtitleStyle == "" {
 		o.SubtitleStyle = d.SubtitleStyle
 	}

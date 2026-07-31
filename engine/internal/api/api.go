@@ -357,6 +357,28 @@ func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
 
 var cardIDPattern = regexp.MustCompile(`^card-[0-9]{1,25}$`)
 
+// jsonHasKey melaporkan apakah body memuat objek "parent" yang berisi "key".
+//
+// Dipakai untuk membedakan field yang TIDAK dikirim dari field yang dikirim
+// bernilai sama dengan defaultnya — pembedaan yang mustahil dilakukan setelah
+// JSON masuk ke struct Go, sebab keduanya menghasilkan nilai yang sama.
+func jsonHasKey(body []byte, parent, key string) bool {
+	var outer map[string]json.RawMessage
+	if json.Unmarshal(body, &outer) != nil {
+		return false
+	}
+	raw, ok := outer[parent]
+	if !ok {
+		return false
+	}
+	var inner map[string]json.RawMessage
+	if json.Unmarshal(raw, &inner) != nil {
+		return false
+	}
+	_, ok = inner[key]
+	return ok
+}
+
 // firstNonEmpty mengembalikan nilai pertama yang tidak kosong.
 func firstNonEmpty(v ...string) string {
 	for _, s := range v {
@@ -444,13 +466,17 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
-		"modes": []string{"offline", "hybrid", "online"},
-		// "fit" masih diterima sebagai alias zoom 0, tapi tidak diiklankan lagi
-		// sebagai pilihan — ia menyatakan hal yang sama dengan sumbu zoom.
-		"reframe": []string{"center", "face_follow"},
-		// min, max, langkah
-		"frame_visible":    []int{config.FrameVisibleMin, config.FrameVisibleMax, config.FrameVisibleStep},
-		"picture_size":     []int{config.PictureSizeMin, config.PictureSizeMax, config.PictureSizeStep},
+		"modes":   []string{"offline", "hybrid", "online"},
+		"reframe": []string{"center", "fit", "face_follow"},
+		// Batas bawah & titik awal zoom berbeda per mode, jadi dikirim per mode.
+		"zoom": map[string]any{
+			"max":  config.ZoomMax,
+			"step": config.ZoomStep,
+			"fit":  map[string]int{"min": config.ZoomWholeMin, "natural": config.ZoomWholeNatural},
+			"center": map[string]int{
+				"min": config.ZoomCenterMin, "natural": config.ZoomCenterNatural,
+			},
+		},
 		"subtitle_styles":  []string{"plain", "viral"},
 		"resolutions":      []string{"720p", "1080p", "1440p"},
 		"qualities":        []string{"draft", "hd", "max"},
@@ -680,16 +706,14 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	// Latar & zoom ikut dikirim supaya preview memakai penempatan yang sama
 	// persis dengan render — Validate yang menjepit nilainya.
 	opts.Background = q.Get("background")
-	opts.FrameVisible, _ = strconv.Atoi(q.Get("frame_visible"))
-	opts.PictureSize, _ = strconv.Atoi(q.Get("picture_size"))
+	opts.Zoom, _ = strconv.Atoi(q.Get("zoom"))
 	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
 	tw, th := opts.Dims()
 	img, err := s.ff.ExtractFrame(r.Context(), path, t, tw, th, ffmpeg.Layout{
-		Mode: string(opts.Reframe), Background: opts.Background,
-		FrameVisible: opts.FrameVisible, PictureSize: opts.PictureSize,
+		Mode: string(opts.Reframe), Background: opts.Background, Zoom: opts.Zoom,
 	})
 	if err != nil || len(img) == 0 {
 		writeErr(w, 400, "frame extraction failed")
@@ -709,10 +733,33 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		} `json:"source"`
 		Options config.Options `json:"options"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+
+	// Body dibaca ke memori supaya bisa diperiksa dua kali: sekali untuk tahu
+	// FIELD MANA yang benar-benar dikirim, sekali untuk mengisi struct.
+	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeErr(w, 400, "could not read the request body: "+err.Error())
+		return
+	}
+
+	// Disemai dengan default LEBIH DULU: decoder JSON hanya menimpa field yang
+	// benar-benar ada di body, jadi field yang tidak dikirim mempertahankan
+	// defaultnya alih-alih jatuh ke nilai nol Go.
+	req.Options = config.DefaultOptions()
+	if err := json.Unmarshal(body, &req); err != nil {
 		writeErr(w, 400, "invalid JSON body: "+err.Error())
 		return
 	}
+
+	// Nilai bawaan zoom hanya cocok untuk mode center. Bila klien memilih mode
+	// lain TANPA menyebut zoom, dipakai titik awal mode itu — kalau tidak,
+	// reframe:"fit" justru menghasilkan gambar terpotong penuh, kebalikan dari
+	// arti modenya. Karena itu keberadaan kuncinya diperiksa, bukan nilainya:
+	// "tidak dikirim" dan "dikirim 100" harus bisa dibedakan.
+	if !jsonHasKey(body, "options", "zoom") {
+		req.Options.Zoom = config.NaturalZoom(req.Options.Reframe)
+	}
+
 	if req.Source.Value == "" {
 		writeErr(w, 400, "source.value (video path) is required")
 		return

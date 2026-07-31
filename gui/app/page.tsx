@@ -22,12 +22,16 @@ type FontCheck = { valid: boolean; name: string; family: string; source: string;
 // menaruh subtitle sedikit di luar tengah.
 const CENTER_X = 540, CENTER_Y = 960, MAGNET = 20;
 
-// Dua sumbu terpisah, harus sama dengan engine/config.
-//   zoom        = berapa persen frame ASLI yang tersisa terlihat
-//                 (100 = seluruhnya, 0 = memenuhi bingkai & tepinya dipotong)
-//   pictureSize = seberapa besar gambar itu duduk di dalam bingkai
-const ZOOM_MIN = 0, ZOOM_MAX = 100, ZOOM_STEP = 5;
-const SIZE_MIN = 5, SIZE_MAX = 100, SIZE_STEP = 5;
+// Zoom dibaca RELATIF terhadap titik awal modenya, jadi batas bawah & nilai
+// awalnya berbeda per mode. Harus sama dengan engine/config.
+//   fit    : 0 = seluruh video masuk → naik = membesar & mulai terpotong
+//   center : 100 = potongan tengah memenuhi bingkai
+const ZOOM_MAX = 200, ZOOM_STEP = 5;
+const ZOOM_BOUNDS: Record<string, { min: number; natural: number }> = {
+  fit: { min: 0, natural: 0 },
+  center: { min: 5, natural: 100 },
+};
+const zoomBounds = (mode: string) => ZOOM_BOUNDS[mode] ?? ZOOM_BOUNDS.center;
 
 // Satu model Ollama terpasang, sudah dinilai engine (siap/tidak + alasannya).
 type OllamaModel = {
@@ -68,8 +72,7 @@ export default function Home() {
   const [quality, setQuality] = useState("hd");
   const [reframe, setReframe] = useState("center");
   const [background, setBackground] = useState("blur");
-  const [zoom, setZoom] = useState(ZOOM_MIN);           // 0 = isi penuh
-  const [pictureSize, setPictureSize] = useState(SIZE_MAX);
+  const [zoom, setZoom] = useState(zoomBounds("center").natural);
   const [fps, setFps] = useState(0);
 
   // Mesin AI (scoring)
@@ -185,24 +188,11 @@ export default function Home() {
       // di dropdown. Dibiarkan, select-nya tampil kosong DAN engine
       // menerjemahkannya jadi zoom 0, menimpa zoom tersimpan tanpa pemberitahuan.
       // Jadi dimigrasikan di sini, sama seperti yang dilakukan engine.
-      // Preset lama menyimpan reframe:"fit" — pilihan yang kini sudah tidak ada
-      // di dropdown. Dibiarkan, select-nya tampil kosong DAN engine
-      // menerjemahkannya jadi frame utuh, menimpa nilai tersimpan tanpa
-      // pemberitahuan. Jadi dimigrasikan di sini, sama seperti yang dilakukan
-      // engine.
-      if (s.reframe === "fit") {
-        setReframe("center");
-        setZoom(ZOOM_MAX);
-      } else {
-        if (s.reframe) setReframe(s.reframe);
-        // Arah angka zoom pernah dibalik. Preset dari versi sebelumnya
-        // (0 = frame utuh) dibaca terbalik oleh versi ini, jadi ditandai lewat
-        // zoomAxis. Tanpa penanda, dianggap versi lama dan dibalik.
-        if (typeof s.zoom === "number") {
-          setZoom(s.zoomAxis === "visible" ? s.zoom : ZOOM_MAX - s.zoom);
-        }
-      }
-      if (typeof s.pictureSize === "number") setPictureSize(s.pictureSize);
+      if (s.reframe) setReframe(s.reframe);
+      // Arti zoom sempat berubah dua kali di tengah pengembangan. Preset yang
+      // menyimpan penandanya dibuang saja ke default — menebak-nebak arti angka
+      // lama lebih berisiko daripada mulai dari setelan bawaan.
+      if (typeof s.zoom === "number" && !s.zoomAxis) setZoom(s.zoom);
       if (s.background) setBackground(s.background);
       if (typeof s.fps === "number") setFps(s.fps);
       if (s.claudeModel) setClaudeModel(s.claudeModel);
@@ -227,9 +217,9 @@ export default function Home() {
 
   // Simpan preset setiap kali setelan berubah.
   useEffect(() => {
-    const preset = { resolution, quality, reframe, background, zoom, zoomAxis: "visible", pictureSize, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
+    const preset = { resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
     try { localStorage.setItem("clipper.preset", JSON.stringify(preset)); } catch {}
-  }, [resolution, quality, reframe, background, zoom, pictureSize, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
+  }, [resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
 
   // Sambung ulang ke job yang sedang berjalan (mis. setelah tab di-reload/tab baru).
   useEffect(() => {
@@ -340,9 +330,9 @@ export default function Home() {
   const frameUrl = useMemo(
     () => `${ENGINE}/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`
       + `&reframe=${encodeURIComponent(reframe)}&background=${encodeURIComponent(background)}`
-      + `&frame_visible=${zoom}&picture_size=${pictureSize}`
+      + `&zoom=${zoom}`
       + `&n=${previewNonce}`,
-    [path, previewTime, reframe, background, zoom, pictureSize, previewNonce]
+    [path, previewTime, reframe, background, zoom, previewNonce]
   );
 
   // silent = dipicu otomatis oleh video baru; kegagalannya tidak perlu
@@ -467,7 +457,7 @@ export default function Home() {
           source: { type: "path", value: path },
           options: {
             mode, whisper_model: model, resolution, quality, reframe, background,
-            frame_visible: Number(zoom), picture_size: Number(pictureSize), fps: Number(fps),
+            zoom: Number(zoom), fps: Number(fps),
             provider: mode === "hybrid" ? "claude" : offlineEngine,
             llm_model: claudeModel, ollama_model: ollamaModel,
             transcript_fix: transcriptFix ? "on" : "off",
@@ -485,7 +475,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || t("errCreateJob"));
       setJobId(data.id); addLog(t("logJobCreated", { id: data.id }));
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, mode, model, resolution, quality, reframe, background, zoom, pictureSize, fps, offlineEngine, claudeModel, ollamaModel, transcriptFix, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
+  }, [path, mode, model, resolution, quality, reframe, background, zoom, fps, offlineEngine, claudeModel, ollamaModel, transcriptFix, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -532,9 +522,18 @@ export default function Home() {
     return names;
   }, [fonts, fontManual, fontCheck]);
 
-  // Latar hanya tak terlihat bila gambarnya menutupi seluruh bingkai: frame
-  // dipotong sampai penuh DAN ukurannya sebesar bingkai.
-  const noEmptySpace = zoom === ZOOM_MIN && pictureSize === SIZE_MAX;
+  // Mulai zoom 100 gambar menutupi bingkai di kedua mode, jadi latarnya tidak
+  // akan terlihat.
+  const noEmptySpace = zoom >= 100;
+  const bounds = zoomBounds(reframe);
+
+  // Angka zoom artinya berbeda per mode, jadi membawanya menyeberang saat mode
+  // berganti hanya menghasilkan nilai yang tak berarti. Disetel ke titik awal
+  // mode barunya.
+  const changeReframe = useCallback((mode: string) => {
+    setReframe(mode);
+    setZoom(zoomBounds(mode).natural);
+  }, []);
 
   const platformLabel = (key: string) =>
     key === "generic" ? t("platformGeneric") : PLATFORMS[key]?.label || key;
@@ -640,10 +639,14 @@ export default function Home() {
         <div className="group">
           <div className="group-title">{t("groupFrame")}</div>
           <div className="row">
-            <div className="field"><label title={t("framingTip")}>{t("framing")} ⓘ</label>
-              <select value={reframe} onChange={(e) => setReframe(e.target.value)}>
-                <option value="center">{t("framingCenter")}</option>
-                <option value="face_follow" disabled>{t("framingFace")}</option>
+            {/* Tiga cara memasangkan video ke bingkai 9:16 — pilihan yang
+                berdiri sendiri, bukan titik pada satu sumbu. Mode "Whole
+                Picture" itulah alasan pilihan latar di sebelahnya ada. */}
+            <div className="field"><label title={t("fitModeTip")}>{t("fitMode")} ⓘ</label>
+              <select value={reframe} onChange={(e) => changeReframe(e.target.value)}>
+                <option value="center">{t("fitCenter")}</option>
+                <option value="fit">{t("fitWhole")}</option>
+                <option value="face_follow" disabled>{t("fitFace")}</option>
               </select></div>
             <div className="field"><label title={t("backgroundTip")}>{t("background")} ⓘ</label>
               <select value={background} onChange={(e) => setBackground(e.target.value)}
@@ -653,46 +656,25 @@ export default function Home() {
               </select></div>
           </div>
 
-          {/* Sumbu 1 — berapa banyak frame ASLI yang tersisa terlihat.
-              Kedua ujungnya punya TOMBOL bernama; keduanya cuma menyetel
-              penggeser yang sama, jadi tidak menghidupkan lagi masalah "dua
-              kendali menyatakan hal yang sama" — tapi "Isi penuh 9:16" tetap
-              satu klik dan tetap kelihatan. */}
+          {/* Zoom berdiri sendiri dari pilihan di atas: ia mengatur seberapa
+              besar video duduk di dalam bingkai, kelipatan 5%. */}
           <div className="field">
             <label title={t("zoomTip")}>{t("zoomLabel", { n: zoom })} ⓘ</label>
-            <div className="zoom-presets">
-              <button type="button"
-                className={"ghost tiny" + (zoom === ZOOM_MIN ? " active" : "")}
-                aria-pressed={zoom === ZOOM_MIN}
-                onClick={() => setZoom(ZOOM_MIN)}>{t("zoomPresetFull")}</button>
-              <button type="button"
-                className={"ghost tiny" + (zoom === ZOOM_MAX ? " active" : "")}
-                aria-pressed={zoom === ZOOM_MAX}
-                onClick={() => setZoom(ZOOM_MAX)}>{t("zoomPresetWhole")}</button>
-            </div>
-            <input type="range" min={ZOOM_MIN} max={ZOOM_MAX} step={ZOOM_STEP}
+            <input type="range" min={bounds.min} max={ZOOM_MAX} step={ZOOM_STEP}
               value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
             <div className="zoom-ends">
+              <span>{reframe === "fit" ? t("zoomEndWhole") : t("zoomEndSmall")}</span>
               <span>{t("zoomEndFull")}</span>
-              <span>{t("zoomEndWhole")}</span>
+              <span>{t("zoomEndBig")}</span>
             </div>
           </div>
-          {zoom === ZOOM_MIN && <div className="meta">{t("zoomFullNote")}</div>}
-          {zoom === ZOOM_MAX && <div className="meta">{t("zoomWholeNote")}</div>}
-
-          {/* Sumbu 2 — seberapa besar gambar itu duduk di dalam bingkai.
-              Berdiri sendiri: mengecilkannya TIDAK mengubah apa yang terpotong,
-              hanya menyusutkan gambarnya ke tengah dengan latar mengelilingi. */}
-          <div className="field">
-            <label title={t("pictureSizeTip")}>{t("pictureSizeLabel", { n: pictureSize })} ⓘ</label>
-            <input type="range" min={SIZE_MIN} max={SIZE_MAX} step={SIZE_STEP}
-              value={pictureSize} onChange={(e) => setPictureSize(Number(e.target.value))} />
-            <div className="zoom-ends">
-              <span>{t("pictureSizeEndSmall")}</span>
-              <span>{t("pictureSizeEndFull")}</span>
-            </div>
-          </div>
-          {pictureSize < SIZE_MAX && <div className="meta">{t("pictureSizeNote")}</div>}
+          {reframe === "fit" && zoom === 0 && <div className="meta">{t("fitWholeNote")}</div>}
+          {/* Begitu digeser dari 0, "tanpa crop" tidak lagi berlaku. Dikatakan
+              terus terang di sini daripada ditemukan sendiri di hasil render. */}
+          {reframe === "fit" && zoom > 0 && (
+            <div className="warn" style={{ marginTop: 6 }}>{t("fitWholeCropWarn")}</div>
+          )}
+          {noEmptySpace && <div className="meta">{t("backgroundNoEffect")}</div>}
         </div>
 
         <div className="group">

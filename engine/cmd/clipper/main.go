@@ -53,15 +53,20 @@ Usage:
 'run' flags:
   -mode        offline|hybrid|online (default offline)
   -model       whisper model: tiny|base|small|medium|large-v3 (default small)
-  -reframe     center|face_follow — where the frame sits (default center).
-               "fit" is still accepted as an alias for -zoom 0.
-  -background  blur|black — fills whatever empty space is left
-  -frame-visible 0..100 — how much of the ORIGINAL frame stays visible.
-               100 keeps the whole frame (nothing cropped); 0 fills the frame
-               and crops the overflowing edges. Default 0.
-  -picture-size 5..100 — how big that picture sits inside the frame.
-               100 fills it edge to edge; lower shrinks it into the middle with
-               the background all around. Default 100.
+  -reframe     how the video is fitted into the 9:16 frame (default center):
+                 center      Center of the Picture — crop to fill
+                 fit         Whole Picture — the entire video, nothing cropped
+                 face_follow Follow Face (not available yet)
+  -background  blur|black — fills the space the video cannot reach. This is what
+               "fit" exists for; it also shows up when -zoom is below 100.
+  -zoom        in steps of 5, read relative to the starting point of -reframe:
+                 fit     0 = the whole video fits (this mode's starting point)
+                       100 = the video fills the frame, sides cropped
+                       200 = twice as large again
+                 center  5 = the centre crop shrinks inside the frame
+                       100 = the centre crop fills the frame (starting point)
+                       200 = punch-in, still filling the frame
+               Defaults to the starting point of the mode you chose.
   -style       plain|viral (default plain)
   -sub-mode    normal|karaoke|word — subtitle style (default normal)
   -sub-speed   slow|normal|dense — subtitle pacing (default normal)
@@ -94,8 +99,7 @@ func cmdRun(root string, args []string) {
 	model := fs.String("model", opts.WhisperModel, "")
 	reframe := fs.String("reframe", string(opts.Reframe), "")
 	background := fs.String("background", opts.Background, "")
-	frameVisible := fs.Int("frame-visible", opts.FrameVisible, "")
-	pictureSize := fs.Int("picture-size", opts.PictureSize, "")
+	zoom := fs.Int("zoom", opts.Zoom, "")
 	fps := fs.Int("fps", opts.FPS, "")
 	resolution := fs.String("resolution", opts.Resolution, "")
 	quality := fs.String("quality", opts.Quality, "")
@@ -122,8 +126,7 @@ func cmdRun(root string, args []string) {
 	opts.WhisperModel = *model
 	opts.Reframe = config.Reframe(*reframe)
 	opts.Background = *background
-	opts.FrameVisible = *frameVisible
-	opts.PictureSize = *pictureSize
+	opts.Zoom = *zoom
 	opts.FPS = *fps
 	opts.Resolution = *resolution
 	opts.Quality = *quality
@@ -139,6 +142,20 @@ func cmdRun(root string, args []string) {
 	opts.MinScore = *minScore
 	opts.LLMModel = *llmModel
 	opts.OutputDir = *outDir
+	// Nilai bawaan -zoom hanya cocok untuk mode center. Bila pengguna memilih
+	// mode lain TANPA menyebut -zoom, dipakai titik awal mode itu — kalau tidak,
+	// "clipper run -reframe fit" justru menghasilkan gambar yang terpotong
+	// penuh, kebalikan dari arti modenya.
+	zoomGiven := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "zoom" {
+			zoomGiven = true
+		}
+	})
+	if !zoomGiven {
+		opts.Zoom = config.NaturalZoom(opts.Reframe)
+	}
+
 	if err := opts.Validate(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
@@ -215,8 +232,7 @@ func splitInput(args []string) (input string, flagArgs []string) {
 	valueFlags := map[string]bool{
 		"-mode": true, "-model": true, "-reframe": true, "-style": true,
 		"-max": true, "-min-score": true, "-llm-model": true, "-out": true, "-fps": true,
-		"-resolution": true, "-quality": true, "-background": true,
-		"-frame-visible": true, "-picture-size": true,
+		"-resolution": true, "-quality": true, "-background": true, "-zoom": true,
 		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,
 		"-provider": true, "-ollama-model": true, "-transcript-fix": true,
 	}
