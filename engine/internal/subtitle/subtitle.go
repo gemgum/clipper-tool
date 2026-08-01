@@ -305,6 +305,50 @@ func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, su
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
+// WriteText menulis ucapan satu klip sebagai teks polos, tanpa timestamp dan
+// tanpa nomor.
+//
+// Bukan pengganti .srt: .srt untuk editor video, berkas ini untuk DIBACA MESIN
+// LAIN — ditempel ke LLM mana pun untuk dibuatkan caption. Timestamp dan nomor
+// baris justru mengganggu di sana; keduanya memakan token dan tidak menambah
+// makna apa pun bagi model yang cuma perlu tahu apa yang diucapkan.
+//
+// Ditulis untuk SETIAP klip, apa pun mode simpannya. Berbeda dari .srt yang
+// hanya ada di mode clean/both — caption dibutuhkan saat memposting, dan orang
+// memposting klip bersubtitle juga.
+//
+// Pemenggalan barisnya mengikuti akhir kalimat, bukan lebar layar: berkas ini
+// tidak pernah tampil di video, jadi lebar baris subtitle tidak relevan.
+// Satu kalimat satu baris juga membuatnya enak dibaca manusia saat diperiksa.
+func WriteText(path string, segs []types.TranscriptSegment, clipStart float64) error {
+	var b strings.Builder
+	atLineStart := true
+	for _, w := range collectWords(segs, clipStart) {
+		// escapeText di collectWords menyisipkan escape khas .ass; di teks polos
+		// itu justru sampah, jadi dikembalikan.
+		text := strings.ReplaceAll(w.Text, `\N`, " ")
+		// Spasi hanya ANTAR kata dalam satu baris. Menulisnya tanpa syarat
+		// membuat tiap baris setelah yang pertama diawali spasi menggantung.
+		if !atLineStart {
+			b.WriteByte(' ')
+		}
+		b.WriteString(text)
+		atLineStart = endsSentence(text)
+		if atLineStart {
+			b.WriteByte('\n')
+		}
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		// Klip tanpa ucapan sama sekali (musik, ambience). Berkasnya tetap
+		// ditulis kosong supaya jumlah berkas per klip selalu sama — pengguna
+		// tidak perlu menebak apakah berkasnya hilang atau memang tak ada isi.
+		return os.WriteFile(path, nil, 0o644)
+	}
+	return os.WriteFile(path, []byte(out+"\n"), 0o644)
+}
+
+
 // WriteSRT menulis subtitle .srt (untuk dipakai di editor lain saat pengguna
 // memilih menyimpan klip polos). Isinya mengikuti pemenggalan yang sama.
 func WriteSRT(path string, segs []types.TranscriptSegment, clipStart float64, sub config.Subtitle) error {

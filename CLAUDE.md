@@ -46,6 +46,11 @@ extract audio (ffmpeg) → features (worker C++) → transkripsi (whisper.cpp) �
 **koreksi transkrip (LLM)** → segmentasi kandidat → scoring (heuristik ± Claude)
 → render klip 9:16 + burn .ass.
 
+Tiap klip juga menghasilkan `<clip>.txt`: ucapan klip itu tanpa timestamp dan
+tanpa nomor, satu kalimat per baris. Bukan pengganti `.srt` (yang untuk editor
+video dan hanya ada di mode clean/both) — berkas ini untuk ditempel ke LLM mana
+pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
+
 ## Peta paket engine
 
 | Paket           | Isi                                                                           |

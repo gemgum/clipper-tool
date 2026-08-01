@@ -186,6 +186,18 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		emit(onProgress, Progress{Stage: "segmenting", Value: 0.58, Message: "Selecting clips (heuristic)"})
 		selected = p.heuristicSelect(tr, rms)
 	}
+	// Buang momen yang jatuh di cuplikan pembuka. Berlaku untuk SEMUA mesin:
+	// prompt sudah melarangnya, tapi diuji langsung qwen2.5 tetap memilihnya —
+	// model lokal tidak terikat instruksi panjang.
+	//
+	// Tidak pernah membuang habis: kalau semua momen kena, yang tersisa hanya
+	// pilihan buruk, dan pilihan buruk masih lebih baik daripada job gagal
+	// dengan "tidak ada klip".
+	if kept := dropOpeningPreview(tr, selected); len(kept) > 0 && len(kept) < len(selected) {
+		emit(onProgress, Progress{Stage: "segmenting", Value: 0.60, Message: fmt.Sprintf(
+			"Skipped %d moment(s) taken from the opening teaser", len(selected)-len(kept))})
+		selected = kept
+	}
 	if len(selected) == 0 {
 		return nil, fmt.Errorf("%s produced no clips — try loosening the duration preset or lowering the minimum score", engineName)
 	}
@@ -202,6 +214,18 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			Message: fmt.Sprintf("Rendering %s (score %d)", cl.ID, cl.Score)})
 
 		segs := segmentsInRange(tr, cl.Start, cl.End)
+
+		// Teks ucapan klip tanpa timestamp — bahan untuk dibuatkan caption oleh
+		// LLM mana pun. Ditulis untuk SETIAP klip, tidak seperti .srt yang hanya
+		// ada di mode clean/both: caption dibutuhkan saat memposting, dan orang
+		// memposting klip bersubtitle juga.
+		//
+		// Kegagalannya tidak menggagalkan job: klipnya sudah jadi, dan berkas
+		// pendamping yang hilang bukan alasan membuang pekerjaan berat itu.
+		txt := filepath.Join(outDir, cl.ID+".txt")
+		if err := subtitle.WriteText(txt, segs, cl.Start); err == nil {
+			cl.TranscriptTXT = txt
+		}
 
 		enc := ffmpeg.EncodeOpts{
 			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
@@ -567,4 +591,19 @@ func segmentsInRange(tr types.Transcript, start, end float64) []types.Transcript
 		}
 	}
 	return out
+}
+
+// dropOpeningPreview menyaring momen yang berasal dari cuplikan pembuka.
+//
+// Dipisah dari pemanggilnya supaya bisa diuji tanpa menjalankan seluruh
+// pipeline — dan supaya jelas bahwa ia hanya MENYARING, tidak mengubah momen.
+func dropOpeningPreview(tr types.Transcript, clips []types.Clip) []types.Clip {
+	kept := make([]types.Clip, 0, len(clips))
+	for _, c := range clips {
+		if segment.IsOpeningPreview(tr, c.Start, c.End) {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	return kept
 }

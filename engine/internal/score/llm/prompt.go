@@ -61,6 +61,21 @@ TIME BOUNDARY RULES — the most important part:
 - A moment must begin at the start of a sentence and end at the end of a sentence. Never cut mid-utterance.
 - Moments must not overlap each other.
 `)
+
+	b.WriteString(`
+WHAT IS NOT A MOMENT — check this before you score anything:
+- The teaser most videos open with: short fragments taken from all over the
+  video and spliced together, changing subject every few seconds. It sounds
+  lively precisely because it is a highlight reel, but on its own it says
+  nothing — a clip cut from it is a trailer for a video nobody is going to
+  watch. Skip that stretch entirely, however strong the individual lines sound.
+- Any stretch where the speaker jumps between unrelated subjects. A moment is
+  ONE thought: it opens a subject, develops it, and closes it. If a 45-second
+  window covers two or three different subjects, that is a montage, not a
+  moment.
+- The test: you must be able to say what the moment is about in a single
+  sentence, using only what is said inside it. If you cannot, do not pick it.
+`)
 	fmt.Fprintf(&b, "- Aim for %.0f-%.0f seconds. You may deviate to keep a moment whole, but never go below %.0f seconds.\n",
 		targetMin, targetMax, targetMin*0.6)
 

@@ -2,6 +2,7 @@ package subtitle
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -209,5 +210,111 @@ func TestAnchorIsTopSoFirstLineNeverMoves(t *testing.T) {
 	// Tanpa keduanya, tes ini tidak membuktikan apa pun soal jumlah baris.
 	if oneLine == 0 || multiLine == 0 {
 		t.Fatalf("perlu halaman 1 baris dan >1 baris; dapat %d dan %d", oneLine, multiLine)
+	}
+}
+
+// Berkas .txt dibaca MESIN LAIN untuk membuat caption. Timestamp, nomor baris,
+// dan escape khas .ass di sana bukan cuma tidak berguna — ia memakan token dan
+// bisa ditafsirkan model sebagai bagian dari isi.
+func TestPlainTextCarriesNoTimingArtefacts(t *testing.T) {
+	segs := []types.TranscriptSegment{
+		utterance(0, 0.5, "Halo", "semua."),
+		utterance(2, 0.4, "Ini", "kalimat", "kedua", "yang", "sengaja", "dibuat",
+			"panjang", "supaya", "terpaksa", "dipecah", "jadi", "beberapa", "baris."),
+		utterance(9, 0.4, "Dan", "ini", "yang", "terakhir!"),
+	}
+	path := t.TempDir() + "/a.txt"
+	if err := WriteText(path, segs, 0); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, path)
+
+	for _, bad := range []string{"-->", `\N`, "{", "}", "00:00"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("teks masih memuat %q:\n%s", bad, got)
+		}
+	}
+	// Tidak ada baris yang cuma berisi angka (penomoran gaya .srt).
+	for _, line := range strings.Split(strings.TrimSpace(got), "\n") {
+		if line == "" {
+			t.Error("ada baris kosong — .txt ini bukan .srt")
+		}
+		if _, err := strconv.Atoi(strings.TrimSpace(line)); err == nil {
+			t.Errorf("baris %q cuma angka, terlihat seperti penomoran .srt", line)
+		}
+	}
+	// Dan isinya memang ucapan yang lengkap, urut.
+	for _, want := range []string{"Halo semua.", "Dan ini yang terakhir!"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("ucapan %q hilang dari:\n%s", want, got)
+		}
+	}
+	if i, j := strings.Index(got, "Halo"), strings.Index(got, "terakhir"); i > j {
+		t.Error("urutan ucapan terbalik")
+	}
+}
+
+// Satu kalimat satu baris — supaya berkasnya juga enak dibaca manusia saat
+// diperiksa, bukan satu gumpalan tanpa jeda.
+func TestPlainTextBreaksAtSentenceEnds(t *testing.T) {
+	segs := []types.TranscriptSegment{
+		utterance(0, 0.5, "Kalimat", "satu.", "Kalimat", "dua.", "Kalimat", "tiga."),
+	}
+	path := t.TempDir() + "/a.txt"
+	if err := WriteText(path, segs, 0); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(readFile(t, path)), "\n")
+	if len(lines) != 3 {
+		t.Errorf("dapat %d baris, mau 3:\n%q", len(lines), lines)
+	}
+}
+
+// Klip tanpa ucapan tetap menghasilkan berkas. Kalau tidak, pengguna harus
+// menebak apakah berkasnya gagal ditulis atau memang tidak ada yang diucapkan.
+func TestPlainTextIsStillWrittenWhenNobodySpeaks(t *testing.T) {
+	path := t.TempDir() + "/a.txt"
+	if err := WriteText(path, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, path); got != "" {
+		t.Errorf("mau kosong, dapat %q", got)
+	}
+}
+
+// Kata di luar rentang klip tidak boleh ikut terbawa — caption harus tentang
+// klipnya, bukan tentang bagian video yang tidak dipotong.
+func TestPlainTextKeepsOnlyWhatIsInsideTheClip(t *testing.T) {
+	segs := []types.TranscriptSegment{
+		utterance(0, 0.5, "sebelum", "klip."),
+		utterance(10, 0.5, "di", "dalam", "klip."),
+	}
+	path := t.TempDir() + "/a.txt"
+	if err := WriteText(path, segs, 10); err != nil { // klip mulai di detik 10
+		t.Fatal(err)
+	}
+	got := readFile(t, path)
+	if strings.Contains(got, "sebelum") {
+		t.Errorf("ucapan di luar klip ikut terbawa:\n%s", got)
+	}
+	if !strings.Contains(got, "di dalam klip.") {
+		t.Errorf("ucapan di dalam klip hilang:\n%s", got)
+	}
+}
+
+// Tidak ada baris yang diawali spasi menggantung. Sepele di layar, tapi berkas
+// ini dibaca mesin — spasi di awal baris ikut jadi token tanpa makna.
+func TestPlainTextHasNoHangingSpaces(t *testing.T) {
+	segs := []types.TranscriptSegment{
+		utterance(0, 0.5, "Satu.", "Dua.", "Tiga."),
+	}
+	path := t.TempDir() + "/a.txt"
+	if err := WriteText(path, segs, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(readFile(t, path), "\n") {
+		if line != strings.TrimSpace(line) {
+			t.Errorf("baris %q punya spasi di tepi", line)
+		}
 	}
 }

@@ -11,6 +11,7 @@ type Clip = {
   id: string; job_id: string; start: number; end: number; duration: number;
   score: number; reasons: Reasons; title?: string; hashtags?: string[]; transcript: string; status: string;
   video_path?: string; video_path_raw?: string; subtitle_srt?: string;
+  transcript_txt?: string;
 };
 type WhisperModel = { name: string; size: string; downloaded: boolean };
 type Font = { name: string };
@@ -1077,6 +1078,10 @@ export default function Home() {
                     </a>
                     {c.video_path_raw && c.video_path_raw !== c.video_path && (
                       <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`} download>⬇ {t("downloadClean")}</a>
+                    )}
+                    {c.transcript_txt && (
+                      <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=txt`}
+                         download title={t("downloadTxtTip")}>⬇ .txt</a>
                     )}
                     {c.subtitle_srt && (
                       <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`} download>⬇ .srt</a>

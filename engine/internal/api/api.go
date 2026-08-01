@@ -879,7 +879,8 @@ func (s *Server) clipFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clipID := r.PathValue("clip")
-	// ?variant=clean → berkas tanpa subtitle (bila dibuat); ?variant=srt → subtitle.
+	// ?variant=clean → berkas tanpa subtitle (bila dibuat); ?variant=srt → subtitle;
+	// ?variant=txt → ucapan klip tanpa timestamp, bahan caption untuk LLM lain.
 	variant := r.URL.Query().Get("variant")
 	snap := j.Snapshot()
 	for _, cl := range snap.Clips {
@@ -892,6 +893,8 @@ func (s *Server) clipFile(w http.ResponseWriter, r *http.Request) {
 			path = cl.VideoPathRaw
 		case "srt":
 			path = cl.SubtitleSRT
+		case "txt":
+			path = cl.TranscriptTXT
 		}
 		if path != "" {
 			http.ServeFile(w, r, path)

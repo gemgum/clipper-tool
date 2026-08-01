@@ -88,5 +88,8 @@ type Clip struct {
 	VideoPath    string `json:"video_path"`     // varian utama (dibuka GUI)
 	VideoPathRaw string `json:"video_path_raw"` // varian polos, bila diminta
 	SubtitleSRT  string `json:"subtitle_srt"`   // .srt di folder output (opsional)
-	Status       string `json:"status"`         // scored | rendering | rendered
+	// .txt berisi ucapan klip tanpa timestamp — untuk ditempel ke LLM lain saat
+	// membuat caption. Selalu ada, apa pun mode simpannya.
+	TranscriptTXT string `json:"transcript_txt"`
+	Status        string `json:"status"` // scored | rendering | rendered
 }

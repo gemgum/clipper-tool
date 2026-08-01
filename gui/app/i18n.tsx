@@ -218,6 +218,8 @@ const en = {
   reasonStandalone: "standalone",
   downloadWithSubs: "with subtitles",
   downloadPlain: "download",
+  downloadTxtTip:
+    "The spoken words, no timestamps — paste it into any AI to write the caption",
   downloadClean: "clean",
 
   // --- log lines ---
@@ -568,6 +570,8 @@ const id: Record<MessageKey, string> = {
   reasonStandalone: "mandiri",
   downloadWithSubs: "bersubtitle",
   downloadPlain: "unduh",
+  downloadTxtTip:
+    "Ucapan klipnya tanpa timestamp — tempel ke AI mana pun untuk dibuatkan caption",
   downloadClean: "polos",
 
   logReconnect: "🔄 Menyambung ke job berjalan: {id}",

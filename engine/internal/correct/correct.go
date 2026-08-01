@@ -30,7 +30,7 @@ import (
 // PromptVersion ikut jadi bahan kunci cache di pemanggil. Naikkan bila prompt
 // atau pagar pengamannya berubah, supaya hasil lama tidak dipakai ulang secara
 // keliru.
-const PromptVersion = "v1"
+const PromptVersion = "v2"
 
 // Completer adalah satu panggilan ke LLM. Fungsi, bukan antarmuka, supaya paket
 // ini tidak perlu mengenal llm/ollama.
@@ -166,6 +166,14 @@ WHAT NOT TO TOUCH:
 - Quotation marks that are already in the text: keep every one of them, and keep the exact same character. Do not delete them, do not add new ones, and never swap " for ' or for a typographic quote.
 - Names of people, places and organisations you do not recognise. Leave them spelled exactly as transcribed.
 - Filler words the speaker actually said ("ya", "kan", "nah"). They are part of how the person talks.
+- Words from a REGIONAL LANGUAGE mixed into the speech. Indonesian speakers
+  constantly drop in Javanese, Sundanese, Betawi or other local words, and those
+  words are what the person actually said. Do not turn them into their national
+  equivalent, and do not "fix" their spelling towards a word you recognise.
+  For example, the Javanese "ireng" must stay "ireng" — it is not a misheard
+  "irang" and it is not to be replaced with "hitam".
+- Any word you do not recognise at all. If it means nothing to you, that is not
+  evidence it was misheard. Write it exactly as it is and move on.
 
 Reply with VALID JSON ONLY, in exactly this shape:
 {"segments":[{"index":<number>,"text":"<corrected text>"}]}`)
