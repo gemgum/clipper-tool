@@ -302,8 +302,34 @@ permintaan pengguna: garis penanda dan stempel sumber sekarang mengikuti rona
 kartu juga. Kuning tetap jadi **warna dasarnya** — dipakai saat tidak ada rona
 yang bisa diikuti (foto hitam putih, atau warna pilihan tanpa rona).
 
-Diikuti, bukan **disamakan**: penanda yang persis sewarna latar akan lenyap.
-Yang dipakai rona yang sama, ditarik ke rentang pastel.
+Untuk warna yang **dipilih pengguna**, penanda memakai warnanya APA ADANYA.
+Menurunkannya jadi versi lain berarti contekan yang dilihat bukan warna yang
+didapat — merah menyala keluar sebagai merah bata, dan pengguna wajar mengira
+kendalinya rusak. Bagian lain (latar, kertas, teks pendukung) tetap diturunkan,
+sebab terang mereka harus dikunci demi keterbacaan; penanda justru sebaliknya,
+ia harus menonjol.
+
+Untuk rona dari **foto**, penanda tetap diturunkan ke pastel: tidak ada satu
+warna yang "dipilih" di sana, cuma rona yang ditebak dari gambar.
+
+### Teks stempel ikut memilih gelap atau terang
+
+Sejak penanda memakai warna pilihan apa adanya, teks gelap tidak lagi selalu
+menang. Di atas `#FF1A1A` teks gelap memberi kontras 4,3 dan teks terang 3,8 —
+tapi di banyak warna lain urutannya terbalik. Karena itu warnanya dipilih per
+kartu, mana yang kontrasnya lebih besar.
+
+Titik terburuknya ada di luminansi ±0,20, tempat kedua pilihan sama-sama memberi
+sekitar **4,05**. Itu batas matematisnya, bukan kelalaian: tidak ada warna teks
+yang bisa lebih baik di sana. Teks stempel berukuran besar (26 px di kanvas
+1080), jadi angka itu masih di atas ambang WCAG untuk teks besar. Ambang tesnya
+karena itu diturunkan dari 7 ke 4 — dan itu **pelonggaran yang disengaja**, bukan
+tes yang dikendurkan supaya lulus.
+
+Sempat luminansi kedua warna teks saya tulis sebagai tetapan (0,0114 dan 1,0).
+Angka 1,0 salah: kertas `#FBF9F4` luminansinya 0,95, bukan putih murni. Selisih
+kecil itu menggeser titik peralihan dan membuat satu warna memilih teks yang
+justru kurang terbaca — ketahuan dari tes, bukan dari mata.
 
 **Terangnya tidak bisa ditetapkan sebagai angka HSL.** "Lightness" HSL bukan
 kecerahan yang terlihat: kuning di 55% terang benderang, merah di 55% gelap.
@@ -312,6 +338,59 @@ sumber — terukur kontrasnya jatuh ke 4,1 padahal ambangnya 7. Karena itu
 terangnya dinaikkan selangkah demi selangkah sampai **luminansi WCAG**-nya
 mencapai 0,45. Pagarnya jadi berlaku untuk seluruh lingkaran warna, bukan untuk
 rona yang kebetulan diuji.
+
+### Pemilih warna: daftar tertutup, bukan spektrum
+
+Pemilih warna bawaan browser (`input type=color`) menawarkan seluruh spektrum,
+padahal engine cuma memakai **ronanya** — terang dikunci palet demi keterbacaan.
+Akibatnya memilih putih atau abu-abu tidak mengubah apa pun, dan pengguna
+membacanya sebagai bug. Wajar: kendali yang tidak melakukan apa-apa tanpa memberi
+tanda memang lebih buruk daripada kendali yang tidak ada.
+
+Sekarang pilihannya 12 contekan pastel, dan **contekannya dibuat engine**
+(`card.Swatches()`, dikirim lewat `/api/news/feeds`). GUI tidak menghitung
+warnanya sendiri — kita sudah kena masalah rumus-yang-disalin-dua-kali di
+`photoFrameHeight`, tidak perlu diulang.
+
+Yang ditampilkan di contekan adalah **warna penanda yang akan dihasilkan**, jadi
+yang dilihat pengguna memang sepotong hasilnya. `TestEverySwatchActuallyChanges
+TheCard` menjaga tidak ada satu pun contekan yang diam-diam jatuh ke palet
+bawaan.
+
+Kotak paragraf tetap memakai pemilih bebas — di sana warnanya dipakai **apa
+adanya**, jadi spektrum penuh memang jujur. Dua kendali yang berbeda artinya
+sekarang juga berbeda bentuknya.
+
+### Enam keluarga, dan dua hal yang harus berubah supaya semuanya berfungsi
+
+Barisnya: pastel, earth tone, neon, jewel tone, netral, monokromatik. Tanpa nama
+di GUI — yang perlu dilihat warnanya, bukan istilahnya.
+
+Menambahkannya membongkar dua batas yang selama ini hanya diuji lewat foto:
+
+**1. Batas BAWAH kepekatan (0,12) membuat netral & monokromatik tidak berfungsi.**
+Batas itu ada supaya foto yang nyaris kelabu tidak menghasilkan kartu yang
+terlihat rusak abu-abu — kita tidak tahu apakah itu maunya. Untuk warna
+**pilihan** kita tahu: pengguna melihat contekannya lalu menekannya. Karena itu
+`tone.exact` membedakan keduanya, dan untuk pilihan manual batas bawahnya nol.
+
+**2. Batas ATAS kepekatan membuat neon & jewel identik.** Keduanya mentok di
+angka yang sama, jadi dua belas contekan neon menghasilkan kartu yang persis
+sama dengan dua belas contekan jewel. Batas atas untuk pilihan manual karena itu
+dilonggarkan (mis. latar 0,32 → 0,80).
+
+Keduanya ketahuan dari tes, bukan dari mata:
+`TestEverySwatchProducesADistinctCard` membandingkan seluruh palet dari 72
+contekan dan menolak yang kembar.
+
+**Monokromatik menyapu KEPEKATAN, bukan rona.** Dua belas kelabu dengan rona
+berbeda tetap kelabu di mata engine — semuanya akan menghasilkan kartu yang
+sama. Menyapu kepekatan pada satu rona membuat mereka berbeda sungguhan, dan
+kebetulan itu juga arti "monokromatik" yang sebenarnya.
+
+**Earth tone tidak menyapu seluruh lingkaran warna.** Ronanya dibatasi ke busur
+15-114 derajat: tanah liat, oker, zaitun. Merah muda dan biru bukan warna tanah,
+jadi menyapu 360 derajat akan membuat namanya bohong.
 
 Pada gaya terang, pagar "penanda harus kontras dengan latar" sengaja tidak
 diberlakukan: penanda yang cukup cerah untuk memikul teks gelap pasti berdekatan

@@ -32,6 +32,45 @@ type tone struct {
 	hue float64 // 0..360
 	sat float64 // 0..1
 	ok  bool    // false = foto tidak berwarna (hitam putih / kelabu)
+	// exact = rona ini DIPILIH pengguna, bukan ditebak dari foto.
+	//
+	// Bedanya ada di batas bawah kepekatan. Untuk foto, batas bawah 0,12 mencegah
+	// foto yang nyaris kelabu menghasilkan kartu yang terlihat rusak abu-abu —
+	// kita tidak tahu apakah itu memang maunya. Untuk warna pilihan, kita tahu:
+	// pengguna melihat contekannya lalu menekannya. Memaksakan batas bawah di
+	// sana justru membuat pilihan netral & monokromatik tidak berpengaruh sama
+	// sekali, dan itulah yang tadi terbaca sebagai bug.
+	exact bool
+	// pick = warna yang benar-benar ditekan pengguna, apa adanya.
+	//
+	// Penanda memakai warna ini PERSIS, tidak diturunkan: yang ditekan pengguna
+	// adalah warna yang ia mau lihat. Bagian lain (latar, kertas, teks pendukung)
+	// tetap diturunkan dari rona & kepekatannya, sebab terangnya harus dikunci
+	// demi keterbacaan — dan itu tidak berlaku untuk penanda, yang justru harus
+	// menonjol.
+	pick string
+}
+
+// floor mengembalikan batas bawah kepekatan yang berlaku untuk tone ini.
+func (t tone) floor(photo float64) float64 {
+	if t.exact {
+		return 0
+	}
+	return photo
+}
+
+// ceil mengembalikan batas atas kepekatan.
+//
+// Untuk foto batasnya rapat: rona diambil dari gambar orang lain, dan satu
+// spanduk merah menyala tidak boleh membuat latar berteriak lebih keras dari
+// isinya. Untuk warna pilihan batasnya longgar — kalau tidak, "neon" dan "jewel"
+// sama-sama mentok di angka yang sama dan menghasilkan kartu yang identik.
+// Contekan yang hasilnya kembar sama saja dengan tombol kosong.
+func (t tone) ceil(photo, exact float64) float64 {
+	if t.exact {
+		return exact
+	}
+	return photo
 }
 
 // palette = warna yang benar-benar ditulis ke CSS.
@@ -44,6 +83,7 @@ type palette struct {
 	Muted      string // judul-keterangan di atas latar
 	Faint      string // kaki kartu
 	Accent     string // garis penanda & stempel sumber
+	OnAccent   string // teks di atas penanda — gelap atau terang, mana yang terbaca
 }
 
 // Palet bawaan = warna kartu sebelum fitur ini ada. Dipakai apa adanya saat
@@ -59,6 +99,7 @@ var (
 		Muted:      "#9AA3AD",
 		Faint:      "#79818B",
 		Accent:     baseAccent,
+		OnAccent:   inkOnAccent,
 	}
 	defaultLight = palette{
 		Ink:        "#14171C",
@@ -69,6 +110,7 @@ var (
 		Muted:      "#5C5750",
 		Faint:      "#6B665E",
 		Accent:     baseAccent,
+		OnAccent:   inkOnAccent,
 	}
 )
 
@@ -99,7 +141,13 @@ func accentFor(t tone) string {
 	if !t.ok {
 		return baseAccent
 	}
-	s := between(t.sat*0.7, 0.28, 0.50)
+	// Warna yang ditekan pengguna dipakai APA ADANYA. Menurunkannya jadi versi
+	// lain berarti contekan yang ia lihat bukan warna yang ia dapat — dan itulah
+	// yang membuat merah menyala keluar sebagai merah bata.
+	if t.pick != "" {
+		return t.pick
+	}
+	s := between(t.sat*0.7, t.floor(0.28), t.ceil(0.50, 0.70))
 	l := 0.72
 	for ; l < 0.95; l += 0.02 {
 		if luminance(toRGB(t.hue, s, l)) >= accentMinLum {
@@ -107,6 +155,104 @@ func accentFor(t tone) string {
 		}
 	}
 	return hex(t.hue, s, l)
+}
+
+// Swatches = daftar warna kartu yang boleh dipilih pengguna.
+//
+// Sengaja daftar tertutup, bukan pemilih spektrum penuh. Engine hanya memakai
+// RONA dari warna pilihan — terangnya dikunci palet supaya teks selalu terbaca —
+// jadi pemilih spektrum menjanjikan sesuatu yang tidak pernah dikerjakan:
+// memilih putih atau abu-abu tidak mengubah apa pun, dan itu terbaca sebagai
+// bug. Daftar ini hanya berisi warna yang benar-benar berpengaruh.
+//
+// Yang ditampilkan adalah warna PENANDA yang akan dihasilkan — jadi contekan
+// yang dilihat pengguna memang sepotong hasilnya, bukan janji terpisah.
+// Tiap baris satu keluarga. Urutannya sengaja tidak diberi nama di GUI: yang
+// perlu dilihat pengguna warnanya, bukan istilahnya.
+//
+// Setiap warna harus BERPENGARUH — kalau dua contekan menghasilkan kartu yang
+// sama, salah satunya cuma tombol kosong. Karena engine memakai rona dan
+// kepekatan (terang dikunci demi keterbacaan), tiap baris dibedakan lewat salah
+// satu dari keduanya:
+//
+//   - lima baris pertama menyapu RONA, dengan kepekatan khas keluarganya;
+//   - monokromatik menyapu KEPEKATAN pada satu rona — itulah arti monokromatik,
+//     dan sekaligus satu-satunya cara membuat dua belas kelabu berbeda satu sama
+//     lain di mata engine.
+func Swatches() [][]string {
+	const n = 12
+	row := func(f func(i int) string) []string {
+		out := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			out = append(out, f(i))
+		}
+		return out
+	}
+	hue := func(i int) float64 { return float64(i) * 360 / n }
+
+	return [][]string{
+		// Pastel — lembut, terang.
+		row(func(i int) string { return hex(hue(i), 0.45, 0.80) }),
+		// Earth tone — hangat & teredam, jadi ronanya dibatasi ke busur tanah:
+		// tanah liat, oker, zaitun. Merah muda atau biru bukan warna tanah.
+		row(func(i int) string { return hex(15+float64(i)*9, 0.42, 0.42) }),
+		// Neon — kepekatan penuh.
+		row(func(i int) string { return hex(hue(i), 1.00, 0.55) }),
+		// Jewel tone — pekat tapi gelap: zamrud, safir, delima.
+		row(func(i int) string { return hex(hue(i), 0.72, 0.34) }),
+		// Netral — kelabu bernuansa: hangat, dingin, kehijauan.
+		row(func(i int) string { return hex(hue(i), 0.10, 0.62) }),
+		// Monokromatik — satu rona, kepekatan menaik.
+		row(func(i int) string { return hex(220, float64(i)*0.04, 0.55) }),
+	}
+}
+
+// Teks di atas penanda: satu gelap, satu terang. Yang dipakai yang kontrasnya
+// lebih besar.
+const (
+	inkOnAccent   = "#1A1714"
+	paperOnAccent = "#FBF9F4"
+)
+
+// onAccentFor memilih warna teks stempel sumber.
+//
+// Sejak penanda memakai warna pilihan APA ADANYA, teks gelap tidak lagi selalu
+// menang: merah menyala #FF1A1A menyisakan kontras 4,3 untuk teks gelap dan
+// hanya 3,8 untuk teks terang. Membiarkannya tetap gelap membuat atribusi susah
+// dibaca di sebagian warna, dan atribusi adalah janji fitur ini.
+//
+// Titik terburuknya ada di luminansi ±0,20, tempat kedua pilihan sama-sama
+// memberi sekitar 4,05 — itu batas matematisnya, bukan kelalaian. Teks stempel
+// berukuran besar (26 px di kanvas 1080), jadi angka itu masih di atas ambang
+// WCAG untuk teks besar.
+func onAccentFor(accent string) string {
+	if contrastOf(accent, inkOnAccent) >= contrastOf(accent, paperOnAccent) {
+		return inkOnAccent
+	}
+	return paperOnAccent
+}
+
+// contrastOf mengukur kontras dua warna hex menurut WCAG.
+//
+// Luminansi kedua warna teks DIHITUNG, bukan ditulis sebagai tetapan. Sempat
+// ditulis (0,0114 dan 1,0), dan angka 1,0 itu salah: kertas #FBF9F4 luminansinya
+// 0,95, bukan putih murni. Selisih kecil itu menggeser titik peralihan dan
+// membuat satu warna memilih teks yang justru kurang terbaca.
+func contrastOf(a, b string) float64 {
+	la, lb := lumOf(a), lumOf(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+func lumOf(hexStr string) float64 {
+	h, ok := parseHex(hexStr)
+	if !ok {
+		return 0
+	}
+	n, _ := strconv.ParseUint(h[1:], 16, 32)
+	return luminance(int(n>>16)&0xFF, int(n>>8)&0xFF, int(n)&0xFF)
 }
 
 // luminance = luminansi relatif menurut WCAG, dari komponen 0..255.
@@ -137,23 +283,29 @@ func paletteFor(t tone, dark bool) palette {
 	h := t.hue
 	// Terang dikunci di angka palet bawaan (latar 9,4%, kertas 91%), jadi yang
 	// berpindah dari kartu ke kartu hanya ronanya.
+	// Batas ATAS tetap berlaku untuk keduanya: ia menjaga latar tidak berteriak
+	// lebih keras dari isinya. Yang berbeda cuma batas bawahnya — untuk warna
+	// pilihan, kepekatan rendah memang boleh sampai nol.
+	inkSat := between(t.sat, t.floor(0.12), t.ceil(0.32, 0.80))
+	lightSat := between(t.sat*0.30, t.floor(0.06), t.ceil(0.18, 0.30))
 	p := palette{
-		Ink:        hex(h, between(t.sat, 0.12, 0.32), 0.094),
-		Paper:      hex(h, between(t.sat*0.35, 0.08, 0.20), 0.910),
-		LightBg:    hex(h, between(t.sat*0.30, 0.06, 0.18), 0.830),
-		Muted:      hex(h, 0.10, 0.640),
-		Faint:      hex(h, 0.08, 0.510),
+		Ink:        hex(h, inkSat, 0.094),
+		Paper:      hex(h, between(t.sat*0.35, t.floor(0.08), t.ceil(0.20, 0.35)), 0.910),
+		LightBg:    hex(h, lightSat, 0.830),
+		Muted:      hex(h, between(t.sat*0.30, t.floor(0.10), t.ceil(0.10, 0.22)), 0.640),
+		Faint:      hex(h, between(t.sat*0.25, t.floor(0.08), t.ceil(0.08, 0.18)), 0.510),
 	}
 	if !dark {
 		// Di gaya terang kertas duduk di atas latar terang, jadi keduanya harus
 		// lebih pucat; teks pendukung justru harus lebih gelap agar terbaca.
-		p.Paper = hex(h, between(t.sat*0.25, 0.05, 0.14), 0.965)
-		p.Muted = hex(h, 0.07, 0.340)
-		p.Faint = hex(h, 0.06, 0.400)
+		p.Paper = hex(h, between(t.sat*0.25, t.floor(0.05), t.ceil(0.14, 0.26)), 0.965)
+		p.Muted = hex(h, between(t.sat*0.25, t.floor(0.07), t.ceil(0.07, 0.16)), 0.340)
+		p.Faint = hex(h, between(t.sat*0.20, t.floor(0.06), t.ceil(0.06, 0.14)), 0.400)
 	}
 	p.Accent = accentFor(t)
-	p.InkRGB = rgbList(h, between(t.sat, 0.12, 0.32), 0.094)
-	p.LightBgRGB = rgbList(h, between(t.sat*0.30, 0.06, 0.18), 0.830)
+	p.OnAccent = onAccentFor(p.Accent)
+	p.InkRGB = rgbList(h, inkSat, 0.094)
+	p.LightBgRGB = rgbList(h, lightSat, 0.830)
 	return p
 }
 
@@ -188,10 +340,7 @@ func toneOfHex(s string) tone {
 	n, _ := strconv.ParseUint(h[1:], 16, 32)
 	r, g, b := float64((n>>16)&0xFF)/255, float64((n>>8)&0xFF)/255, float64(n&0xFF)/255
 	hue, sat, _ := toHSL(r, g, b)
-	if sat < 0.18 {
-		return tone{}
-	}
-	return tone{hue: hue, sat: sat, ok: true}
+	return tone{hue: hue, sat: sat, ok: true, exact: true, pick: h}
 }
 
 // toneOf membaca rona khas sebuah foto.

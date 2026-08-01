@@ -102,6 +102,9 @@ func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
 		"font_steps":   card.FontSteps,
 		"header_max":   card.HeaderMax,
 		"card_top_max": card.CardTopMax,
+		// Warna kartu yang boleh dipilih. Daftar tertutup, dibuat engine — GUI
+		// tidak menghitung warnanya sendiri.
+		"card_colours": card.Swatches(),
 	})
 }
 

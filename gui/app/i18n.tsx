@@ -333,6 +333,8 @@ const en = {
   cardColourHint: "— sets the background, the paper and the supporting text at once",
   colourFromPhoto: "Take it from the photo",
   colourCustom: "Choose it myself",
+  colourSwatchNote:
+    "Only the hue is used — brightness stays locked so the text is always readable. That is why the choice is a fixed set rather than a full colour picker. Selected: {hex}",
   colourFromPhotoNote:
     "The hue comes from the article photo. Brightness stays fixed so the text is always readable.",
   cardBoxBackground: "Paragraph box",
@@ -679,6 +681,8 @@ const id: Record<MessageKey, string> = {
   cardColourHint: "— menyetel latar, kertas, dan teks pendukung sekaligus",
   colourFromPhoto: "Ambil dari fotonya",
   colourCustom: "Saya tentukan sendiri",
+  colourSwatchNote:
+    "Yang dipakai hanya ronanya — terangnya dikunci supaya teks selalu terbaca. Itu sebabnya pilihannya daftar tetap, bukan pemilih warna bebas. Dipilih: {hex}",
   colourFromPhotoNote:
     "Ronanya diambil dari foto artikel. Terangnya tetap dikunci supaya teks selalu terbaca.",
   cardBoxBackground: "Kotak paragraf",

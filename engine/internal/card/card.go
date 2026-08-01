@@ -881,8 +881,10 @@ body{
 .stamp{margin-top:34px;font-family:'Clipper Condensed','Clipper Sans',sans-serif;
   font-size:{{.SmallSize}}px;letter-spacing:.13em;text-transform:uppercase;
   text-align:{{.Align}}}
+/* Warna teks stempel mengikuti penandanya: sejak penanda memakai warna pilihan
+   apa adanya, teks gelap tidak lagi selalu yang paling terbaca. */
 .stamp span{background:var(--highlight);padding:5px 14px;border-radius:2px;
-  color:#1A1714;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+  color:{{.Palette.OnAccent}};box-decoration-break:clone;-webkit-box-decoration-break:clone}
 
 .footer{padding-top:28px;font-family:'Clipper Condensed','Clipper Sans',sans-serif;
   font-size:{{.SmallSize}}px;letter-spacing:.12em;text-transform:uppercase;

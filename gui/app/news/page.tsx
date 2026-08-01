@@ -66,7 +66,20 @@ type Config = {
   styles: string[];
   ratios: string[];
   aligns: string[];
+  card_colours: string[][] | string[];
 };
+
+// colourRows menormalkan daftar warna dari engine.
+//
+// Bentuknya pernah berubah dari daftar datar jadi daftar per keluarga, dan GUI
+// dev bisa memuat ulang lebih dulu daripada engine di-restart. Tanpa penormalan
+// ini seluruh halaman mati dengan "row.map is not a function" — satu perbedaan
+// bentuk data seharusnya tidak menjatuhkan tab yang sedang dipakai.
+function colourRows(v: unknown): string[][] {
+  if (!Array.isArray(v)) return [];
+  if (v.every((x) => typeof x === "string")) return [v as string[]];
+  return v.filter((x): x is string[] => Array.isArray(x));
+}
 
 const EMPTY_ARTICLE: Article = {
   title: "", summary: "", url: "", image: "",
@@ -131,7 +144,7 @@ export default function News() {
 
   // Warna: dari foto (bawaan) atau dari warna yang kamu tentukan sendiri.
   const [colorSource, setColorSource] = useState("photo");
-  const [customColor, setCustomColor] = useState("#1E6FD9");
+  const [customColor, setCustomColor] = useState("");
   const [boxMode, setBoxMode] = useState("auto"); // auto | none | custom
   const [boxColor, setBoxColor] = useState("#EFEBE1");
   const drag = useRef<{ x: number; y: number; ax: number; ay: number } | null>(null);
@@ -152,7 +165,12 @@ export default function News() {
   useEffect(() => {
     fetch(`${ENGINE}/api/news/feeds`)
       .then((r) => r.json())
-      .then(setConfig)
+      .then((d: Config) => {
+        setConfig(d);
+        // Warna awal diambil dari daftar engine, bukan ditulis di sini — supaya
+        // tidak ada warna yang muncul di kotak tapi tidak ada di contekannya.
+        setCustomColor((v) => v || colourRows(d.card_colours)[0]?.[0] || "");
+      })
       .catch(() => setError(t("engineUnreachable")));
   }, [t]);
 
@@ -807,19 +825,34 @@ export default function News() {
                   <option value="custom">{t("colourCustom")}</option>
                 </select>
               </div>
-              {colorSource === "custom" && (
-                <div className="field" style={{ flex: "none" }}>
-                  <input type="color" value={customColor}
-                    onChange={(e) => setCustomColor(e.target.value.toUpperCase())} />
-                </div>
-              )}
-              {colorSource === "custom" && (
-                <div className="field">
-                  <input value={customColor} spellCheck={false}
-                    onChange={(e) => setCustomColor(e.target.value.toUpperCase())} />
-                </div>
-              )}
             </div>
+            {/* Daftar tertutup, bukan pemilih spektrum. Engine hanya memakai RONA
+                warna pilihan — terangnya dikunci palet — jadi pemilih spektrum
+                menjanjikan yang tidak dikerjakan: putih & abu-abu tidak mengubah
+                apa pun, dan itu terbaca sebagai bug. Warnanya datang dari engine,
+                tidak dihitung ulang di sini. */}
+            {colorSource === "custom" && (
+              <>
+                {/* Satu baris per keluarga warna, urutannya dari engine. Sengaja
+                    tanpa nama: yang perlu dilihat warnanya, bukan istilahnya. */}
+                {colourRows(config?.card_colours).map((row, i) => (
+                  <div className="swatches" key={i}>
+                    {row.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        className={"swatch" + (c === customColor ? " on" : "")}
+                        style={{ background: c }}
+                        title={c}
+                        aria-label={c}
+                        onClick={() => setCustomColor(c)}
+                      />
+                    ))}
+                  </div>
+                ))}
+                <p className="meta">{t("colourSwatchNote", { hex: customColor })}</p>
+              </>
+            )}
             {colorSource === "photo" && <p className="meta">{t("colourFromPhotoNote")}</p>}
           </div>
 

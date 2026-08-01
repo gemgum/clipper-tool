@@ -66,39 +66,41 @@ func TestTextStaysReadableForEveryHue(t *testing.T) {
 	const onPaper = "#1A1714"
 	for h := 0.0; h < 360; h += 15 {
 		for s := 0.0; s <= 1.0; s += 0.1 {
-			for _, dark := range []bool{true, false} {
-				p := paletteFor(tone{hue: h, sat: s, ok: true}, dark)
-				bg := p.Ink
-				if !dark {
-					bg = p.LightBg
-				}
-				if c := contrast(p.Paper, onPaper); c < 7 {
-					t.Errorf("h=%.0f s=%.1f dark=%v: teks di guntingan kontras %.1f (mau >=7)", h, s, dark, c)
-				}
-				if c := contrast(p.Muted, bg); c < 3 {
-					t.Errorf("h=%.0f s=%.1f dark=%v: judul-keterangan kontras %.1f (mau >=3)", h, s, dark, c)
-				}
-				if c := contrast(p.Faint, bg); c < 3 {
-					t.Errorf("h=%.0f s=%.1f dark=%v: kaki kartu kontras %.1f (mau >=3)", h, s, dark, c)
-				}
-				// Stempel sumber memikul teks gelap di atas penanda; kalau
-				// kontrasnya jatuh, atribusinya tidak terbaca — dan atribusi
-				// adalah janji fitur ini.
-				if c := contrast(p.Accent, onPaper); c < 7 {
-					t.Errorf("h=%.0f s=%.1f dark=%v: teks di stempel kontras %.1f (mau >=7)", h, s, dark, c)
-				}
-				if dark {
-					// Penanda harus terlihat di atas latar gelap. Di gaya terang
-					// pagar ini tidak berlaku: penanda yang cukup cerah untuk
-					// memikul teks gelap pasti berdekatan dengan kertas terang —
-					// itu sudah begitu sejak kartu ini memakai satu kuning tetap.
-					if c := contrast(p.Accent, bg); c < 3 {
-						t.Errorf("h=%.0f s=%.1f: penanda vs latar kontras %.1f (mau >=3)", h, s, c)
+			for _, mode := range []bool{false, true} {
+				for _, dark := range []bool{true, false} {
+					p := paletteFor(tone{hue: h, sat: s, ok: true, exact: mode}, dark)
+					bg := p.Ink
+					if !dark {
+						bg = p.LightBg
 					}
-					// Guntingan kertas harus terbaca jelas sebagai kertas di atas
-					// latar gelap — itu seluruh gagasan desainnya.
-					if c := contrast(p.Paper, p.Ink); c < 10 {
-						t.Errorf("h=%.0f s=%.1f: kertas vs latar kontras %.1f (mau >=10)", h, s, c)
+					if c := contrast(p.Paper, onPaper); c < 7 {
+						t.Errorf("h=%.0f s=%.1f dark=%v: teks di guntingan kontras %.1f (mau >=7)", h, s, dark, c)
+					}
+					if c := contrast(p.Muted, bg); c < 3 {
+						t.Errorf("h=%.0f s=%.1f dark=%v: judul-keterangan kontras %.1f (mau >=3)", h, s, dark, c)
+					}
+					if c := contrast(p.Faint, bg); c < 3 {
+						t.Errorf("h=%.0f s=%.1f dark=%v: kaki kartu kontras %.1f (mau >=3)", h, s, dark, c)
+					}
+					// Stempel sumber memikul teks gelap di atas penanda; kalau
+					// kontrasnya jatuh, atribusinya tidak terbaca — dan atribusi
+					// adalah janji fitur ini.
+					if c := contrast(p.Accent, onPaper); c < 7 {
+						t.Errorf("h=%.0f s=%.1f dark=%v: teks di stempel kontras %.1f (mau >=7)", h, s, dark, c)
+					}
+					if dark {
+						// Penanda harus terlihat di atas latar gelap. Di gaya terang
+						// pagar ini tidak berlaku: penanda yang cukup cerah untuk
+						// memikul teks gelap pasti berdekatan dengan kertas terang —
+						// itu sudah begitu sejak kartu ini memakai satu kuning tetap.
+						if c := contrast(p.Accent, bg); c < 3 {
+							t.Errorf("h=%.0f s=%.1f: penanda vs latar kontras %.1f (mau >=3)", h, s, c)
+						}
+						// Guntingan kertas harus terbaca jelas sebagai kertas di atas
+						// latar gelap — itu seluruh gagasan desainnya.
+						if c := contrast(p.Paper, p.Ink); c < 10 {
+							t.Errorf("h=%.0f s=%.1f: kertas vs latar kontras %.1f (mau >=10)", h, s, c)
+						}
 					}
 				}
 			}
@@ -286,14 +288,6 @@ func TestParseHexAcceptsOnlyFullSixDigits(t *testing.T) {
 	}
 }
 
-// Warna pilihan yang kelabu diperlakukan sama dengan foto kelabu: jatuh ke palet
-// bawaan, bukan dipaksa jadi rona yang sebetulnya tidak ada.
-func TestGreyCustomColourFallsBack(t *testing.T) {
-	if got := toneOfHex("#808080"); got.ok {
-		t.Errorf("abu-abu menghasilkan rona %.0f, mau jatuh ke bawaan", got.hue)
-	}
-}
-
 // Penanda mengikuti rona kartu, tapi tidak pernah SAMA dengan latar atau
 // kertasnya — kalau sama, ia lenyap dan kartu kehilangan penandanya.
 func TestAccentFollowsTheHueWithoutMatchingIt(t *testing.T) {
@@ -307,5 +301,107 @@ func TestAccentFollowsTheHueWithoutMatchingIt(t *testing.T) {
 				t.Errorf("h=%.0f dark=%v: penanda sewarna dengan latar/kertas (%s)", h, dark, p.Accent)
 			}
 		}
+	}
+}
+
+// Daftar warna pilihan harus benar-benar berpengaruh: kalau dua contekan
+// menghasilkan kartu yang sama, salah satunya cuma tombol kosong — persis
+// keluhan yang membuat pemilih spektrum penuh dibuang.
+func TestEverySwatchProducesADistinctCard(t *testing.T) {
+	seen := map[palette]string{}
+	rows := Swatches()
+	if len(rows) < 6 {
+		t.Fatalf("baru %d keluarga warna", len(rows))
+	}
+	for r, row := range rows {
+		if len(row) < 6 {
+			t.Errorf("baris %d cuma %d warna", r, len(row))
+		}
+		for _, sw := range row {
+			got := toneOfHex(sw)
+			if !got.ok {
+				t.Errorf("baris %d, contekan %s tidak terbaca", r, sw)
+				continue
+			}
+			p := paletteFor(got, true)
+			if prev, dup := seen[p]; dup {
+				t.Errorf("contekan %s menghasilkan kartu yang sama dengan %s", sw, prev)
+			}
+			seen[p] = sw
+		}
+	}
+}
+
+// Warna pilihan yang nyaris kelabu HARUS tetap berpengaruh. Untuk foto, kelabu
+// jatuh ke palet bawaan karena kita tidak tahu apakah itu maunya; untuk warna
+// pilihan kita tahu — pengguna melihat contekannya lalu menekannya.
+func TestNeutralChoiceStaysNeutralInsteadOfFallingBack(t *testing.T) {
+	base := paletteFor(tone{}, true)
+	grey := paletteFor(toneOfHex("#9E9E9E"), true)
+	if grey.Ink == base.Ink {
+		t.Error("pilihan kelabu jatuh ke palet bawaan — tombolnya jadi tidak berpengaruh")
+	}
+	// Dan hasilnya memang kelabu, bukan dipaksa berona.
+	r, g, b := 0, 0, 0
+	if _, err := fmtSscanHex(grey.Ink, &r, &g, &b); err != nil {
+		t.Fatal(err)
+	}
+	if spread := max3(r, g, b) - min3(r, g, b); spread > 4 {
+		t.Errorf("latar %s tidak netral (selisih komponen %d)", grey.Ink, spread)
+	}
+	// Foto kelabu tetap jatuh ke bawaan — perilaku itu tidak boleh ikut berubah.
+	if got := paletteFor(tone{hue: 200, sat: 0.05, ok: true}, true); got.Ink == grey.Ink {
+		t.Error("foto nyaris kelabu ikut diperlakukan sebagai pilihan manual")
+	}
+}
+
+func fmtSscanHex(h string, r, g, b *int) (int, error) {
+	n, err := strconv.ParseUint(strings.TrimPrefix(h, "#"), 16, 32)
+	if err != nil {
+		return 0, err
+	}
+	*r, *g, *b = int(n>>16)&0xFF, int(n>>8)&0xFF, int(n)&0xFF
+	return 3, nil
+}
+
+func max3(a, b, c int) int { return max(a, max(b, c)) }
+func min3(a, b, c int) int { return min(a, min(b, c)) }
+
+// Penanda memakai warna yang ditekan pengguna APA ADANYA. Menurunkannya jadi
+// versi lain berarti contekan yang dilihat bukan warna yang didapat — merah
+// menyala keluar sebagai merah bata.
+func TestAccentIsExactlyTheColourThatWasPicked(t *testing.T) {
+	for _, row := range Swatches() {
+		for _, sw := range row {
+			if got := paletteFor(toneOfHex(sw), true).Accent; got != sw {
+				t.Errorf("contekan %s menghasilkan penanda %s", sw, got)
+			}
+		}
+	}
+}
+
+// Teks stempel memilih gelap atau terang — mana pun yang lebih terbaca. Sebelum
+// ini ia selalu gelap, dan di atas merah menyala kontrasnya cuma 4,3 sementara
+// pilihan terang tersedia.
+func TestStampTextPicksWhicheverReadsBetter(t *testing.T) {
+	both := map[string]bool{}
+	for _, row := range Swatches() {
+		for _, sw := range row {
+			p := paletteFor(toneOfHex(sw), true)
+			both[p.OnAccent] = true
+			dark := contrast(p.Accent, inkOnAccent)
+			light := contrast(p.Accent, paperOnAccent)
+			want := inkOnAccent
+			if light > dark {
+				want = paperOnAccent
+			}
+			if p.OnAccent != want {
+				t.Errorf("penanda %s: teks %s (kontras %.1f), padahal %s memberi %.1f",
+					sw, p.OnAccent, contrast(p.Accent, p.OnAccent), want, max(dark, light))
+			}
+		}
+	}
+	if len(both) < 2 {
+		t.Error("tidak ada satu pun warna yang memakai teks terang — pemilihannya tidak pernah terpakai")
 	}
 }
