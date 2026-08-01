@@ -139,7 +139,6 @@ func TestHeroSizeNeverGrowsWithLongerText(t *testing.T) {
 	}
 }
 
-
 // Kartu kutipan tidak berfoto, jadi ruangnya jauh lebih lega dan hurufnya boleh
 // lebih besar — itu memang yang membedakannya.
 func TestQuoteCardsUseTheRoomTheyHave(t *testing.T) {
@@ -152,7 +151,6 @@ func TestQuoteCardsUseTheRoomTheyHave(t *testing.T) {
 		t.Errorf("kartu kutipan %d px melewati batas %d px", quote, heroQuoteMax)
 	}
 }
-
 
 // Zoom foto dibaca relatif terhadap titik awal modenya — sama seperti sumbu zoom
 // di tab klip. Batasnya tidak berubah oleh penambahan mode "whole".
@@ -261,10 +259,6 @@ func TestUserCanOutgrowTheDefaultHierarchy(t *testing.T) {
 		t.Errorf("judul maksimum %d px tidak bisa melampaui paragraf minimum %d px", title, para)
 	}
 }
-
-
-
-
 
 // Menggeser isi ke bawah TIDAK boleh mengubah ukuran hurufnya. Sempat begitu,
 // dan hasilnya kebalikan dari yang diminta: menggeser sedikit membuat paragraf

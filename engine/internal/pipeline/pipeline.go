@@ -357,119 +357,106 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 	return fixed, nil
 }
 
-// momentSelector adalah mesin yang memilih momen dari transkrip (Claude/Ollama).
+// momentSelector adalah mesin yang MEMILIH dari kandidat bernomor (Claude/Ollama).
+//
+// Dulu antarmuka ini bernama SelectMoments dan menyerahkan penentuan batas waktu
+// ke model. Diukur pada qwen2.5, tiga kali jalan pada permintaan yang sama
+// mengembalikan rentang terbalik ("468-43") dan momen 8 detik padahal diminta
+// 30-60 — sebagian besar dibuang validateMoments, dan sisa yang lolos itulah
+// yang membuat klip terasa berubah-ubah tiap kali dijalankan.
+//
+// Sekarang batas waktunya dibangun engine dari batas kalimat, dan model hanya
+// memilih nomor. Kelas kegagalan itu hilang karena angkanya tidak pernah ada di
+// tangan model.
 type momentSelector interface {
-	SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error)
+	PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]llm.Pick, error)
 }
 
 // selectWith menjalankan selektor per potongan transkrip lalu menggabungkan
 // hasilnya. Kegagalan potongan mana pun menggagalkan seluruh job (tanpa
 // fallback), agar pengguna tahu persis mesin mana yang bermasalah.
 func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel momentSelector, engineName string, onProgress ProgressFunc) ([]types.Clip, error) {
-	parts := chunkTranscript(tr, chunkSeconds(p.Opts.Provider), chunkOverlap)
-	if len(parts) == 0 {
-		return nil, fmt.Errorf("the transcript is empty")
-	}
-	// Tiap potongan diminta secukupnya; penyaringan akhir tetap di topN.
-	perChunk := p.Opts.MaxClips/len(parts) + 1
-	if perChunk < 2 {
-		perChunk = 2
+	// Kandidat dibangun dari SELURUH transkrip sekaligus, bukan per potongan.
+	// Batas kandidat sudah ditentukan batas kalimat, jadi tidak ada momen yang
+	// terbelah di sambungan potongan — penggabungan lintas potongan yang dulu
+	// diperlukan (Moment.Continues) jadi tidak relevan.
+	cands := segment.BuildCandidates(tr, p.Opts.TargetMin, p.Opts.TargetMax)
+	if len(cands) == 0 {
+		return nil, fmt.Errorf("no candidate clips could be built from the transcript")
 	}
 
-	var moments []llm.Moment
-	for i, part := range parts {
-		msg := fmt.Sprintf("%s is selecting moments", engineName)
-		if len(parts) > 1 {
-			msg = fmt.Sprintf("%s is selecting moments — part %d/%d (minute %.0f–%.0f)",
-				engineName, i+1, len(parts), part.info.Start/60, part.info.End/60)
+	// Dikirim berbatch: yang membatasi bukan kemampuan model membaca melainkan
+	// jendela konteksnya. Model menilai per batch, penyaringan akhir tetap di
+	// topN — jadi batch tidak mengurangi mutu pilihan, hanya membaginya.
+	batch := llm.MaxCandidatesPerRequest
+	batches := (len(cands) + batch - 1) / batch
+	perBatch := p.Opts.MaxClips/batches + 1
+	if perBatch < 2 {
+		perBatch = 2
+	}
+
+	var clips []types.Clip
+	for b := 0; b < batches; b++ {
+		lo := b * batch
+		hi := lo + batch
+		if hi > len(cands) {
+			hi = len(cands)
 		}
-		emit(onProgress, Progress{
-			Stage:   "scoring",
-			Value:   0.58 + 0.15*float64(i)/float64(len(parts)),
-			Message: msg,
-		})
-		ms, err := sel.SelectMoments(ctx, part.tr, perChunk, p.Opts.TargetMin, p.Opts.TargetMax, part.info)
+		msg := fmt.Sprintf("%s is choosing from %d candidate clips", engineName, len(cands))
+		if batches > 1 {
+			msg = fmt.Sprintf("%s is choosing clips — part %d/%d", engineName, b+1, batches)
+		}
+		emit(onProgress, Progress{Stage: "scoring", Value: 0.58 + 0.15*float64(b)/float64(batches), Message: msg})
+
+		picks, err := sel.PickMoments(ctx, cands[lo:hi], lo, perBatch, tr.Language)
 		if err != nil {
-			if len(parts) > 1 {
-				return nil, fmt.Errorf("part %d of %d (minute %.0f–%.0f): %w",
-					i+1, len(parts), part.info.Start/60, part.info.End/60, err)
+			if batches > 1 {
+				return nil, fmt.Errorf("part %d of %d: %w", b+1, batches, err)
 			}
 			return nil, err
 		}
-		moments = append(moments, ms...)
+		got, bad := picksToClips(picks, cands, lo, hi)
+		if bad > 0 {
+			emit(onProgress, Progress{Stage: "scoring", Value: 0.73, Message: fmt.Sprintf(
+				"%d pick(s) dropped: the number was not in the list", bad)})
+		}
+		clips = append(clips, got...)
 	}
-
-	merged := mergeMoments(moments)
-	valid, rejected, err := validateMoments(merged, tr, engineName)
-	if err != nil {
-		return nil, err
+	if len(clips) == 0 {
+		return nil, fmt.Errorf("%s chose none of the %d candidate clips", engineName, len(cands))
 	}
-	if len(rejected) > 0 {
-		emit(onProgress, Progress{Stage: "scoring", Value: 0.73,
-			Message: fmt.Sprintf("%d moments dropped for invalid time boundaries", len(rejected))})
-	}
-
-	clips := momentsToClips(valid, tr)
-	fitDuration(clips, tr, p.Opts.TargetMin, p.Opts.TargetMax)
 	return topN(clips, p.Opts.MaxClips, p.Opts.MinScore), nil
 }
 
-// fitDuration merapikan momen pilihan LLM agar masuk rentang durasi: yang
-// terlalu pendek diperpanjang ke batas segmen berikutnya (lalu ke belakang bila
-// perlu), yang terlalu panjang dipangkas ke batas segmen sebelum targetMax.
-// Model lokal sering mengabaikan instruksi durasi, jadi ini jaring pengaman.
-func fitDuration(clips []types.Clip, tr types.Transcript, targetMin, targetMax float64) {
-	if len(tr.Segments) == 0 {
-		return
+// picksToClips memetakan nomor pilihan model kembali ke kandidatnya.
+//
+// Nomor di luar daftar dibuang, bukan dijepit ke tetangga terdekat: menjepit
+// akan mengubah pilihan model jadi klip yang tidak pernah ia lihat. Nomor
+// ganda juga dibuang — model kadang memilih kandidat yang sama dua kali.
+func picksToClips(picks []llm.Pick, cands []types.Candidate, lo, hi int) ([]types.Clip, int) {
+	seen := map[int]bool{}
+	var out []types.Clip
+	bad := 0
+	for _, pk := range picks {
+		if pk.Index < lo || pk.Index >= hi || seen[pk.Index] {
+			bad++
+			continue
+		}
+		seen[pk.Index] = true
+		c := cands[pk.Index]
+		out = append(out, types.Clip{
+			Start:      c.Start,
+			End:        c.End,
+			Duration:   c.Duration(),
+			Score:      int(math.Round(pk.Score)),
+			Reasons:    llm.ToReasons(pk.Reasons, pk.Score),
+			Title:      strings.TrimSpace(pk.Title),
+			Hashtags:   pk.Hashtags,
+			Transcript: c.Text,
+			Status:     "scored",
+		})
 	}
-	first := tr.Segments[0].Start
-	last := tr.Segments[len(tr.Segments)-1].End
-
-	for i := range clips {
-		c := &clips[i]
-		// Terlalu pendek → majukan akhir ke ujung segmen berikutnya.
-		for c.End-c.Start < targetMin && c.End < last {
-			next := last
-			for _, s := range tr.Segments {
-				if s.End > c.End {
-					next = s.End
-					break
-				}
-			}
-			if next <= c.End {
-				break
-			}
-			c.End = next
-		}
-		// Masih pendek → mundurkan awal ke pangkal segmen sebelumnya.
-		for c.End-c.Start < targetMin && c.Start > first {
-			prev := first
-			for _, s := range tr.Segments {
-				if s.Start < c.Start {
-					prev = s.Start
-				}
-			}
-			if prev >= c.Start {
-				break
-			}
-			c.Start = prev
-		}
-		// Terlalu panjang → pangkas ke batas segmen terakhir sebelum targetMax.
-		if c.End-c.Start > targetMax {
-			limit := c.Start + targetMax
-			cut := 0.0
-			for _, s := range tr.Segments {
-				if s.End > c.Start && s.End <= limit {
-					cut = s.End
-				}
-			}
-			if cut > c.Start+targetMin {
-				c.End = cut
-			}
-		}
-		c.Duration = c.End - c.Start
-		c.Transcript = joinRange(tr, c.Start, c.End)
-	}
+	return out, bad
 }
 
 // heuristicSelect memilih klip via segmentasi window + skor heuristik (fallback).
@@ -484,53 +471,6 @@ func (p *Pipeline) heuristicSelect(tr types.Transcript, rms worker.FeaturesResul
 		})
 	}
 	return topN(clips, p.Opts.MaxClips, p.Opts.MinScore)
-}
-
-// momentsToClips mengubah momen LLM jadi klip; batas dirapikan ke segmen terdekat.
-func momentsToClips(moments []llm.Moment, tr types.Transcript) []types.Clip {
-	var clips []types.Clip
-	for _, m := range moments {
-		start, end := snapToSegments(tr, m.Start, m.End)
-		if end-start < 3 { // buang yang terlalu pendek/aneh
-			continue
-		}
-		sc := int(math.Round(m.Score))
-		reasons := types.Reasons{
-			Hook:         int(math.Round(m.Reasons.Hook)),
-			Emotion:      int(math.Round(m.Reasons.Emotion)),
-			Clarity:      int(math.Round(m.Reasons.Clarity)),
-			Shareability: int(math.Round(m.Reasons.Shareability)),
-			Standalone:   int(math.Round(m.Reasons.Standalone)),
-		}
-		// Model lokal (prompt sederhana) tak mengisi reasons → ratakan dari skor.
-		if reasons == (types.Reasons{}) && sc > 0 {
-			reasons = types.Reasons{Hook: sc, Emotion: sc, Clarity: sc, Shareability: sc, Standalone: sc}
-		}
-		clips = append(clips, types.Clip{
-			Start: start, End: end, Duration: end - start,
-			Score: sc, Reasons: reasons, Title: m.Title, Hashtags: m.Hashtags,
-			Transcript: joinRange(tr, start, end), Status: "scored",
-		})
-	}
-	return clips
-}
-
-// snapToSegments merapikan start/end LLM ke batas segmen transkrip terdekat.
-func snapToSegments(tr types.Transcript, s, e float64) (float64, float64) {
-	ns, ne := s, e
-	bestS, bestE := math.MaxFloat64, math.MaxFloat64
-	for _, seg := range tr.Segments {
-		if d := math.Abs(seg.Start - s); d < bestS {
-			bestS, ns = d, seg.Start
-		}
-		if d := math.Abs(seg.End - e); d < bestE {
-			bestE, ne = d, seg.End
-		}
-	}
-	if ne <= ns {
-		ne = e
-	}
-	return ns, ne
 }
 
 // joinRange menggabungkan teks segmen dalam rentang [start,end].

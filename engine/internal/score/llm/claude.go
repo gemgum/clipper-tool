@@ -59,21 +59,6 @@ type msgResp struct {
 	} `json:"error"`
 }
 
-// Moment adalah momen menarik yang dipilih LLM dari transkrip (batas ditentukan
-// LLM). Angka memakai float64 agar toleran terhadap model lokal yang membalas
-// desimal (mis. qwen membalas "score": 7.0). Dikonversi ke int saat jadi klip.
-type Moment struct {
-	Start    float64       `json:"start"`
-	End      float64       `json:"end"`
-	Score    float64       `json:"score"`
-	Reasons  MomentReasons `json:"reasons"`
-	Title    string        `json:"title"`
-	Hashtags []string      `json:"hashtags"`
-	// Continues menandai momen yang masih bersambung ke potongan transkrip
-	// berikutnya (lihat penggabungan di paket pipeline).
-	Continues bool `json:"continues"`
-}
-
 // MomentReasons rincian skor (float agar toleran output model lokal).
 type MomentReasons struct {
 	Hook         float64 `json:"hook"`
@@ -81,25 +66,6 @@ type MomentReasons struct {
 	Clarity      float64 `json:"clarity"`
 	Shareability float64 `json:"shareability"`
 	Standalone   float64 `json:"standalone"`
-}
-
-// SelectMoments mengirim satu potongan transkrip bertimestamp & meminta Claude
-// memilih momen terbaik. Semua kegagalan dikembalikan apa adanya — pemanggil
-// TIDAK boleh diam-diam berpindah ke mesin lain.
-func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch Chunk) ([]Moment, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
-	}
-	text, err := c.Complete(ctx, SystemPrompt(targetMin, targetMax, ch, tr.Language), UserPrompt(tr, maxClips), 8192)
-	if err != nil {
-		return nil, err
-	}
-	moments, err := parseMoments(text)
-	if err != nil {
-		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w — reply: %s",
-			c.Model, err, truncate(text, 300))
-	}
-	return moments, nil
 }
 
 // Complete mengirim satu pasang prompt dan mengembalikan teks balasan apa
@@ -169,25 +135,6 @@ func claudeError(status int, msg string) error {
 	return fmt.Errorf("Claude rejected the request (status %d): %s", status, msg)
 }
 
-// parseMoments menerima bentuk {"moments":[...]} maupun array telanjang [...].
-func parseMoments(text string) ([]Moment, error) {
-	if obj := extractBlock(text, '{', '}'); obj != "" {
-		var wrap MomentsWrapper
-		if err := json.Unmarshal([]byte(obj), &wrap); err == nil && wrap.Moments != nil {
-			return wrap.Moments, nil
-		}
-	}
-	arr := extractBlock(text, '[', ']')
-	if arr == "" {
-		return nil, fmt.Errorf("no JSON block found in the reply")
-	}
-	var moments []Moment
-	if err := json.Unmarshal([]byte(arr), &moments); err != nil {
-		return nil, err
-	}
-	return moments, nil
-}
-
 // extractBlock mengambil blok pertama..terakhir di antara pembuka & penutup.
 func extractBlock(s string, open, close byte) string {
 	i := strings.IndexByte(s, open)
@@ -204,4 +151,22 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// PickMoments meminta Claude MEMILIH dari kandidat bernomor, bukan mengarang
+// batas waktu. Lihat pick.go untuk alasannya.
+func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]Pick, error) {
+	if c.APIKey == "" {
+		return nil, fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+	}
+	text, err := c.Complete(ctx, PickSystemPrompt(maxClips, contentLang), PickUserPrompt(cands, offset), 4096)
+	if err != nil {
+		return nil, err
+	}
+	var wrap PickResponse
+	if err := json.Unmarshal([]byte(extractBlock(text, '{', '}')), &wrap); err != nil {
+		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w — reply: %s",
+			c.Model, err, truncate(text, 300))
+	}
+	return wrap.Picks, nil
 }

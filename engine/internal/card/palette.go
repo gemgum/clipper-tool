@@ -297,11 +297,11 @@ func paletteFor(t tone, dark bool) palette {
 	inkSat := between(t.sat, t.floor(0.12), t.ceil(0.32, 0.80))
 	lightSat := between(t.sat*0.30, t.floor(0.06), t.ceil(0.18, 0.30))
 	p := palette{
-		Ink:        hex(h, inkSat, 0.094),
-		Paper:      hex(h, between(t.sat*0.35, t.floor(0.08), t.ceil(0.20, 0.35)), 0.910),
-		LightBg:    hex(h, lightSat, 0.830),
-		Muted:      hex(h, between(t.sat*0.30, t.floor(0.10), t.ceil(0.10, 0.22)), 0.640),
-		Faint:      hex(h, between(t.sat*0.25, t.floor(0.08), t.ceil(0.08, 0.18)), 0.510),
+		Ink:     hex(h, inkSat, 0.094),
+		Paper:   hex(h, between(t.sat*0.35, t.floor(0.08), t.ceil(0.20, 0.35)), 0.910),
+		LightBg: hex(h, lightSat, 0.830),
+		Muted:   hex(h, between(t.sat*0.30, t.floor(0.10), t.ceil(0.10, 0.22)), 0.640),
+		Faint:   hex(h, between(t.sat*0.25, t.floor(0.08), t.ceil(0.08, 0.18)), 0.510),
 	}
 	if !dark {
 		// Di gaya terang kertas duduk di atas latar terang, jadi keduanya harus

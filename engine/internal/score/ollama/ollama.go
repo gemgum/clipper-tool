@@ -71,24 +71,6 @@ type chatResp struct {
 	Error string `json:"error"`
 }
 
-// SelectMoments meminta model lokal memilih momen dari satu potongan transkrip.
-// Prompt-nya SAMA DETAILNYA dengan Claude: bentuk balasan dijamin oleh JSON
-// Schema di parameter "format", sehingga prompt panjang tidak lagi membuat
-// model lokal membalas JSON rusak (masalah lama yang memaksa prompt disederhanakan).
-func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64, ch llm.Chunk) ([]llm.Moment, error) {
-	content, err := c.Complete(ctx, llm.SystemPrompt(targetMin, targetMax, ch, tr.Language), llm.UserPrompt(tr, maxClips),
-		llm.ResponseSchema(), 3072)
-	if err != nil {
-		return nil, err
-	}
-	var wrap llm.MomentsWrapper
-	if err := json.Unmarshal([]byte(content), &wrap); err != nil {
-		return nil, fmt.Errorf("local model %s returned JSON that could not be read: %w — reply: %s",
-			c.Model, err, trunc(content, 300))
-	}
-	return wrap.Moments, nil
-}
-
 // Complete mengirim satu pasang prompt ke Ollama dan mengembalikan isi balasan.
 //
 // schema (boleh nil) diteruskan ke parameter "format" Ollama sehingga bentuk
@@ -300,4 +282,23 @@ func Pull(ctx context.Context, url, model string) error {
 		return fmt.Errorf("model download failed (status %d)", resp.StatusCode)
 	}
 	return nil
+}
+
+// PickMoments meminta model lokal MEMILIH dari kandidat bernomor.
+//
+// Inilah perubahan yang menghapus seluruh kelas kegagalan "angka waktu ngawur":
+// model tidak lagi memegang timestamp, jadi rentang terbalik atau durasi 8 detik
+// tidak mungkin lagi terjadi. Bentuk balasannya tetap dijamin JSON Schema.
+func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]llm.Pick, error) {
+	content, err := c.Complete(ctx, llm.PickSystemPrompt(maxClips, contentLang),
+		llm.PickUserPrompt(cands, offset), llm.PickSchema(maxClips), 2048)
+	if err != nil {
+		return nil, err
+	}
+	var wrap llm.PickResponse
+	if err := json.Unmarshal([]byte(content), &wrap); err != nil {
+		return nil, fmt.Errorf("local model %s returned JSON that could not be read: %w — reply: %s",
+			c.Model, err, trunc(content, 300))
+	}
+	return wrap.Picks, nil
 }

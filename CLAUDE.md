@@ -43,7 +43,8 @@ Di tab itu LLM hanya **memilih nomor paragraf**, tidak pernah menulis: isi kartu
 ## Alur pipeline (engine/internal/pipeline)
 
 extract audio (ffmpeg) → features (worker C++) → transkripsi (whisper.cpp) →
-**koreksi transkrip (LLM)** → segmentasi kandidat → scoring (heuristik ± Claude)
+**koreksi transkrip (LLM)** → segmentasi kandidat → **LLM MEMILIH NOMOR kandidat**
+(bukan mengarang timestamp — lihat notes/18) + scoring
 → render klip 9:16 + burn .ass.
 
 Tiap klip juga menghasilkan `<clip>.txt`: ucapan klip itu tanpa timestamp dan

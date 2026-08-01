@@ -348,7 +348,6 @@ func WriteText(path string, segs []types.TranscriptSegment, clipStart float64) e
 	return os.WriteFile(path, []byte(out+"\n"), 0o644)
 }
 
-
 // WriteSRT menulis subtitle .srt (untuk dipakai di editor lain saat pengguna
 // memilih menyimpan klip polos). Isinya mengikuti pemenggalan yang sama.
 func WriteSRT(path string, segs []types.TranscriptSegment, clipStart float64, sub config.Subtitle) error {
