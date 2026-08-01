@@ -275,7 +275,14 @@ func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, su
 	if y <= 0 {
 		y = playResY / 2
 	}
-	pos := fmt.Sprintf("{\\an5\\pos(%d,%d)}", x, y)
+	// an8 = jangkar di tepi ATAS blok teks, bukan di tengahnya (an5).
+	// Dengan an5 sebuah halaman 2 baris mengangkang titik jangkar: baris pertama
+	// naik setengah baris dari tempat yang dipilih pengguna di preview, dan
+	// tinggi blok ikut berubah tiap kali jumlah barisnya berubah — subtitle
+	// terlihat melompat-lompat sepanjang klip. Dengan an8 titik itu berarti
+	// "di sini baris pertama mulai": baris tambahan turun ke bawah mengikuti
+	// arah baca, dan baris pertama tidak pernah bergeser.
+	pos := fmt.Sprintf("{\\an8\\pos(%d,%d)}", x, y)
 
 	words := collectWords(segs, clipStart)
 	var b strings.Builder

@@ -13,6 +13,14 @@ const CARD_HEIGHT: Record<string, number> = { "9:16": 1920, "4:5": 1350, "1:1": 
 // Harus sama dengan photoHeight di engine/internal/card/card.go — kalau berbeda,
 // kotak pratinjau tidak lagi sebangun dengan bingkai foto pada hasil render.
 const PHOTO_PERCENT: Record<string, number> = { "9:16": 50, "4:5": 50, "1:1": 48 };
+// photoFrameHeight = tinggi bingkai foto dalam piksel kartu — cerminan rumus di
+// engine/internal/card/card.go. Kalau rumusnya berbeda, menyeret foto sejauh N
+// piksel di sini tidak lagi berarti N piksel di PNG hasil.
+function photoFrameHeight(ratio: string): number {
+  const h = CARD_HEIGHT[ratio] ?? 1920;
+  const pct = PHOTO_PERCENT[ratio] ?? 50;
+  return Math.floor((h * pct) / 100);
+}
 
 type Article = {
   title: string;
@@ -344,7 +352,7 @@ export default function News() {
   // Batas geser memakai rumus yang sama dengan engine (offsetLimit di card.go):
   // pada zoom Z foto jadi Z kali bingkai, jadi sisa ruangnya (Z-1)/2 tiap sisi.
   // Menyeret lebih jauh hanya akan memunculkan celah kosong di tepi kartu.
-  const frameHeight = ((CARD_HEIGHT[ratio] ?? 1920) * (PHOTO_PERCENT[ratio] ?? 52)) / 100;
+  const frameHeight = photoFrameHeight(ratio);
   const limitX = Math.floor((CARD_W * (zoom - 1)) / 2);
   const limitY = Math.floor((frameHeight * (zoom - 1)) / 2);
   const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
@@ -629,7 +637,7 @@ export default function News() {
                 <div
                   ref={boxRef}
                   className="photo-box"
-                  style={{ aspectRatio: `${CARD_W} / ${(CARD_HEIGHT[ratio] ?? 1920) * (PHOTO_PERCENT[ratio] ?? 52) / 100}` }}
+                  style={{ aspectRatio: `${CARD_W} / ${photoFrameHeight(ratio)}` }}
                   onPointerDown={startDrag}
                   onPointerMove={moveDrag}
                   onPointerUp={endDrag}

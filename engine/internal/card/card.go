@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html/template"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -158,6 +159,12 @@ type Builder struct {
 
 	once    sync.Once
 	fontCSS template.CSS // @font-face dengan font ditanam sebagai data URI
+
+	// Rona foto per alamat. Satu artikel biasanya dirender berkali-kali sambil
+	// pengguna menggeser fotonya, dan foto yang sama tidak perlu diunduh ulang
+	// tiap kali hanya untuk mendapat warna yang sama.
+	mu    sync.Mutex
+	tones map[string]tone
 }
 
 func New(cap *capture.Client, fontsDir string) *Builder {
@@ -173,7 +180,7 @@ func (b *Builder) Build(ctx context.Context, req Request, dir string) error {
 	outPNG := filepath.Join(dir, FilePNG)
 	width, height := Dims(req.Ratio)
 
-	htmlBytes, err := b.render(req, width, height)
+	htmlBytes, err := b.render(ctx, req, width, height)
 	if err != nil {
 		return err
 	}
@@ -231,6 +238,74 @@ func writeSidecars(dir string, req Request) error {
 	return os.WriteFile(filepath.Join(dir, FileSource), []byte(sb.String()), 0o644)
 }
 
+// Ukuran huruf guntingan dihitung agar teksnya MUAT, bukan sekadar mengecil
+// bertahap. Dulu ini tangga berdasarkan jumlah huruf dan anak tangga teratasnya
+// terbuka (>320 huruf → 38 px, tanpa batas), jadi paragraf yang lebih panjang
+// tetap tumpah keluar kartu — dan paragraf datang dari artikel orang lain,
+// panjangnya tidak bisa kita pesan.
+//
+// Angka-angka di bawah diukur dari render sungguhan, bukan ditebak: paragraf
+// 520 huruf pada ukuran 38 px jatuh tepat 15 baris di guntingan selebar 824 px.
+const (
+	// Tinggi yang tersisa untuk teks guntingan di ruang kartu 1920 px, setelah
+	// foto, keterangan judul, padding guntingan, stempel, dan kaki kartu.
+	heroRoomWithPhoto = 550
+	heroRoomNoPhoto   = 1450
+
+	heroCharWidth = 0.62  // lebar rata-rata satu huruf, relatif ke ukuran font
+	heroLineWidth = 824.0 // lebar satu baris di dalam guntingan
+	heroLineGap   = 1.34  // line-height .hero
+
+	heroMax      = 62 // ukuran paling besar; teks pendek berhenti di sini
+	heroQuoteMax = 76 // kartu kutipan tidak berfoto, jadi boleh lebih besar
+	// Di bawah ini teks tidak lagi terbaca di layar ponsel. Paragraf sepanjang
+	// itu memang lebih baik terpotong daripada terbit tak terbaca — dan itu
+	// pertanda paragrafnya yang perlu dipilih ulang, bukan kartunya.
+	heroMin = 22
+)
+
+// heroHeight menaksir tinggi teks guntingan pada satu ukuran huruf.
+//
+// Baris dibulatkan KE ATAS karena baris tidak bisa setengah: sisa satu kata pun
+// memakan satu baris penuh. Pembulatan inilah yang membuat rumus tertutup saja
+// tidak cukup — lihat heroSizeFor.
+func heroHeight(chars, size int) float64 {
+	lines := math.Ceil(float64(chars) * heroCharWidth * float64(size) / heroLineWidth)
+	return lines * float64(size) * heroLineGap
+}
+
+// heroSizeFor mencari ukuran huruf terbesar yang masih muat.
+//
+// Tinggi teks tumbuh mengikuti KUADRAT ukuran huruf: memperbesar huruf membuat
+// tiap baris lebih tinggi sekaligus memaksa lebih banyak baris. Karena itu
+// tebakan awalnya diambil dengan akar — jauh lebih dekat daripada menghitung
+// turun dari ukuran terbesar — lalu diturunkan sampai benar-benar muat, sebab
+// pembulatan ke baris utuh bisa membuat tebakan itu meleset satu baris.
+func heroSizeFor(chars int, hasImage, quote bool) int {
+	maxSize := heroMax
+	if quote {
+		maxSize = heroQuoteMax
+	}
+	if chars <= 0 {
+		return maxSize
+	}
+	room := float64(heroRoomWithPhoto)
+	if !hasImage {
+		room = heroRoomNoPhoto
+	}
+	size := int(math.Floor(math.Sqrt(room * heroLineWidth / (float64(chars) * heroCharWidth * heroLineGap))))
+	if size > maxSize {
+		size = maxSize
+	}
+	for size > heroMin && heroHeight(chars, size) > room {
+		size--
+	}
+	if size < heroMin {
+		size = heroMin
+	}
+	return size
+}
+
 // templateData = data siap pakai untuk template.
 type templateData struct {
 	Width, Height int
@@ -250,6 +325,7 @@ type templateData struct {
 	RuleMargin    string // margin blok, ikut perataan
 	Lang          string // atribut lang= pada <html>
 	ReadMore      string // teks kaki kartu
+	Palette       palette // warna kartu, diturunkan dari foto artikelnya
 
 	// Hero = teks yang jadi bintang kartu, ditaruh di guntingan kertas.
 	// Context = judul artikel sebagai keterangan di atasnya; kosong bila judul
@@ -262,10 +338,19 @@ type templateData struct {
 	Padding     int
 }
 
-func (b *Builder) render(req Request, width, height int) ([]byte, error) {
+func (b *Builder) render(ctx context.Context, req Request, width, height int) ([]byte, error) {
 	a := req.Article
 	quote := req.Style == StyleQuote
 	hasImage := strings.HasPrefix(a.Image, "http") && !quote
+
+	// Warna kartu diambil dari fotonya. Kartu kutipan tidak punya foto, jadi ia
+	// tetap memakai palet bawaan — di sana tidak ada apa pun untuk ditiru.
+	var pal palette
+	if hasImage {
+		pal = paletteFor(b.tone(ctx, a.Image), req.Style != StyleLight)
+	} else {
+		pal = paletteFor(tone{}, req.Style != StyleLight)
+	}
 
 	// Skala mengikuti tinggi kanvas supaya kartu 1:1 dan 4:5 tidak terlihat
 	// seperti kartu 9:16 yang dipangkas.
@@ -285,23 +370,7 @@ func (b *Builder) render(req Request, width, height int) ([]byte, error) {
 		hero, context = context, ""
 	}
 
-	// Teks panjang dikecilkan agar tetap muat tanpa terpotong. Ambangnya dari
-	// percobaan pada guntingan selebar 1080 dikurangi padding.
-	chars := len([]rune(hero))
-	heroSize := 62
-	switch {
-	case chars > 320:
-		heroSize = 38
-	case chars > 240:
-		heroSize = 44
-	case chars > 170:
-		heroSize = 50
-	case chars > 110:
-		heroSize = 56
-	}
-	if quote {
-		heroSize += 14 // tanpa foto, ruangnya lebih lega
-	}
+	heroSize := heroSizeFor(len([]rune(hero)), hasImage, quote)
 
 	// Isi kartu dijangkarkan ke bawah, jadi sisa ruang jatuh tepat di bawah foto.
 	// Porsi foto dibuat agak besar supaya ruang itu terisi gambar, bukan jadi
@@ -338,6 +407,7 @@ func (b *Builder) render(req Request, width, height int) ([]byte, error) {
 		RuleMargin:  ruleMargin,
 		Lang:        langAttr(req.Lang),
 		ReadMore:    p.readMore,
+		Palette:     pal,
 		HeroSize:    px(heroSize),
 		ContextSize: px(38),
 		SmallSize:   px(26),
@@ -426,22 +496,27 @@ var tmpl = template.Must(template.New("card").Parse(`<!doctype html>
 <html lang="{{.Lang}}"><head><meta charset="utf-8"><style>
 {{.FontCSS}}
 *{margin:0;padding:0;box-sizing:border-box}
-/* Palet sengaja menghindari merah. Hampir semua media Indonesia memakai merah
-   di logonya, jadi aksen merah pada kartu akan bertabrakan dengan lencana
-   sumbernya sendiri. Kuning penanda dipilih karena berbeda dari warna media
-   mana pun, dan karena artinya jelas: bagian ini ditandai. */
+/* Latar & kertas mengambil rona dari FOTO artikelnya (lihat palette.go), jadi
+   tiap berita membawa warnanya sendiri. Yang dipinjam hanya ronanya; terangnya
+   dikunci palet supaya foto malam dan foto siang sama terbacanya.
+
+   Kuning penanda TIDAK ikut berubah. Ia satu-satunya warna tetap di kartu, dan
+   itulah yang membuat kartu-kartu ini terlihat satu keluarga walau latarnya
+   berbeda-beda. Kuning juga sengaja menghindari merah: hampir semua media
+   Indonesia memakai merah di logonya, jadi aksen merah akan bertabrakan dengan
+   lencana sumbernya sendiri. */
 :root{
-  --ink:#14171C;          /* biru-kehitaman, seperti tinta cetak */
-  --paper:{{if .Dark}}#EFEBE1{{else}}#FBF9F4{{end}};
-  --ink-on-paper:#1A1714; /* hitam kehangatan, untuk teks di atas kertas */
-  --highlight:#E4B429;    /* kuning penanda — satu-satunya aksen */
+  --ink:{{.Palette.Ink}};           /* latar, segelap tinta cetak */
+  --paper:{{.Palette.Paper}};       /* kertas guntingan, ikut menghangat */
+  --ink-on-paper:#1A1714;           /* hitam kehangatan, untuk teks di atas kertas */
+  --highlight:#E4B429;              /* kuning penanda — satu-satunya warna tetap */
 }
 html,body{width:{{.Width}}px;height:{{.Height}}px;overflow:hidden}
 body{
   font-family:'Clipper Sans',"Segoe UI",Roboto,Arial,sans-serif;
   display:flex;flex-direction:column;
   {{if .Dark}}background:var(--ink);color:var(--paper)
-  {{else}}background:#DDD8CC;color:#1A1714{{end}}
+  {{else}}background:{{.Palette.LightBg}};color:#1A1714{{end}}
 }
 .photo{position:relative;height:{{.PhotoHeight}}%;flex:none;overflow:hidden}
 /* object-fit:cover dipakai—bukan min-width/min-height dengan width:auto—karena
@@ -460,8 +535,8 @@ body{
 }
 .photo::after{content:"";position:absolute;inset:0;
   background:linear-gradient(180deg,rgba(0,0,0,.4) 0%,rgba(0,0,0,0) 26%,
-    {{if .Dark}}rgba(20,23,28,0) 58%,rgba(20,23,28,.9) 86%,var(--ink) 100%
-    {{else}}rgba(221,216,204,0) 58%,rgba(221,216,204,.92) 86%,#DDD8CC 100%{{end}})}
+    {{if .Dark}}rgba({{.Palette.InkRGB}},0) 58%,rgba({{.Palette.InkRGB}},.9) 86%,var(--ink) 100%
+    {{else}}rgba({{.Palette.LightBgRGB}},0) 58%,rgba({{.Palette.LightBgRGB}},.92) 86%,{{.Palette.LightBg}} 100%{{end}})}
 .badge{position:absolute;top:{{.Padding}}px;left:{{.Padding}}px;z-index:2;
   display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 /* Lencana sumber memakai warna kertas, bukan warna media. Kita tidak tahu
@@ -496,7 +571,7 @@ body{
      dengan kutipan. Tanpa batas ini judul 15 kata bisa mendorong guntingan
      keluar kartu. */
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-  {{if .Dark}}color:#9AA3AD{{else}}color:#5C5750{{end}}}
+  color:{{.Palette.Muted}}}
 
 /* GUNTINGAN — inti desain ini. Kutipan disajikan sebagai potongan kertas yang
    ditempel, sebab yang dijual fitur ini adalah bukti: teksnya diambil apa
@@ -523,7 +598,7 @@ body{
 
 .footer{padding-top:28px;font-family:'Clipper Condensed','Clipper Sans',sans-serif;
   font-size:{{.SmallSize}}px;letter-spacing:.12em;text-transform:uppercase;
-  {{if .Dark}}color:#79818B{{else}}color:#6B665E{{end}}}
+  color:{{.Palette.Faint}}}
 </style></head><body>
 {{if .HasImage}}
 <div class="photo">

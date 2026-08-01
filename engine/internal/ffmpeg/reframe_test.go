@@ -70,12 +70,10 @@ func TestWholePictureHasBackgroundBelowFull(t *testing.T) {
 			t.Errorf("fit zoom %d: latar hitam hilang: %s", z, black)
 		}
 	}
-	// Mulai 100 gambar menutupi bingkai, jadi latar tidak dikerjakan lagi.
-	for _, z := range []int{100, 150, 200} {
-		got := ReframeFilter(Layout{Mode: "fit", Background: "blur", Zoom: z}, 1080, 1920)
-		if strings.Contains(got, "gblur") {
-			t.Errorf("fit zoom %d masih mengerjakan latar padahal bingkai penuh: %s", z, got)
-		}
+	// Pada 100 gambar menutupi bingkai, jadi latar tidak dikerjakan lagi.
+	got := ReframeFilter(Layout{Mode: "fit", Background: "blur", Zoom: 100}, 1080, 1920)
+	if strings.Contains(got, "gblur") {
+		t.Errorf("fit zoom 100 masih mengerjakan latar padahal bingkai penuh: %s", got)
 	}
 }
 
@@ -221,9 +219,17 @@ func TestCenterZoomBehaviour(t *testing.T) {
 	if w, h := scaledSize(t, "center", 50, 1920, 1080, tw, th); w >= tw || h >= th {
 		t.Errorf("center zoom 50 = %dx%d, seharusnya mengecil di dalam bingkai", w, h)
 	}
-	for _, z := range []int{150, 200} {
-		if w, h := scaledSize(t, "center", z, 1920, 1080, tw, th); w != tw || h != th {
-			t.Errorf("center zoom %d = %dx%d, punch-in tetap harus pas %dx%d", z, w, h, tw, th)
+}
+
+// 100 adalah batas atas KEDUA mode: di situ gambar sudah memenuhi bingkai.
+// Nilai di atasnya dijepit, bukan diteruskan jadi pembesaran tambahan.
+func TestZoomIsCappedAtFullFrame(t *testing.T) {
+	for _, mode := range []string{"center", "fit"} {
+		full := ReframeFilter(Layout{Mode: mode, Background: "blur", Zoom: 100}, 1080, 1920)
+		for _, over := range []int{150, 200, 999} {
+			if got := ReframeFilter(Layout{Mode: mode, Background: "blur", Zoom: over}, 1080, 1920); got != full {
+				t.Errorf("%s zoom %d berbeda dari zoom 100:\n dapat: %s\n ingin: %s", mode, over, got, full)
+			}
 		}
 	}
 }

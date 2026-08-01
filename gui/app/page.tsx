@@ -21,12 +21,16 @@ type FontCheck = { valid: boolean; name: string; family: string; source: string;
 // 20 ≈ 5 piksel layar pada preview 270 px, cukup terasa tanpa bikin susah
 // menaruh subtitle sedikit di luar tengah.
 const CENTER_X = 540, CENTER_Y = 960, MAGNET = 20;
+// Baris contoh di preview — panjangnya sengaja mendekati batas nyata satu baris
+// (~22 karakter pada ukuran font bawaan).
+const SAMPLE_LINES = ["sampleLine1", "sampleLine2", "sampleLine3"] as const;
 
 // Zoom dibaca RELATIF terhadap titik awal modenya, jadi batas bawah & nilai
 // awalnya berbeda per mode. Harus sama dengan engine/config.
-//   fit    : 0 = seluruh video masuk → naik = membesar & mulai terpotong
-//   center : 100 = potongan tengah memenuhi bingkai
-const ZOOM_MAX = 200, ZOOM_STEP = 5;
+//   fit    : mulai 0 (seluruh video masuk) → hanya bisa NAIK
+//   center : mulai 100 (memenuhi bingkai)   → hanya bisa TURUN
+// Keduanya berhenti di 100: di situ gambar sudah memenuhi bingkai.
+const ZOOM_MAX = 100, ZOOM_STEP = 5;
 const ZOOM_BOUNDS: Record<string, { min: number; natural: number }> = {
   fit: { min: 0, natural: 0 },
   center: { min: 5, natural: 100 },
@@ -245,6 +249,7 @@ export default function Home() {
     fetch(`${ENGINE}/api/settings`).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
   }, []);
 
+
   // silent = pengecekan berkala; jangan kosongkan status agar UI tak berkedip.
   const checkOllama = useCallback((silent = false) => {
     if (!silent) setOllamaStatus(null);
@@ -390,6 +395,16 @@ export default function Home() {
     };
   }, []);
 
+  // Berapa baris yang mungkin muncul sekaligus — harus sama dengan Pacing() di
+  // engine (lambat/normal 2, padat 3; mode word selalu 1 kata per layar).
+  const maxLines = subMode === "word" ? 1 : subSpeed === "dense" ? 3 : 2;
+  // Tinggi blok di ruang 1080x1920. Faktor 1,17 diukur dari render libass yang
+  // sebenarnya (jarak antarbaris pada ukuran font 72 = 84 px).
+  const blockH = Math.round(subSize * 1.17 * maxLines);
+  // Jangkar ada di tepi atas blok, jadi supaya blok terlihat di tengah bidang
+  // titiknya harus setengah tinggi blok di atas garis tengah.
+  const centerAnchorY = Math.round(CENTER_Y - blockH / 2);
+
   const startDrag = useCallback((e: React.PointerEvent) => {
     if (!boxRef.current) return;
     e.preventDefault();
@@ -407,10 +422,12 @@ export default function Home() {
     let ny = p.y + grab.current.dy;
     // Magnet ke garis tengah — inilah rasa "berhenti" saat melewati tengah.
     if (Math.abs(nx - CENTER_X) < MAGNET) nx = CENTER_X;
-    if (Math.abs(ny - CENTER_Y) < MAGNET) ny = CENTER_Y;
+    if (Math.abs(ny - centerAnchorY) < MAGNET) ny = centerAnchorY;
     setSubX(Math.round(Math.max(0, Math.min(PLAY_W, nx))));
-    setSubY(Math.round(Math.max(0, Math.min(PLAY_H, ny))));
-  }, [previewPoint]);
+    // Batas bawah dikurangi tinggi blok: yang harus tetap di dalam bingkai
+    // adalah seluruh blok, bukan cuma titik jangkarnya.
+    setSubY(Math.round(Math.max(0, Math.min(PLAY_H - blockH, ny))));
+  }, [previewPoint, blockH, centerAnchorY]);
 
   const endDrag = useCallback(() => {
     draggingRef.current = false;
@@ -418,7 +435,7 @@ export default function Home() {
   }, []);
 
   const atCenterX = subX === CENTER_X;
-  const atCenterY = subY === CENTER_Y;
+  const atCenterY = subY === centerAnchorY;
   const guidesVisible = isDragging || alwaysGuides;
 
   const uploadFile = useCallback((file: File) => {
@@ -540,15 +557,21 @@ export default function Home() {
 
   // Zona yang tertutup UI aplikasi (undefined = pembatas dimatikan).
   const zone = platform !== "off" ? PLATFORMS[platform]?.zone : undefined;
+  // Yang boleh menabrak zona adalah blok penuhnya. Kalau hanya titik jangkar
+  // yang diperiksa, halaman 2-3 baris bisa menjulur ke zona bawah sementara
+  // peringatannya diam saja.
   const inUnsafe = !!zone && (
-    subY / PLAY_H < zone.top || subY / PLAY_H > 1 - zone.bottom || subX / PLAY_W > 1 - zone.right
+    subY / PLAY_H < zone.top ||
+    (subY + blockH) / PLAY_H > 1 - zone.bottom ||
+    subX / PLAY_W > 1 - zone.right
   );
-  // Taruh subtitle tepat di atas zona bawah. X tetap di tengah bidang: subtitle
-  // ditulis rata tengah terhadap titik ini, jadi menengahkannya ke lebar sisa
-  // (di luar kolom tombol kanan) justru membuatnya miring ke kiri.
+  // Taruh subtitle tepat di atas zona bawah — disisakan setinggi blok, karena
+  // baris tambahan tumbuh ke bawah dari titik ini. X tetap di tengah bidang:
+  // subtitle ditulis rata tengah terhadap titik ini, jadi menengahkannya ke
+  // lebar sisa (di luar kolom tombol kanan) justru membuatnya miring ke kiri.
   const placeSafe = () => {
     setSubX(CENTER_X);
-    setSubY(zone ? Math.round(PLAY_H * (1 - zone.bottom) - 140) : CENTER_Y);
+    setSubY(zone ? Math.round(PLAY_H * (1 - zone.bottom) - blockH - 40) : centerAnchorY);
   };
 
   return (
@@ -636,46 +659,6 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="group">
-          <div className="group-title">{t("groupFrame")}</div>
-          <div className="row">
-            {/* Tiga cara memasangkan video ke bingkai 9:16 — pilihan yang
-                berdiri sendiri, bukan titik pada satu sumbu. Mode "Whole
-                Picture" itulah alasan pilihan latar di sebelahnya ada. */}
-            <div className="field"><label title={t("fitModeTip")}>{t("fitMode")} ⓘ</label>
-              <select value={reframe} onChange={(e) => changeReframe(e.target.value)}>
-                <option value="center">{t("fitCenter")}</option>
-                <option value="fit">{t("fitWhole")}</option>
-                <option value="face_follow" disabled>{t("fitFace")}</option>
-              </select></div>
-            <div className="field"><label title={t("backgroundTip")}>{t("background")} ⓘ</label>
-              <select value={background} onChange={(e) => setBackground(e.target.value)}
-                disabled={noEmptySpace}>
-                <option value="blur">{t("backgroundBlur")}</option>
-                <option value="black">{t("backgroundBlack")}</option>
-              </select></div>
-          </div>
-
-          {/* Zoom berdiri sendiri dari pilihan di atas: ia mengatur seberapa
-              besar video duduk di dalam bingkai, kelipatan 5%. */}
-          <div className="field">
-            <label title={t("zoomTip")}>{t("zoomLabel", { n: zoom })} ⓘ</label>
-            <input type="range" min={bounds.min} max={ZOOM_MAX} step={ZOOM_STEP}
-              value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
-            <div className="zoom-ends">
-              <span>{reframe === "fit" ? t("zoomEndWhole") : t("zoomEndSmall")}</span>
-              <span>{t("zoomEndFull")}</span>
-              <span>{t("zoomEndBig")}</span>
-            </div>
-          </div>
-          {reframe === "fit" && zoom === 0 && <div className="meta">{t("fitWholeNote")}</div>}
-          {/* Begitu digeser dari 0, "tanpa crop" tidak lagi berlaku. Dikatakan
-              terus terang di sini daripada ditemukan sendiri di hasil render. */}
-          {reframe === "fit" && zoom > 0 && (
-            <div className="warn" style={{ marginTop: 6 }}>{t("fitWholeCropWarn")}</div>
-          )}
-          {noEmptySpace && <div className="meta">{t("backgroundNoEffect")}</div>}
-        </div>
 
         <div className="group">
           <div className="group-title">{t("groupClips")}</div>
@@ -794,7 +777,7 @@ export default function Home() {
 
       {/* 3. Setelan subtitle + preview geser */}
       <div className="panel">
-        <div className="meta" style={{ marginBottom: 14 }}>{t("subtitleSettings")}</div>
+        <div className="meta" style={{ marginBottom: 14 }}>{t("clipAppearance")}</div>
 
         <div className="sub-layout">
         {/* Kiri: bingkai preview. Bingkainya selalu ada — walau frame video
@@ -852,11 +835,27 @@ export default function Home() {
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}>
+              {/* Contoh ditampilkan sebanyak baris terbanyak yang mungkin
+                  muncul, bukan satu baris pendek. Dulu preview selalu 1 baris
+                  sehingga pengguna menaruhnya pas, lalu terkejut waktu hasilnya
+                  2 baris. */}
               {subMode === "word" ? (
-                <span style={{ color: highlightHex }}>{t("sampleWord")}</span>
-              ) : subMode === "karaoke" ? (
-                <>{t("sampleWord")} <span style={{ color: highlightHex }}>{t("sampleWordTail")}</span></>
-              ) : t("sampleSubtitle")}
+                <div style={{ color: highlightHex }}>{t("sampleWord")}</div>
+              ) : (
+                Array.from({ length: maxLines }, (_, i) => {
+                  const line = t(SAMPLE_LINES[i]);
+                  const isLast = i === maxLines - 1;
+                  if (subMode !== "karaoke" || !isLast) return <div key={i}>{line}</div>;
+                  // Karaoke: kata terakhir yang sedang disorot.
+                  const words = line.split(" ");
+                  const tail = words.pop();
+                  return (
+                    <div key={i}>
+                      {words.join(" ")} <span style={{ color: highlightHex }}>{tail}</span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -981,6 +980,51 @@ export default function Home() {
               <button className="ghost tiny" disabled={!zone} onClick={placeSafe}>{t("placeSafe")}</button>
             </div>
             {inUnsafe && <div className="warn" style={{ marginTop: 6 }}>{t("unsafeWarning", { platform: platformLabel(platform) })}</div>}
+          </div>
+
+          {/* Cara video dipasang ke bingkai ditaruh DI SINI, bukan di panel
+              setelan render: ketiganya langsung mengubah gambar di preview
+              sebelah kiri, jadi hasilnya terlihat saat itu juga. */}
+          <div className="group" style={{ marginTop: 18, marginBottom: 0 }}>
+            <div className="group-title">{t("groupVideoInFrame")}</div>
+            <div className="row">
+              {/* Tiga cara memasangkan video ke bingkai 9:16 — pilihan yang
+                  berdiri sendiri, bukan titik pada satu sumbu. Mode "Whole
+                  Picture" itulah alasan pilihan latar di sebelahnya ada. */}
+              <div className="field"><label title={t("fitModeTip")}>{t("fitMode")} ⓘ</label>
+                <select value={reframe} onChange={(e) => changeReframe(e.target.value)}>
+                  <option value="center">{t("fitCenter")}</option>
+                  <option value="fit">{t("fitWhole")}</option>
+                  <option value="face_follow" disabled>{t("fitFace")}</option>
+                </select></div>
+              <div className="field"><label title={t("backgroundTip")}>{t("background")} ⓘ</label>
+                <select value={background} onChange={(e) => setBackground(e.target.value)}
+                  disabled={noEmptySpace}>
+                  <option value="blur">{t("backgroundBlur")}</option>
+                  <option value="black">{t("backgroundBlack")}</option>
+                </select></div>
+            </div>
+
+            {/* Zoom berdiri sendiri dari pilihan di atas: ia mengatur seberapa
+                besar video duduk di dalam bingkai, kelipatan 5%. */}
+            <div className="field">
+              <label title={t("zoomTip")}>{t("zoomLabel", { n: zoom })} ⓘ</label>
+              <input type="range" min={bounds.min} max={ZOOM_MAX} step={ZOOM_STEP}
+                value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+              <div className="zoom-ends">
+                <span>{reframe === "fit" ? t("zoomEndWhole") : t("zoomEndSmall")}</span>
+                <span>{t("zoomEndFull")}</span>
+              </div>
+            </div>
+            {/* Satu keterangan saja pada satu waktu — dua sekaligus bikin panel
+                ramai dan yang satu selalu menjelaskan keadaan yang sudah lewat. */}
+            {zoom >= 100 ? (
+              <div className="meta">{t("zoomFullNote")}</div>
+            ) : reframe === "fit" && zoom === 0 ? (
+              <div className="meta">{t("fitWholeNote")}</div>
+            ) : reframe === "fit" ? (
+              <div className="meta">{t("fitWholeCropNote")}</div>
+            ) : null}
           </div>
         </div>
         </div>

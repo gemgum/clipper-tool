@@ -69,12 +69,16 @@ const (
 // 100 sudah pas di bingkai. Kelipatan 5 supaya pilihannya terbatas dan hasilnya
 // bisa diulang.
 const (
-	ZoomMax  = 200
+	// 100 = gambar memenuhi bingkai. Itu batas atas keduanya: memperbesar lagi
+	// tidak menambah apa pun selain memotong lebih banyak.
+	ZoomMax  = 100
 	ZoomStep = 5
 
-	// Batas bawah berbeda per mode, sebab titik awal keduanya berbeda:
-	//   fit    → 0 sah dan bermakna (seluruh video masuk);
-	//   center → kotak potongan tidak boleh nol, jadi minimal 5.
+	// Batas bawah berbeda per mode, sebab titik awalnya ada di ujung yang
+	// berlawanan:
+	//   fit    → mulai di 0 (seluruh video masuk), hanya bisa NAIK;
+	//   center → mulai di 100 (memenuhi bingkai), hanya bisa TURUN. Kotak
+	//            potongannya tidak boleh nol, jadi berhenti di 5.
 	ZoomWholeMin  = 0
 	ZoomCenterMin = 5
 

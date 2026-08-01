@@ -93,9 +93,8 @@ func TestWholePictureZoomBounds(t *testing.T) {
 		-40: 0,   // di bawah batas
 		3:   0,   // dibulatkan ke bawah ke kelipatan 5
 		52:  50,  //
-		100: 100, // memenuhi bingkai
-		200: 200,
-		250: 200, // di atas batas
+		100: 100, // memenuhi bingkai — batas atasnya
+		250: 100, // di atas batas
 	}
 	for in, want := range cases {
 		o := DefaultOptions()
@@ -118,9 +117,8 @@ func TestCenterZoomBounds(t *testing.T) {
 		-40: 100, // mustahil
 		3:   5,   // di bawah batas bawah
 		52:  50,  //
-		100: 100,
-		200: 200,
-		250: 200, // di atas batas
+		100: 100, // titik awal, sekaligus batas atas
+		250: 100, // di atas batas
 	}
 	for in, want := range cases {
 		o := DefaultOptions()

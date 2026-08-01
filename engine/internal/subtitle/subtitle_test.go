@@ -170,3 +170,44 @@ func readFile(t *testing.T, p string) string {
 	}
 	return string(b)
 }
+
+// Titik yang dipilih pengguna di preview harus berarti "di sini baris pertama
+// mulai". Dengan jangkar tengah (an5) halaman 2 baris mengangkang titik itu:
+// baris pertama naik dan posisinya berubah-ubah mengikuti jumlah baris.
+func TestAnchorIsTopSoFirstLineNeverMoves(t *testing.T) {
+	// Satu ucapan pendek (1 baris) lalu satu ucapan panjang (pasti >1 baris).
+	segs := []types.TranscriptSegment{
+		utterance(0, 0.5, "halo."),
+		utterance(2, 0.4, "kalimat", "ini", "sengaja", "dibuat", "sangat",
+			"panjang", "supaya", "terpaksa", "dipecah", "menjadi", "dua", "baris."),
+	}
+	sub := config.DefaultSubtitle()
+	sub.X, sub.Y = 540, 1500
+
+	path := t.TempDir() + "/a.ass"
+	if err := WriteASS(path, segs, 0, sub); err != nil {
+		t.Fatal(err)
+	}
+
+	var oneLine, multiLine int
+	for _, l := range strings.Split(readFile(t, path), "\n") {
+		if !strings.HasPrefix(l, "Dialogue:") {
+			continue
+		}
+		if strings.Contains(l, `\an5`) {
+			t.Fatalf("jangkar masih di tengah blok (an5): %s", l)
+		}
+		if !strings.Contains(l, `{\an8\pos(540,1500)}`) {
+			t.Errorf("jangkar tidak di tepi atas titik pengguna: %s", l)
+		}
+		if strings.Contains(l, `\N`) {
+			multiLine++
+		} else {
+			oneLine++
+		}
+	}
+	// Tanpa keduanya, tes ini tidak membuktikan apa pun soal jumlah baris.
+	if oneLine == 0 || multiLine == 0 {
+		t.Fatalf("perlu halaman 1 baris dan >1 baris; dapat %d dan %d", oneLine, multiLine)
+	}
+}

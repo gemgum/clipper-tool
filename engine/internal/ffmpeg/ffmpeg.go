@@ -116,12 +116,13 @@ type EncodeOpts struct {
 // mode. Itu disengaja: yang sama di keduanya adalah "0 sampai naik = makin
 // diperbesar", bukan angka mutlaknya.
 //
-//	fit    :   0 = seluruh video masuk (titik awal mode ini)
+//	fit    :   0 = seluruh video masuk (titik awal mode ini) — hanya bisa NAIK
 //	         100 = video memenuhi bingkai, sisinya terpotong
-//	         200 = diperbesar dua kali lipat lagi dari sana
-//	center :   5 = potongan tengah mengecil di tengah bingkai
-//	         100 = potongan tengah memenuhi bingkai (titik awal mode ini)
-//	         200 = punch-in, tetap memenuhi bingkai
+//	center : 100 = potongan tengah memenuhi bingkai (titik awal) — hanya bisa TURUN
+//	           5 = potongan tengah mengecil di tengah bingkai
+//
+// Keduanya berhenti di 100: di situ gambar sudah memenuhi bingkai, dan
+// memperbesarnya lagi tidak menambah apa pun selain memotong lebih banyak.
 type Layout struct {
 	Mode       string // center | fit | face_follow
 	Background string // blur | black — mengisi ruang kosong yang tersisa
@@ -130,7 +131,7 @@ type Layout struct {
 
 // maxZoom harus sama dengan config.ZoomMax. Paket ini sengaja tidak mengimpor
 // config supaya tetap bisa dipakai sendiri.
-const maxZoom = 200
+const maxZoom = 100
 
 // ReframeFilter menyusun rantai filter -vf untuk menempatkan video ke bingkai
 // target.
@@ -141,12 +142,12 @@ func ReframeFilter(l Layout, targetW, targetH int) string {
 	return centerCropChain(l, targetW, targetH)
 }
 
-// wholePictureChain: zoom 0 memasukkan SELURUH video, lalu naik = membesar.
+// wholePictureChain: zoom 0 memasukkan SELURUH video, lalu naik = membesar
+// sampai memenuhi bingkai di 100.
 //
-// Skalanya diinterpolasi dari "muat utuh" ke "memenuhi bingkai"; di atas 100
-// rumus yang sama terus membesarkannya. Kedua titik bulat memakai bentuk yang
-// dihitung ffmpeg sendiri supaya tepat — pembulatan ekspresi bisa meleset satu
-// piksel, dan pada 100 satu piksel meleset berarti segaris latar terlihat.
+// Kedua ujungnya memakai bentuk yang dihitung ffmpeg sendiri supaya tepat —
+// pembulatan ekspresi bisa meleset satu piksel, dan pada 100 satu piksel meleset
+// berarti segaris latar terlihat di tepi.
 func wholePictureChain(l Layout, targetW, targetH int) string {
 	zoom := clampZoom(l.Zoom, 0)
 
@@ -192,13 +193,6 @@ func centerCropChain(l Layout, targetW, targetH int) string {
 	fh := evenBox(targetH * zoom / 100)
 	foreground := fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase:flags=lanczos,crop=%d:%d",
 		fw, fh, fw, fh)
-
-	// Di atas 100 kotaknya melewati bingkai; kelebihannya dipangkas di tengah
-	// supaya hasilnya tidak pernah lebih besar dari bingkai — pad juga menolak
-	// masukan yang lebih besar dari keluarannya.
-	if fw > targetW || fh > targetH {
-		foreground += fmt.Sprintf(",crop=%d:%d", targetW, targetH)
-	}
 
 	if zoom >= 100 {
 		return foreground

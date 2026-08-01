@@ -250,3 +250,96 @@ kartunya terlihat kredibel.
 Satu kartu selesai ~1 detik. Mesin job + SSE dirancang untuk pekerjaan hitungan
 menit (clipping video). Menambahkan kartu ke sana hanya menambah rumit tanpa
 manfaat.
+
+## Pita bawah: dicoba, lalu DICABUT
+
+Masalahnya nyata: kartu menjangkarkan isinya ke bawah, sementara TikTok/Reels/
+Shorts menimpa bagian bawah dengan caption, nama akun, dan bilah navigasi.
+Diukur pada render 1080x1920, stempel sumber duduk di 93% dan kaki kartu di 99%
+— keduanya tertutup saat diposting, padahal atribusi adalah janji fitur ini.
+
+Percobaan perbaikannya: `safeBottomPercent = 15`, satu `padding-bottom` di
+`body`, dan pitanya diambil seluruhnya dari tinggi foto supaya area teks tidak
+ikut menyusut.
+
+**Dicabut.** Kartu harus tetap terisi penuh sampai tepi 1080x1920 — ukuran
+layar TikTok apa adanya. Pita kosong itu menukar masalah yang tidak terlihat
+(isi tertutup UI aplikasi) dengan masalah yang terlihat di mana-mana: kartu
+yang berongga, termasuk saat dilihat di luar aplikasi. Kanvas kembali diisi
+penuh; `.photo` kembali memakai persen dan `layout()` dibuang.
+
+Kalau nanti digarap lagi, arahnya bukan mengosongkan kanvas: **padatkan blok
+isinya** (ukuran font paragraf, padding, jarak antar-elemen) supaya isi yang
+penting naik ke atas 76% tanpa menyisakan rongga. Foto tetap 50%.
+
+## Warna kartu diambil dari FOTO, bukan dari warna situsnya
+
+Palet kartu dulu tetap: latar `#14171C`, kertas `#EFEBE1`, kuning `#E4B429`.
+Semua kartu jadi kembar, dan itu keluhan yang wajar — yang membedakan dua berita
+bukan cuma teksnya.
+
+Dugaan pertama, ambil warna dari HTML situsnya, ternyata tidak bisa dipakai.
+Dari lima media besar hanya satu yang menulis `<meta name="theme-color">`:
+
+| kumparan | detik | CNN Indonesia | Kompas | Tempo |
+| --- | --- | --- | --- | --- |
+| `#00A5AF` | — | — | — | — |
+
+Empat dari lima kartu akan jatuh ke warna bawaan — keseragaman yang sama, hanya
+dengan lebih banyak kode. Fotonya selalu ada, dan warnanya memang milik berita
+itu sendiri.
+
+**Yang dipinjam hanya RONA dan KEPEKATANNYA, tidak pernah TERANGNYA.** Terang
+ditetapkan palet (latar 9,4%, kertas 91%), jadi foto malam dan foto siang sama
+terbacanya. `TestTextStaysReadableForEveryHue` menyapu seluruh lingkaran warna
+karena ronanya datang dari foto orang lain — kita tidak bisa memilih yang aman
+saja.
+
+Kuning penanda TIDAK ikut berubah. Ia satu-satunya warna tetap, dan itulah yang
+membuat kartu-kartu ini tetap terlihat satu keluarga walau latarnya berbeda.
+
+Tiga keputusan di `toneOf` yang tidak kelihatan tapi menentukan:
+
+- **Piksel kelabu, terlalu gelap, dan terlalu terang dibuang.** Yang paling
+  banyak di sebuah foto justru yang tidak punya rona — bayangan, sorot lampu,
+  langit putih. Tanpa saringan ini hampir semua foto "dominan abu-abu".
+- **Tiap piksel menyumbang sebesar kepekatannya.** Satu jaket merah menyala
+  lebih menentukan kesan sebuah foto daripada seluas apa pun dinding krem.
+- **Kelompok rona dinilai bersama tetangganya.** Rona hangat sebuah ruangan
+  tersebar di 0-45 derajat; tanpa ini ia bisa kalah oleh satu bilah sempit yang
+  pekat, dan warna kartu diambil dari hal terkecil di fotonya.
+
+Foto hitam putih tidak punya rona yang jujur bisa dipinjam, jadi ia kembali ke
+palet bawaan — bukan ditebak.
+
+Catatan yang mengejutkan: kartu kumparan keluar toska karena bilah merek
+kumparan menyatu di dalam og:image-nya, dan bilah itu memang bidang warna
+terbesar di foto. Kebetulan hasilnya sama dengan `theme-color` mereka.
+
+## Ukuran huruf guntingan: dihitung, bukan tangga
+
+Dulu ini tangga berdasarkan jumlah huruf, dan anak tangga teratasnya terbuka
+(>320 huruf → 38 px, tanpa batas). Paragraf yang lebih panjang tumpah keluar
+kartu — dan panjang paragraf datang dari artikel orang lain, tidak bisa dipesan.
+
+Luapan itu lama tersembunyi karena pita bawah 15% memendekkan foto dan
+meminjamkan ruangnya ke teks. Begitu pita dicabut dan kanvas kembali penuh,
+paragraf 520 huruf langsung menabrak tepi bawah.
+
+Sekarang ukurannya dicari: tinggi teks tumbuh mengikuti **kuadrat** ukuran huruf
+(huruf lebih besar = tiap baris lebih tinggi DAN barisnya lebih banyak), jadi
+tebakan awal diambil dengan akar, lalu diturunkan sampai benar-benar muat —
+pembulatan ke baris utuh bisa membuat rumus tertutupnya meleset satu baris.
+
+Angkanya diukur dari render sungguhan, bukan ditebak: paragraf 520 huruf pada
+ukuran 38 px jatuh tepat 15 baris di guntingan selebar 824 px. Kartu yang selama
+ini sudah muat tetap terlihat sama (`TestShortTextKeepsTheSizeItAlwaysHad`);
+yang berubah hanya teks yang dulu tumpah.
+
+### Yang BELUM dijaga
+
+Paragraf tidak dibatasi panjangnya di hulu — `parseParagraphs` hanya punya batas
+minimum kata. Ukuran huruf berhenti mengecil di 22 px karena di bawah itu tidak
+terbaca di layar ponsel, jadi paragraf yang sangat panjang tetap bisa terpotong.
+Itu batas yang disengaja: pertanda paragrafnya perlu dipilih ulang, bukan
+kartunya yang perlu mengalah lagi.

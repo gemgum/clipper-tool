@@ -26,13 +26,16 @@ Picture" — dua nama, satu keluarga, langsung terbaca bedanya.
 `zoom` bukan angka mutlak. Ia menjawab "seberapa jauh di-zoom DARI titik awal
 mode ini", jadi batas bawah & nilai awalnya berbeda:
 
-| mode | 0 | 5 | 100 | 200 |
-| --- | --- | --- | --- | --- |
-| **Whole Picture** | seluruh video masuk — **titik awalnya** | — | isi penuh, sisi terpotong | diperbesar lagi |
-| **Center of the Picture** | tidak sah → jatuh ke titik awal | potongan mengecil di tengah | isi penuh — **titik awalnya** | punch-in |
+| mode | titik awal | arah yang tersedia | berhenti di |
+| --- | --- | --- | --- |
+| **Whole Picture** | 0 — seluruh video masuk | hanya NAIK | 100 = isi penuh |
+| **Center of the Picture** | 100 — isi penuh | hanya TURUN | 5 = potongan mengecil |
 
-Yang sama di kedua mode: **naik = makin diperbesar**. Yang berbeda hanya dari
-mana hitungannya dimulai.
+Tiap mode mulai di ujung yang berlawanan, jadi masing-masing hanya punya SATU
+arah yang masuk akal. Keduanya berhenti di 100: di situ gambar sudah memenuhi
+bingkai, dan memperbesarnya lagi tidak menambah apa pun selain memotong lebih
+banyak. Zoom 100 di WP menghasilkan gambar yang sama dengan COTP 100 — itu
+konsekuensi geometri, bukan aturan yang ditulis di kode.
 
 Di Whole Picture, menggeser dari 0 memang MEMOTONG sisi videonya. Itu bukan bug
 melainkan yang diminta: mode ini memberi titik awal "semuanya masuk", lalu
@@ -54,8 +57,15 @@ Fitur ini dibongkar-pasang empat kali sebelum kembali benar:
 2. Saya kira yang hilang tampilan lain, lalu menambah sumbu kedua yang tidak
    pernah diminta.
 3. Arah angkanya saya balik. Penggeser jadi terasa **tidak jalan sama sekali**.
-4. Baru di sini ketahuan: yang diminta sejak awal adalah mempertahankan ketiga
-   mode itu apa adanya, dan zoom cuma kendali besar-kecil di dalam bingkai.
+4. Saat diminta agar WP bisa membesar, saya menaikkan langit-langit zoom ke 200
+   alih-alih memindahkan titik awal WP ke 0. Itu tambalan di tempat yang salah.
+5. Setelah titik awalnya dipindah ke 0 — perbaikan yang benar — langit-langit
+   200 itu jadi sisa yang tidak dibuang, dan memunculkan "zoom 200%" yang tidak
+   pernah ada di permintaan siapa pun.
+
+Pelajaran dari nomor 4-5: begitu perbaikan yang benar masuk, tambalan dari
+tebakan sebelumnya HARUS ikut dicabut. Membiarkannya menumpuk membuat fitur
+punya perilaku yang tidak pernah diminta siapa pun.
 
 Akar semua kesalahan itu satu: saya memperlakukan `reframe` dan `zoom` sebagai
 dua cara menyatakan hal yang sama, lalu "menyederhanakannya" jadi satu sumbu.

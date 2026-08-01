@@ -230,7 +230,7 @@ Next.js (GUI web lokal)  --HTTP+SSE-->  Go (engine)  --stdin/NDJSON-->  C++ work
 | `-save` | burn \| clean \| both | bersubtitle / polos / keduanya (+ `.srt`) |
 | `-reframe` | center \| fit \| face_follow | Center of the Picture / Whole Picture (tanpa crop) / Follow Face |
 | `-background` | blur \| black | isi ruang kosong saat `-zoom` di bawah 100 |
-| `-zoom` | langkah 5, batasnya ikut mode | **fit**: 0 = seluruh video masuk → naik = membesar & terpotong, 100 = isi penuh. **center**: 100 = isi penuh, 5 = mengecil, 200 = punch-in. Default = titik awal modenya. |
+| `-zoom` | langkah 5, berhenti di 100 | **fit**: mulai 0 (seluruh video masuk), hanya bisa naik sampai 100 = isi penuh. **center**: mulai 100 (isi penuh), hanya bisa turun sampai 5. Default = titik awal modenya. |
 | `-resolution` | 720p\|1080p\|1440p | resolusi keluaran |
 | `-quality` | draft\|hd\|max | kecepatan vs ketajaman |
 | `-fps` | 0\|24\|30\|60 | 0 = ikut sumber |

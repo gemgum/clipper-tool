@@ -59,13 +59,14 @@ Usage:
                  face_follow Follow Face (not available yet)
   -background  blur|black — fills the space the video cannot reach. This is what
                "fit" exists for; it also shows up when -zoom is below 100.
-  -zoom        in steps of 5, read relative to the starting point of -reframe:
-                 fit     0 = the whole video fits (this mode's starting point)
-                       100 = the video fills the frame, sides cropped
-                       200 = twice as large again
-                 center  5 = the centre crop shrinks inside the frame
-                       100 = the centre crop fills the frame (starting point)
-                       200 = punch-in, still filling the frame
+  -zoom        in steps of 5, read relative to the starting point of -reframe.
+               Both modes stop at 100, where the picture already fills the frame:
+                 fit     0 = the whole video fits — the starting point, and the
+                             only direction is up (sides get cropped as it grows)
+                       100 = the video fills the frame
+                 center 100 = the centre crop fills the frame — the starting
+                             point, and the only direction is down
+                         5 = the centre crop shrinks inside the frame
                Defaults to the starting point of the mode you chose.
   -style       plain|viral (default plain)
   -sub-mode    normal|karaoke|word — subtitle style (default normal)

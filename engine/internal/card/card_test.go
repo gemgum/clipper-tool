@@ -104,3 +104,64 @@ func TestPhrasesFollowLanguage(t *testing.T) {
 		t.Errorf("langAttr(zz) = %q, mau en", got)
 	}
 }
+
+// Inti perbaikan: paragraf sepanjang apa pun harus tetap muat. Dulu ukurannya
+// tangga dan anak tangga teratasnya terbuka, jadi paragraf panjang tumpah keluar
+// kartu — dan panjang paragraf datang dari artikel orang lain, tidak bisa
+// dipesan.
+func TestLongParagraphsShrinkInsteadOfOverflowing(t *testing.T) {
+	for chars := 40; chars <= 2000; chars += 20 {
+		size := heroSizeFor(chars, true, false)
+		if size < heroMin || size > heroMax {
+			t.Fatalf("%d huruf: ukuran %d di luar batas %d-%d", chars, size, heroMin, heroMax)
+		}
+		// Di ukuran terkecil pun teks bisa tidak muat; itu batas yang disengaja
+		// (lihat heroMin), jadi yang diuji hanya selama belum menyentuhnya.
+		if size > heroMin {
+			if h := heroHeight(chars, size); h > heroRoomWithPhoto {
+				t.Errorf("%d huruf pada %d px: tinggi %.0f px, ruang hanya %d px",
+					chars, size, h, heroRoomWithPhoto)
+			}
+		}
+	}
+}
+
+// Teks yang panjangnya bertambah tidak boleh membesar hurufnya. Kalau urutannya
+// bisa naik-turun, dua kartu berdampingan terlihat tidak sengaja dirancang.
+func TestHeroSizeNeverGrowsWithLongerText(t *testing.T) {
+	prev := heroSizeFor(1, true, false)
+	for chars := 2; chars <= 2000; chars++ {
+		size := heroSizeFor(chars, true, false)
+		if size > prev {
+			t.Fatalf("%d huruf: ukuran naik dari %d ke %d", chars, prev, size)
+		}
+		prev = size
+	}
+}
+
+// Kartu yang selama ini sudah muat harus tetap terlihat sama. Perbaikan ini
+// hanya boleh menyentuh teks yang dulu tumpah — bukan mendesain ulang kartu
+// yang sudah benar.
+func TestShortTextKeepsTheSizeItAlwaysHad(t *testing.T) {
+	// Tangga lama: <=110 → 62, <=170 → 56, <=240 → 50, <=320 → 44.
+	for _, c := range []struct{ chars, was int }{
+		{80, 62}, {110, 62}, {170, 56}, {240, 50}, {320, 44},
+	} {
+		if got := heroSizeFor(c.chars, true, false); got < c.was-6 || got > c.was+6 {
+			t.Errorf("%d huruf = %d px, dulu %d px — selisihnya terlalu jauh", c.chars, got, c.was)
+		}
+	}
+}
+
+// Kartu kutipan tidak berfoto, jadi ruangnya jauh lebih lega dan hurufnya boleh
+// lebih besar — itu memang yang membedakannya.
+func TestQuoteCardsUseTheRoomTheyHave(t *testing.T) {
+	withPhoto := heroSizeFor(400, true, false)
+	quote := heroSizeFor(400, false, true)
+	if quote <= withPhoto {
+		t.Errorf("kartu kutipan %d px, kartu berfoto %d px — seharusnya lebih besar", quote, withPhoto)
+	}
+	if quote > heroQuoteMax {
+		t.Errorf("kartu kutipan %d px melewati batas %d px", quote, heroQuoteMax)
+	}
+}

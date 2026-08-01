@@ -61,11 +61,10 @@ const en = {
   fpsTip: "Motion smoothness, not sharpness",
   fpsSource: "Match source",
 
-  groupFrame: "9:16 frame",
   fitMode: "How the video fits",
   fitModeTip: "How the video is placed into the upright 9:16 frame",
   fitCenter: "Center of the Picture — crop to fill",
-  fitWhole: "Whole Picture — no crop",
+  fitWhole: "Whole Picture — starts with the whole video",
   fitFace: "Follow Face — not available yet",
   fitWholeNote:
     "The entire video resolution is used, so nothing is cropped at all. That is why the background exists: it fills the space the video cannot reach.",
@@ -75,15 +74,14 @@ const en = {
   zoomEndWhole: "0% · whole video",
   zoomEndSmall: "5% · small",
   zoomEndFull: "100% · fills frame",
-  zoomEndBig: "200% · zoomed in",
-  fitWholeCropWarn:
-    "⚠ Above 0% the video is enlarged, so its sides are cropped — it is no longer the whole picture.",
+  fitWholeCropNote:
+    "The video is enlarged from its fitting size, so its sides are cropped. That is what this slider is for.",
+  zoomFullNote:
+    "At 100% the picture fills the whole frame, so the background is not used.",
   background: "Background",
   backgroundTip: "Used when the video does not cover the whole frame",
   backgroundBlur: "Blurred from the video",
   backgroundBlack: "Solid black",
-  backgroundNoEffect:
-    "Center of the Picture at 100% covers the whole frame, so the background is never visible.",
 
   groupClips: "Clip output",
   clipDuration: "Clip length",
@@ -139,8 +137,9 @@ const en = {
   noModelsInstalled: " — no models are installed at all.",
 
   // --- subtitle settings ---
-  subtitleSettings:
-    "Subtitle settings — drag the text on the preview to position it",
+  clipAppearance:
+    "How the clip looks — drag the subtitle on the preview to position it",
+  groupVideoInFrame: "Video inside the 9:16 frame",
   emptyFrame: "Empty frame",
   loadPreview: "👁 Load a preview frame",
   loadingPreview: "Loading preview…",
@@ -193,9 +192,13 @@ const en = {
   platformGeneric: "Generic (safest)",
   placeSafe: "⤓ Place in the safe area",
   unsafeWarning: "⚠ The subtitle sits in the area covered by {platform}'s UI",
-  sampleSubtitle: "Sample subtitle",
   sampleWord: "Sample",
-  sampleWordTail: "subtitle",
+  // Contoh subtitle: sebanyak baris terbanyak yang bisa muncul sekaligus.
+  // Panjangnya dijaga <= 19 karakter — batas satu baris di engine pada ukuran
+  // font bawaan sekitar 22, dan baris contoh tidak boleh melipat sendiri.
+  sampleLine1: "This is how your",
+  sampleLine2: "subtitle will look",
+  sampleLine3: "at this pacing",
 
   // --- run + results ---
   modelMissingWarn: "Model {model} has not been downloaded. Run",
@@ -374,11 +377,10 @@ const id: Record<MessageKey, string> = {
   fpsTip: "Kehalusan gerak, bukan ketajaman",
   fpsSource: "Ikut sumber",
 
-  groupFrame: "Bingkai 9:16",
   fitMode: "Cara video dipasang",
   fitModeTip: "Cara video dimasukkan ke bingkai tegak 9:16",
   fitCenter: "Center of the Picture — potong tengah",
-  fitWhole: "Whole Picture — tanpa crop",
+  fitWhole: "Whole Picture — mulai dari video utuh",
   fitFace: "Follow Face — belum tersedia",
   fitWholeNote:
     "Seluruh resolusi video dipakai, jadi tidak ada yang terpotong sama sekali. Itulah alasan latar ada: ia mengisi ruang yang tidak terjangkau videonya.",
@@ -388,15 +390,14 @@ const id: Record<MessageKey, string> = {
   zoomEndWhole: "0% · video utuh",
   zoomEndSmall: "5% · kecil",
   zoomEndFull: "100% · isi penuh",
-  zoomEndBig: "200% · diperbesar",
-  fitWholeCropWarn:
-    "⚠ Di atas 0% video diperbesar, jadi sisinya mulai terpotong — tidak lagi gambar utuh.",
+  fitWholeCropNote:
+    "Video diperbesar dari ukuran pas-nya, jadi sisinya terpotong. Memang itu gunanya penggeser ini.",
+  zoomFullNote:
+    "Pada 100% gambar memenuhi seluruh bingkai, jadi latar tidak dipakai.",
   background: "Latar",
   backgroundTip: "Dipakai saat video tidak menutupi seluruh bingkai",
   backgroundBlur: "Blur dari videonya",
   backgroundBlack: "Hitam polos",
-  backgroundNoEffect:
-    "Center of the Picture pada 100% menutupi seluruh bingkai, jadi latar tidak akan terlihat.",
 
   groupClips: "Hasil klip",
   clipDuration: "Durasi klip",
@@ -450,8 +451,9 @@ const id: Record<MessageKey, string> = {
   downloadSelected: "⬇ unduh model terpilih",
   noModelsInstalled: " — belum ada model terpasang sama sekali.",
 
-  subtitleSettings:
-    "Setelan subtitle — geser teks di preview untuk atur posisi",
+  clipAppearance:
+    "Tampilan klip — geser subtitle di preview untuk atur posisi",
+  groupVideoInFrame: "Video di dalam bingkai 9:16",
   emptyFrame: "Bingkai kosong",
   loadPreview: "👁 Muat preview frame",
   loadingPreview: "Memuat preview…",
@@ -503,9 +505,10 @@ const id: Record<MessageKey, string> = {
   platformGeneric: "Umum (paling aman)",
   placeSafe: "⤓ Taruh di area aman",
   unsafeWarning: "⚠ Subtitle masuk area yang tertutup UI {platform}",
-  sampleSubtitle: "Contoh subtitle",
   sampleWord: "Contoh",
-  sampleWordTail: "subtitle",
+  sampleLine1: "Beginilah tampilan",
+  sampleLine2: "subtitle Anda nanti",
+  sampleLine3: "pada kecepatan ini",
 
   modelMissingWarn: "Model {model} belum diunduh. Jalankan",
   modelMissingWarnTail: "lalu muat ulang.",
