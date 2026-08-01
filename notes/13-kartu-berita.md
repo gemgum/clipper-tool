@@ -316,27 +316,137 @@ Catatan yang mengejutkan: kartu kumparan keluar toska karena bilah merek
 kumparan menyatu di dalam og:image-nya, dan bilah itu memang bidang warna
 terbesar di foto. Kebetulan hasilnya sama dengan `theme-color` mereka.
 
-## Ukuran huruf guntingan: dihitung, bukan tangga
+## Ukuran huruf paragraf: tangga lama, anak tangga teratas ditutup
 
-Dulu ini tangga berdasarkan jumlah huruf, dan anak tangga teratasnya terbuka
-(>320 huruf → 38 px, tanpa batas). Paragraf yang lebih panjang tumpah keluar
-kartu — dan panjang paragraf datang dari artikel orang lain, tidak bisa dipesan.
+Tangganya (≤110 → 62, ≤170 → 56, ≤240 → 50, ≤320 → 44, selebihnya 38) hasil
+percobaan sejak kartu ini lahir dan memang enak dilihat. Yang salah cuma satu:
+anak tangga teratas **terbuka** — di atas 320 huruf ukurannya berhenti mengecil,
+jadi paragraf jauh lebih panjang tumpah keluar kartu.
 
 Luapan itu lama tersembunyi karena pita bawah 15% memendekkan foto dan
 meminjamkan ruangnya ke teks. Begitu pita dicabut dan kanvas kembali penuh,
-paragraf 520 huruf langsung menabrak tepi bawah.
+paragraf 511 huruf langsung menabrak tepi bawah.
 
-Sekarang ukurannya dicari: tinggi teks tumbuh mengikuti **kuadrat** ukuran huruf
-(huruf lebih besar = tiap baris lebih tinggi DAN barisnya lebih banyak), jadi
-tebakan awal diambil dengan akar, lalu diturunkan sampai benar-benar muat —
-pembulatan ke baris utuh bisa membuat rumus tertutupnya meleset satu baris.
+**Seluruh tangga sempat saya ganti dengan rumus, dan itu keliru.** Rumusnya
+membesarkan paragraf 120 huruf dari 56 ke 62 px — lebih besar daripada yang
+pernah diminta siapa pun, dan merusak jaraknya terhadap judul yang tetap 38 px.
+Pengguna yang menemukannya, bukan tes saya: tes "ukuran lama dipertahankan"
+waktu itu memakai toleransi ±6 px, persis sebesar selisih terburuknya. Toleransi
+di tes yang menjaga regresi harus lebih ketat dari regresi yang mungkin terjadi;
+kalau tidak, tesnya cuma hiasan. Sekarang perbandingannya sama persis.
 
-Angkanya diukur dari render sungguhan, bukan ditebak: paragraf 520 huruf pada
-ukuran 38 px jatuh tepat 15 baris di guntingan selebar 824 px. Kartu yang selama
-ini sudah muat tetap terlihat sama (`TestShortTextKeepsTheSizeItAlwaysHad`);
-yang berubah hanya teks yang dulu tumpah.
+Jadi penghitungan hanya bekerja **di atas anak tangga teratas**. Di bawahnya
+tangga yang menang.
+
+### Ruang yang tersedia: diukur, bukan dijumlahkan
+
+Angka ruang pertama (550 px) saya jumlahkan dari padding, tinggi foto, stempel,
+dan kaki kartu. Terlalu kecil, karena blok isi boleh **tumbuh ke atas menutupi
+bagian bawah foto** — itu tidak terlihat dari angka padding mana pun. Akibatnya
+kartu yang sebenarnya baik-baik saja ikut dikecilkan.
+
+Diukur ulang dengan mematikan pengecilan lalu memeriksa apakah kertas guntingan
+menyentuh tepi bawah kanvas:
+
+| paragraf | ukuran | taksiran tinggi | hasil render |
+| --- | --- | --- | --- |
+| 320 huruf | 44 px | 649 px | muat |
+| 460 huruf | 38 px | 713 px | muat |
+| 500 huruf | 38 px | 764 px | **terpotong** |
+
+`heroRoomWithPhoto = 720` diambil di antara 713 dan 764, condong ke sisi aman.
+Kontrolnya: paragraf asli 511 huruf (taksiran 764) memang terpotong — cocok.
+
+## Ukuran huruf bisa disetel, dalam LANGKAH bukan piksel
+
+Judul dan paragraf punya kendalinya sendiri, masing-masing −2…+2 langkah (10%
+per langkah) dari ukuran standar. Angka piksel bebas sengaja tidak dipakai: ia
+membuang tangga, pengecilan otomatis, dan penskalaan rasio sekaligus, lalu
+memaksa pengguna menyetel ulang tiap kartu. Dengan langkah relatif, standar
+selalu jadi titik nol yang bisa dikembalikan.
+
+Urutannya penting: **tangga → langkah pengguna → pengecilan agar muat**.
+Membalik urutannya berarti pilihan pengguna dimakan lebih dulu oleh penyesuaian
+yang sebetulnya tidak perlu. Dan pengecilan tetap berlaku terakhir, jadi
+memperbesar paragraf panjang tidak bisa mendorongnya keluar kartu.
+
+±20% dipilih sebagai batas karena lebih dari itu judul mulai bersaing dengan
+paragraf. Hierarki kartu ini dibalik dengan sengaja — paragraf yang jadi
+bintang, judul turun pangkat jadi keterangan — dan itu dijaga tes
+(`TestTitleStaysSmallerThanTheParagraph`).
+
+## Kartu jadi bisa disetel — dan pagar yang menjaganya
+
+Lima kendali ditambahkan sekaligus. Yang menyatukan rancangannya satu kalimat:
+**otomatis tetap jadi bawaan, manual hanya menimpa.** Tanpa itu, dua sistem
+berebut mengatur hal yang sama dan pengguna kehilangan jaminan yang sudah ada.
+
+### Foto utuh: titik awal, bukan langit-langit
+
+`clampZoom` batas bawahnya 1 — artinya titik awalnya "penuhi bingkai", persis
+*Center of the Picture* di tab klip. Mode `whole` memindahkan titik awal itu ke
+"seluruh gambar asli masuk". Bukan menaikkan batas atas: pelajaran nomor 4-5 di
+`notes/15-sumbu-zoom.md` dibayar mahal sekali, tidak perlu diulang.
+
+Gambar artikel landscape (mis. 640x336) di bingkai 1080x960 menyisakan ±393 px
+kosong. Isiannya salinan buram fotonya sendiri, bukan warna polos, supaya
+bingkai tetap terbaca sebagai satu gambar.
+
+Isian itu **tidak boleh** memakai `z-index:-1`. `.photo` tidak membuat konteks
+penumpukan, jadi anak ber-z-index negatif jatuh ke belakang latar induknya dan
+isiannya hilang sama sekali — sempat terjadi. Yang menentukan urutan HTML-nya:
+isian ditulis sebelum gambar utama.
+
+### Geseran blok: dibuat, lalu DICABUT
+
+Judul, paragraf, dan kaki kartu sempat diberi penggeser sendiri-sendiri. Itu
+salah baca dari saya: pengguna sudah mengganti permintaan itu ("**daripada
+dibuat bergeser** kita buat batas header dan footer bisa diatur"), penggantinya
+belum diputuskan, dan saya menghidupkan lagi versi yang sudah dicabut.
+
+Alasan mengapa itu memang tidak diinginkan, terlepas dari salah bacanya: ketiga
+blok itu **satu kesatuan**. Judul menjelaskan kutipan, kutipan membawa
+stempelnya, kaki kartu menutup. Memberi masing-masing penggeser membuat mereka
+bisa saling tumpang tindih, dan yang didapat pengguna bukan tata letak lain
+melainkan kartu rusak.
+
+Yang menggantikannya: **ukuran huruf**, bukan posisi. Itu menjawab kebutuhan
+aslinya ("supaya ketiganya pas") tanpa memecah kesatuannya.
+
+### Satu warna menyetel semuanya
+
+Warna pilihan pengguna lewat `toneOfHex` → `paletteFor`, jalur yang sama persis
+dengan warna dari foto. Jadi "sesuaikan seluruh warna dari satu warna" bukan
+fitur terpisah, melainkan pintu masuk kedua ke mesin yang sudah ada. Pagar
+keterbacaannya ikut berlaku otomatis.
+
+Warna pilihan yang kelabu jatuh ke palet bawaan, sama seperti foto hitam putih —
+bukan dipaksa jadi rona yang sebetulnya tidak ada.
+
+Kotak paragraf bisa dihilangkan (`box: none`). Teksnya lalu memakai bayangan
+sebagai pengganti kertas; tanpa itu, menghilangkan kotak = kartu yang tidak
+terbaca di atas foto ramai.
+
+### Pratinjau: satu folder yang menimpa dirinya sendiri
+
+Menyetel kartu itu pekerjaan puluhan percobaan, dan tiap percobaan dulu
+meninggalkan satu folder permanen — terukur **27 folder / 24 MB dalam sehari**.
+Pratinjau memakai id tetap `card-preview` dan melewati berkas pendamping;
+caption & keterangan sumber baru ditulis saat kartunya benar-benar disimpan.
+
+Alamat pratinjau WAJIB membawa penanda waktu. Id-nya selalu sama, jadi tanpa itu
+browser menampilkan gambar lama dari cache dan penyetelan terlihat tidak
+berpengaruh sama sekali.
+
+Kartu tersimpan disapu sampai tersisa 50 terbaru (`keepCards`). Fungsi ini
+menghapus folder secara rekursif, jadi ia diuji tersendiri: pratinjau tidak ikut
+tersapu, dan apa pun yang bukan folder kartu tidak disentuh.
 
 ### Yang BELUM dijaga
+
+Tanpa kotak paragraf, lebar barisnya jadi 952 px sementara `heroSizeFor` masih
+menghitung dengan 824 px. Ukurannya karena itu sedikit lebih kecil dari
+seharusnya — melesetnya ke arah aman (tetap muat), jadi dibiarkan.
 
 Paragraf tidak dibatasi panjangnya di hulu — `parseParagraphs` hanya punya batas
 minimum kata. Ukuran huruf berhenti mengecil di 22 px karena di bawah itu tidak

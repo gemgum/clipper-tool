@@ -322,6 +322,39 @@ const en = {
   alignJustify: "Justified",
   justifyNote:
     "Justified text stretches the gaps between words. On a large heading with only a few words per line the gaps can look wide.",
+  photoFit: "How the photo fits",
+  photoFitCover: "Fill the frame — sides cropped",
+  photoFitWhole: "Whole photo — nothing cropped",
+  photoFill: "Fill the leftover space with",
+  photoFillBlur: "A blurred copy of the photo",
+  photoFillSolid: "The card background colour",
+
+  cardColour: "Card colour",
+  cardColourHint: "— sets the background, the paper and the supporting text at once",
+  colourFromPhoto: "Take it from the photo",
+  colourCustom: "Choose it myself",
+  colourFromPhotoNote:
+    "The hue comes from the article photo. Brightness stays fixed so the text is always readable.",
+  cardBoxBackground: "Paragraph box",
+  boxAuto: "Paper, matching the card colour",
+  boxNone: "No box — text sits on the photo",
+  boxCustom: "Paper, my own colour",
+  boxNoneNote:
+    "Without the box the text gets a shadow instead. On a busy photo it is still harder to read.",
+
+
+  fontSizes: "Font sizes",
+  fontTitle: "Article title",
+  fontParagraph: "Paragraph",
+  fontStandard: "standard",
+  fontStepsNote:
+    "Steps away from the standard template — 0 is the standard. A long paragraph still shrinks on its own so it cannot run off the card.",
+  fontReset: "Back to standard",
+  previewEmpty: "No preview yet — press Preview.",
+  previewCard: "👁 Preview",
+  previewResult: "Preview",
+  previewNotSaved:
+    "Preview only — nothing has been saved yet. Press “Create card” to keep this one.",
   buildCard: "Create card",
   rendering: "Rendering…",
   result: "Result",
@@ -629,6 +662,39 @@ const id: Record<MessageKey, string> = {
   alignJustify: "Kiri-kanan (justify)",
   justifyNote:
     "Rata kiri-kanan merenggangkan jarak antar kata. Pada judul besar yang cuma beberapa kata per baris, celahnya bisa terlihat lebar.",
+  photoFit: "Cara foto dipasang",
+  photoFitCover: "Penuhi bingkai — sisinya terpotong",
+  photoFitWhole: "Foto utuh — tidak ada yang terpotong",
+  photoFill: "Ruang sisanya diisi",
+  photoFillBlur: "Salinan buram fotonya",
+  photoFillSolid: "Warna latar kartu",
+
+  cardColour: "Warna kartu",
+  cardColourHint: "— menyetel latar, kertas, dan teks pendukung sekaligus",
+  colourFromPhoto: "Ambil dari fotonya",
+  colourCustom: "Saya tentukan sendiri",
+  colourFromPhotoNote:
+    "Ronanya diambil dari foto artikel. Terangnya tetap dikunci supaya teks selalu terbaca.",
+  cardBoxBackground: "Kotak paragraf",
+  boxAuto: "Kertas, mengikuti warna kartu",
+  boxNone: "Tanpa kotak — teks langsung di atas foto",
+  boxCustom: "Kertas, warna saya sendiri",
+  boxNoneNote:
+    "Tanpa kotak, teks diberi bayangan sebagai gantinya. Di foto yang ramai tetap lebih sulit dibaca.",
+
+
+  fontSizes: "Ukuran huruf",
+  fontTitle: "Judul artikel",
+  fontParagraph: "Paragraf",
+  fontStandard: "standar",
+  fontStepsNote:
+    "Langkah dari template standar — 0 berarti standar. Paragraf panjang tetap mengecil sendiri supaya tidak keluar kartu.",
+  fontReset: "Kembali ke standar",
+  previewEmpty: "Belum ada pratinjau — tekan Pratinjau.",
+  previewCard: "👁 Pratinjau",
+  previewResult: "Pratinjau",
+  previewNotSaved:
+    "Baru pratinjau — belum ada yang disimpan. Tekan “Buat kartu” untuk menyimpannya.",
   buildCard: "Buat kartu",
   rendering: "Merender…",
   result: "Hasil",

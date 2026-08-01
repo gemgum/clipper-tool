@@ -361,6 +361,16 @@ label em { font-style: normal; opacity: 0.7; }
   container-type: inline-size; /* memberi arti pada satuan cqw di transform */
 }
 .photo-box:active { cursor: grabbing; }
+/* Cerminan .photo .fill di engine/internal/card/card.go — isian ruang yang tidak
+   terjangkau gambar pada mode "foto utuh".
+   Radius blur-nya SEBANDING, bukan sama: kartu dirender selebar 1080 px dengan
+   blur 48 px, kotak ini lebarnya ±380 px, jadi 48 x 380/1080 ≈ 16. Menyalin 48
+   apa adanya akan membuat pratinjau jauh lebih buram dari hasilnya. */
+.photo-box img.photo-fill {
+  object-fit: cover;
+  transform: translate(-50%, -50%) scale(1.1);
+  filter: blur(16px) saturate(1.25) brightness(0.8);
+}
 /* Harus sama persis dengan .foto img di engine/internal/card/card.go.
    object-fit:cover dipakai supaya penskalaan tidak bergantung ukuran asli
    gambar — itulah yang dulu membuat pratinjau tidak cocok dengan hasil render. */
@@ -620,3 +630,38 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   border-color: var(--accent);
   background: rgba(79, 140, 255, 0.12);
 }
+
+/* Panggung kartu: pratinjau di kiri, kendali ukuran huruf di kanan, tombol di
+   bawah keduanya. Keduanya saling menjawab — menyetel dan melihat hasilnya
+   tidak perlu berpindah tempat. */
+.card-stage {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin: 6px 0 14px;
+}
+.card-stage-view {
+  flex: 1;
+  min-width: 200px;
+  max-width: 300px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Bingkainya selalu 9:16 walau belum ada gambar, supaya panel tidak melompat
+     tingginya begitu pratinjau pertama muncul. */
+  aspect-ratio: 9 / 16;
+  padding: 12px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #000;
+}
+.card-stage-view img {
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
+  border-radius: 6px;
+}
+.card-stage-tools { flex: 2; min-width: 220px; }
+.card-stage-tools > label { display: block; margin-bottom: 10px; }

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -94,6 +95,11 @@ func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
 		"styles":      []string{card.StyleDark, card.StyleLight, card.StyleQuote},
 		"ratios":      []string{card.Ratio916, card.Ratio45, card.Ratio11},
 		"aligns":      []string{card.AlignLeft, card.AlignCenter, card.AlignRight, card.AlignJustify},
+		"photo_fits":  []string{card.FitCover, card.FitWhole},
+		"photo_fills": []string{card.FillBlur, card.FillSolid},
+		// Banyaknya langkah ukuran huruf ke tiap arah. Dikirim dari sini supaya
+		// GUI tidak menyalin angkanya — satu tempat, satu kebenaran.
+		"font_steps": card.FontSteps,
 	})
 }
 
@@ -275,16 +281,28 @@ func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 503, "browser not found — install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
 		return
 	}
-	var req card.Request
+	var req struct {
+		card.Request
+		// Pratinjau menimpa satu folder tetap dan melewati berkas pendamping.
+		// Menyetel kartu itu pekerjaan puluhan percobaan; tanpa ini tiap
+		// percobaan meninggalkan satu folder permanen.
+		Preview bool `json:"preview"`
+	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, 400, "invalid JSON body: "+err.Error())
 		return
 	}
 	req.Lang = firstNonEmpty(req.Lang, lang(r))
-	id := fmt.Sprintf("card-%d", time.Now().UnixNano())
-	if err := s.cards.Build(r.Context(), req, s.cardDir(id)); err != nil {
+	id := previewID
+	if !req.Preview {
+		id = fmt.Sprintf("card-%d", time.Now().UnixNano())
+	}
+	if err := s.cards.Build(r.Context(), req.Request, s.cardDir(id), req.Preview); err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	if !req.Preview {
+		s.sweepCards()
 	}
 	width, height := card.Dims(req.Ratio)
 	writeJSON(w, 201, map[string]any{
@@ -355,7 +373,53 @@ func (s *Server) cardZip(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-var cardIDPattern = regexp.MustCompile(`^card-[0-9]{1,25}$`)
+// Pratinjau memakai satu id tetap dan menimpa dirinya sendiri, jadi menyetel
+// kartu berkali-kali tidak meninggalkan satu folder per percobaan.
+const previewID = "card-preview"
+
+var cardIDPattern = regexp.MustCompile(`^card-(preview|[0-9]{1,25})$`)
+
+// keepCards = berapa kartu tersimpan yang dipertahankan.
+//
+// Diukur dari pemakaian sehari: 27 folder / 24 MB dalam satu hari mencoba-coba.
+// Tanpa batas, folder data tumbuh selamanya untuk kartu yang sudah lama diunduh
+// dan tidak akan dibuka lagi. Pratinjau tidak ikut dihitung — ia hanya satu
+// folder yang menimpa dirinya sendiri.
+const keepCards = 50
+
+// sweepCards membuang kartu terlama sampai tersisa keepCards.
+//
+// Kegagalannya sengaja diabaikan: gagal membersihkan bukan alasan untuk
+// menggagalkan kartu yang barusan berhasil dibuat.
+func (s *Server) sweepCards() {
+	dir := filepath.Join(s.root, "data", "cards")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type aged struct {
+		name string
+		mod  time.Time
+	}
+	var cards []aged
+	for _, e := range entries {
+		if !e.IsDir() || e.Name() == previewID || !cardIDPattern.MatchString(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		cards = append(cards, aged{e.Name(), info.ModTime()})
+	}
+	if len(cards) <= keepCards {
+		return
+	}
+	sort.Slice(cards, func(i, j int) bool { return cards[i].mod.After(cards[j].mod) })
+	for _, c := range cards[keepCards:] {
+		os.RemoveAll(filepath.Join(dir, c.name))
+	}
+}
 
 // jsonHasKey melaporkan apakah body memuat objek "parent" yang berisi "key".
 //

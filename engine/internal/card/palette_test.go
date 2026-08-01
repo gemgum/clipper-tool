@@ -234,3 +234,46 @@ func TestAColourFamilyBeatsANarrowSpike(t *testing.T) {
 		t.Errorf("rona = %.0f derajat, mau keluarga hangat (0-60) bukan bilah toska", got.hue)
 	}
 }
+
+// Warna manual harus melewati jalur yang sama persis dengan warna dari foto.
+// Kalau tidak, "sesuaikan seluruh warna dari satu warna" jadi janji kosong:
+// yang berubah cuma satu bidang, sisanya tetap warna lama.
+func TestCustomColourDrivesTheWholePalette(t *testing.T) {
+	fromHex := paletteFor(toneOfHex("#1E6FD9"), true) // biru
+	fromDefault := paletteFor(tone{}, true)
+	if fromHex.Ink == fromDefault.Ink {
+		t.Error("latar tidak ikut warna pilihan")
+	}
+	if fromHex.Paper == fromDefault.Paper {
+		t.Error("kertas tidak ikut warna pilihan")
+	}
+	if fromHex.Muted == fromDefault.Muted || fromHex.Faint == fromDefault.Faint {
+		t.Error("teks pendukung tidak ikut warna pilihan")
+	}
+	// Dan tetap terbaca — pagar yang sama berlaku untuk warna pilihan sendiri.
+	if c := contrast(fromHex.Paper, "#1A1714"); c < 7 {
+		t.Errorf("kontras teks di kertas %.1f, mau >=7", c)
+	}
+}
+
+func TestParseHexAcceptsOnlyFullSixDigits(t *testing.T) {
+	for _, in := range []string{"#1E6FD9", "1e6fd9", "  #1E6FD9  "} {
+		if got, ok := parseHex(in); !ok || got != "#1E6FD9" {
+			t.Errorf("parseHex(%q) = %q,%v — mau #1E6FD9,true", in, got, ok)
+		}
+	}
+	// Tiga digit ditolak, bukan ditebak: pengguna lebih baik tahu sekarang.
+	for _, in := range []string{"", "#abc", "#12345", "#1234567", "#GGGGGG", "auto", "none"} {
+		if _, ok := parseHex(in); ok {
+			t.Errorf("parseHex(%q) seharusnya ditolak", in)
+		}
+	}
+}
+
+// Warna pilihan yang kelabu diperlakukan sama dengan foto kelabu: jatuh ke palet
+// bawaan, bukan dipaksa jadi rona yang sebetulnya tidak ada.
+func TestGreyCustomColourFallsBack(t *testing.T) {
+	if got := toneOfHex("#808080"); got.ok {
+		t.Errorf("abu-abu menghasilkan rona %.0f, mau jatuh ke bawaan", got.hue)
+	}
+}

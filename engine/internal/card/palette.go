@@ -10,6 +10,8 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 // Warna kartu diturunkan dari FOTO artikelnya, bukan dari warna situs asalnya.
@@ -100,6 +102,43 @@ func paletteFor(t tone, dark bool) palette {
 	p.InkRGB = rgbList(h, between(t.sat, 0.12, 0.32), 0.094)
 	p.LightBgRGB = rgbList(h, between(t.sat*0.30, 0.06, 0.18), 0.830)
 	return p
+}
+
+// parseHex membaca "#RRGGBB" (atau "RRGGBB") jadi bentuk baku bertanda pagar.
+//
+// Hanya enam digit yang diterima. Bentuk singkat tiga digit sengaja ditolak
+// daripada ditebak: pengguna yang mengetik separuh warna lebih baik tahu
+// sekarang daripada menemukannya di kartu yang sudah terbit.
+func parseHex(s string) (string, bool) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "#"))
+	if len(s) != 6 {
+		return "", false
+	}
+	n, err := strconv.ParseUint(s, 16, 32)
+	if err != nil {
+		return "", false
+	}
+	return fmt.Sprintf("#%06X", n), true
+}
+
+// toneOfHex menurunkan rona dari satu warna pilihan pengguna, supaya warna
+// manual melewati jalur yang sama persis dengan warna dari foto. Satu warna
+// karenanya cukup untuk menyetel latar, kertas, dan teks pendukung sekaligus.
+//
+// Warna kelabu (kepekatan di bawah ambang yang sama dengan foto) diperlakukan
+// sama juga: jatuh ke palet bawaan, bukan dipaksa jadi rona yang tidak ada.
+func toneOfHex(s string) tone {
+	h, ok := parseHex(s)
+	if !ok {
+		return tone{}
+	}
+	n, _ := strconv.ParseUint(h[1:], 16, 32)
+	r, g, b := float64((n>>16)&0xFF)/255, float64((n>>8)&0xFF)/255, float64(n&0xFF)/255
+	hue, sat, _ := toHSL(r, g, b)
+	if sat < 0.18 {
+		return tone{}
+	}
+	return tone{hue: hue, sat: sat, ok: true}
 }
 
 // toneOf membaca rona khas sebuah foto.

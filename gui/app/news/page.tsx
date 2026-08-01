@@ -13,6 +13,9 @@ const CARD_HEIGHT: Record<string, number> = { "9:16": 1920, "4:5": 1350, "1:1": 
 // Harus sama dengan photoHeight di engine/internal/card/card.go — kalau berbeda,
 // kotak pratinjau tidak lagi sebangun dengan bingkai foto pada hasil render.
 const PHOTO_PERCENT: Record<string, number> = { "9:16": 50, "4:5": 50, "1:1": 48 };
+// Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
+// tiap arah dari ukuran standar.
+const FONT_STEPS = 2;
 // photoFrameHeight = tinggi bingkai foto dalam piksel kartu — cerminan rumus di
 // engine/internal/card/card.go. Kalau rumusnya berbeda, menyeret foto sejauh N
 // piksel di sini tidak lagi berarti N piksel di PNG hasil.
@@ -106,6 +109,22 @@ export default function News() {
   const [photoX, setPhotoX] = useState(0);
   const [photoY, setPhotoY] = useState(0);
   const [zoom, setZoom] = useState(1);
+  // Zoom dibaca RELATIF terhadap titik awal modenya — sumbu yang sama dengan tab
+  // klip (notes/15-sumbu-zoom.md). cover: 1 = memenuhi bingkai. whole: 1 =
+  // seluruh gambar asli masuk, berapa pun rasionya.
+  const [photoFit, setPhotoFit] = useState("cover");
+  const [photoFill, setPhotoFill] = useState("blur");
+
+  // Ukuran huruf dalam LANGKAH dari ukuran standar, bukan piksel mutlak: 0
+  // berarti template standar apa adanya, dan selalu bisa dikembalikan ke sana.
+  const [titleStep, setTitleStep] = useState(0);
+  const [paragraphStep, setParagraphStep] = useState(0);
+
+  // Warna: dari foto (bawaan) atau dari warna yang kamu tentukan sendiri.
+  const [colorSource, setColorSource] = useState("photo");
+  const [customColor, setCustomColor] = useState("#1E6FD9");
+  const [boxMode, setBoxMode] = useState("auto"); // auto | none | custom
+  const [boxColor, setBoxColor] = useState("#EFEBE1");
   const drag = useRef<{ x: number; y: number; ax: number; ay: number } | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -116,8 +135,9 @@ export default function News() {
   // itu tidak terasa seperti klik yang tidak berfungsi.
   const [copyBusy, setCopyBusy] = useState("");
 
-  const [result, setResult] = useState<{ file: string; zip: string } | null>(null);
+  const [result, setResult] = useState<{ file: string; zip: string; preview: boolean } | null>(null);
   const [buildBusy, setBuildBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -313,8 +333,13 @@ export default function News() {
     }
   }, [article.url, engine, claudeModel, ollamaModel, lang, applyToCard, applyToCaption, t]);
 
-  const buildCard = useCallback(async () => {
-    setBuildBusy(true);
+  // buildCard dipakai untuk pratinjau maupun simpan — bedanya cuma satu flag.
+  //
+  // Pratinjau menimpa satu folder tetap di engine, jadi menyetel kartu berpuluh
+  // kali tidak meninggalkan berpuluh folder. Berkas pendamping (caption &
+  // keterangan sumber) baru ditulis saat benar-benar disimpan.
+  const buildCard = useCallback(async (preview: boolean) => {
+    if (preview) setPreviewBusy(true); else setBuildBusy(true);
     setError("");
     try {
       const res = await fetch(`${ENGINE}/api/card`, {
@@ -326,20 +351,37 @@ export default function News() {
           ratio,
           align,
           lang,
+          preview,
           caption,
           hashtags: hashtags.split(/\s+/).filter(Boolean),
-          photo: { offset_x: photoX, offset_y: photoY, zoom },
+          photo: { offset_x: photoX, offset_y: photoY, zoom, fit: photoFit, fill: photoFill },
+          fonts: { title: titleStep, paragraph: paragraphStep },
+          colors: {
+            source: colorSource,
+            custom: customColor,
+            box: boxMode === "custom" ? boxColor : boxMode,
+          },
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errBuildCard"));
-      setResult({ file: `${ENGINE}${data.file}?v=${data.id}`, zip: `${ENGINE}${data.zip}` });
+      // Pratinjau selalu memakai id yang sama, jadi alamatnya perlu penanda
+      // waktu — tanpa itu browser menampilkan gambar lama dari cache dan
+      // penyetelanmu terlihat tidak berpengaruh.
+      setResult({
+        file: `${ENGINE}${data.file}?v=${Date.now()}`,
+        zip: `${ENGINE}${data.zip}`,
+        preview,
+      });
     } catch (e: any) {
       setError(e.message);
     } finally {
+      setPreviewBusy(false);
       setBuildBusy(false);
     }
-  }, [article, style, ratio, align, lang, caption, hashtags, photoX, photoY, zoom, t]);
+  }, [article, style, ratio, align, lang, caption, hashtags, photoX, photoY, zoom,
+      photoFit, photoFill, titleStep, paragraphStep,
+      colorSource, customColor, boxMode, boxColor, t]);
 
   // Seret di pratinjau → geser foto. Perpindahan piksel layar dikembalikan ke
   // ruang koordinat kartu memakai skala kotak, supaya nilai yang dikirim ke
@@ -655,11 +697,15 @@ export default function News() {
                 >
                   {/* CSS-nya sengaja disamakan persis dengan template kartu di
                       engine/internal/card — kalau salah satu diubah, ubah keduanya. */}
+                  {photoFit === "whole" && photoFill === "blur" && (
+                    <img className="photo-fill" src={article.image} alt="" draggable={false} />
+                  )}
                   <img
                     src={article.image}
                     alt=""
                     draggable={false}
                     style={{
+                      objectFit: photoFit === "whole" ? "contain" : "cover",
                       transform:
                         `translate(-50%,-50%) translate(${photoX / CARD_W * 100}cqw, ${photoY / CARD_W * 100}cqw) scale(${zoom})`,
                     }}
@@ -667,6 +713,27 @@ export default function News() {
                   <div className="photo-fade" />
                 </div>
                 <div className="photo-knobs">
+                  {/* Titik awal zoom, bukan sumbu kedua — persis seperti mode
+                      pas di tab klip. "Utuh" memasukkan seluruh gambar asli
+                      berapa pun rasionya; ruang yang tak terjangkau gambar diisi
+                      salinan buram fotonya atau warna latar kartu. */}
+                  <label>{t("photoFit")}</label>
+                  <select value={photoFit} onChange={(e) => {
+                    setPhotoFit(e.target.value);
+                    setZoom(1); setPhotoX(0); setPhotoY(0);
+                  }}>
+                    <option value="cover">{t("photoFitCover")}</option>
+                    <option value="whole">{t("photoFitWhole")}</option>
+                  </select>
+                  {photoFit === "whole" && (
+                    <>
+                      <label>{t("photoFill")}</label>
+                      <select value={photoFill} onChange={(e) => setPhotoFill(e.target.value)}>
+                        <option value="blur">{t("photoFillBlur")}</option>
+                        <option value="solid">{t("photoFillSolid")}</option>
+                      </select>
+                    </>
+                  )}
                   <label>{t("photoZoom", { n: zoom.toFixed(2) })}</label>
                   <input
                     type="range" min={1} max={4} step={0.01}
@@ -719,21 +786,129 @@ export default function News() {
           </div>
           {align === "justify" && <p className="stage">{t("justifyNote")}</p>}
 
-          <button onClick={buildCard} disabled={buildBusy || !config?.has_browser}>
-            {buildBusy ? t("rendering") : t("buildCard")}
-          </button>
+          {/* --- Warna kartu --- */}
+          <div className="field">
+            <label>{t("cardColour")} <em>{t("cardColourHint")}</em></label>
+            <div className="row">
+              <div className="field">
+                <select value={colorSource} onChange={(e) => setColorSource(e.target.value)}>
+                  <option value="photo">{t("colourFromPhoto")}</option>
+                  <option value="custom">{t("colourCustom")}</option>
+                </select>
+              </div>
+              {colorSource === "custom" && (
+                <div className="field" style={{ flex: "none" }}>
+                  <input type="color" value={customColor}
+                    onChange={(e) => setCustomColor(e.target.value.toUpperCase())} />
+                </div>
+              )}
+              {colorSource === "custom" && (
+                <div className="field">
+                  <input value={customColor} spellCheck={false}
+                    onChange={(e) => setCustomColor(e.target.value.toUpperCase())} />
+                </div>
+              )}
+            </div>
+            {colorSource === "photo" && <p className="meta">{t("colourFromPhotoNote")}</p>}
+          </div>
+
+          <div className="field">
+            <label>{t("cardBoxBackground")}</label>
+            <div className="row">
+              <div className="field">
+                <select value={boxMode} onChange={(e) => setBoxMode(e.target.value)}>
+                  <option value="auto">{t("boxAuto")}</option>
+                  <option value="none">{t("boxNone")}</option>
+                  <option value="custom">{t("boxCustom")}</option>
+                </select>
+              </div>
+              {boxMode === "custom" && (
+                <div className="field" style={{ flex: "none" }}>
+                  <input type="color" value={boxColor}
+                    onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
+                </div>
+              )}
+              {boxMode === "custom" && (
+                <div className="field">
+                  <input value={boxColor} spellCheck={false}
+                    onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
+                </div>
+              )}
+            </div>
+            {boxMode === "none" && <p className="meta">{t("boxNoneNote")}</p>}
+          </div>
+
+          {/* Pratinjau di kiri, kendali ukuran huruf di kanan: keduanya saling
+              menjawab, jadi menyetel dan melihat hasilnya tidak perlu berpindah
+              tempat. Tombolnya di bawah keduanya. */}
+          <div className="card-stage">
+            <div className="card-stage-view">
+              {result ? (
+                <img src={result.file} alt={t("newsTitle")} />
+              ) : (
+                <p className="meta">{t("previewEmpty")}</p>
+              )}
+            </div>
+
+            <div className="card-stage-tools">
+              <label>{t("fontSizes")}</label>
+              {([
+                ["title", titleStep, setTitleStep],
+                ["paragraph", paragraphStep, setParagraphStep],
+              ] as const).map(([key, value, set]) => (
+                <div key={key} className="field">
+                  <label>
+                    {key === "title" ? t("fontTitle") : t("fontParagraph")}{" "}
+                    <em>{value === 0 ? t("fontStandard") : `${value > 0 ? "+" : ""}${value}`}</em>
+                  </label>
+                  <input
+                    type="range" min={-FONT_STEPS} max={FONT_STEPS} step={1}
+                    value={value} onChange={(e) => set(Number(e.target.value))}
+                  />
+                </div>
+              ))}
+              <p className="meta">{t("fontStepsNote")}</p>
+              <button className="ghost tiny"
+                onClick={() => { setTitleStep(0); setParagraphStep(0); }}
+                disabled={titleStep === 0 && paragraphStep === 0}>
+                {t("fontReset")}
+              </button>
+            </div>
+          </div>
+
+          {/* Pratinjau dulu, simpan belakangan. Menyetel kartu itu pekerjaan
+              puluhan percobaan, dan tiap simpanan meninggalkan satu folder. */}
+          <div className="row">
+            <button onClick={() => buildCard(true)}
+              disabled={previewBusy || buildBusy || !config?.has_browser}>
+              {previewBusy ? t("rendering") : t("previewCard")}
+            </button>
+            <button onClick={() => buildCard(false)}
+              disabled={previewBusy || buildBusy || !config?.has_browser}>
+              {buildBusy ? t("rendering") : t("buildCard")}
+            </button>
+          </div>
         </div>
       )}
 
       {/* --- Hasil --- */}
       {result && (
         <div className="panel">
-          <label className="blok">{t("result")}</label>
+          <label className="blok">{result.preview ? t("previewResult") : t("result")}</label>
+          {/* Gambarnya sudah tampil di atas tombol, jadi di sini cukup tautan
+              unduhannya — mengulang gambar yang sama hanya memanjangkan halaman. */}
           <div className="card-result">
-            <img src={result.file} alt={t("newsTitle")} />
             <div>
-              <p><a className="dl" href={result.zip}>{t("downloadZip")}</a></p>
-              <p><a className="dl" href={result.file} download="card.png">{t("downloadImage")}</a></p>
+              {/* Pratinjau tidak punya berkas pendamping — caption & keterangan
+                  sumber baru ditulis saat kartunya disimpan. */}
+              {result.preview ? (
+                <p className="meta">{t("previewNotSaved")}</p>
+              ) : (
+                <>
+                  <p><a className="dl" href={result.zip}>{t("downloadZip")}</a></p>
+                  <p><a className="dl" href={result.file} download="card.png">{t("downloadImage")}</a></p>
+                </>
+              )}
               {article.url && (
                 <p className="meta" style={{ marginTop: 10 }}>
                   {t("sourceLabel")}{" "}
