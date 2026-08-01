@@ -351,6 +351,12 @@ const en = {
     "Steps away from the standard template — 0 is the standard. A long paragraph still shrinks on its own so it cannot run off the card.",
   fontReset: "Back to standard",
   previewEmpty: "No preview yet — press Preview.",
+  headerSpace: "Push the content down",
+  headerSpaceNote:
+    "Moves the title, the paragraph box and the footer down together, as one block — the text keeps its size. It stops once the content reaches the bottom edge, so how far it can go depends on how long the paragraph is.",
+  cardDown: "Lower the whole card",
+  cardDownNote:
+    "Moves the photo down as well, leaving an empty band at the top in the card colour. Use this when the app crops the top of your card.",
   previewCard: "👁 Preview",
   previewResult: "Preview",
   previewNotSaved:
@@ -691,6 +697,12 @@ const id: Record<MessageKey, string> = {
     "Langkah dari template standar — 0 berarti standar. Paragraf panjang tetap mengecil sendiri supaya tidak keluar kartu.",
   fontReset: "Kembali ke standar",
   previewEmpty: "Belum ada pratinjau — tekan Pratinjau.",
+  headerSpace: "Geser isi ke bawah",
+  headerSpaceNote:
+    "Menurunkan judul, kotak paragraf, dan kaki kartu bersama-sama sebagai satu blok — ukuran teksnya tidak berubah. Berhenti sendiri saat isinya menyentuh tepi bawah, jadi sejauh apa ia bisa turun tergantung panjang paragrafnya.",
+  cardDown: "Turunkan seluruh kartu",
+  cardDownNote:
+    "Fotonya ikut turun, dan pita kosong di atas memakai warna latar kartu. Berguna saat aplikasi memotong bagian atas kartumu.",
   previewCard: "👁 Pratinjau",
   previewResult: "Pratinjau",
   previewNotSaved:

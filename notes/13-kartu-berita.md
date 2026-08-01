@@ -295,8 +295,29 @@ terbacanya. `TestTextStaysReadableForEveryHue` menyapu seluruh lingkaran warna
 karena ronanya datang dari foto orang lain — kita tidak bisa memilih yang aman
 saja.
 
-Kuning penanda TIDAK ikut berubah. Ia satu-satunya warna tetap, dan itulah yang
-membuat kartu-kartu ini tetap terlihat satu keluarga walau latarnya berbeda.
+### Penanda ikut rona, ditarik ke pastel
+
+Semula kuning `#E4B429` dikunci sebagai satu-satunya warna tetap. Dicabut atas
+permintaan pengguna: garis penanda dan stempel sumber sekarang mengikuti rona
+kartu juga. Kuning tetap jadi **warna dasarnya** — dipakai saat tidak ada rona
+yang bisa diikuti (foto hitam putih, atau warna pilihan tanpa rona).
+
+Diikuti, bukan **disamakan**: penanda yang persis sewarna latar akan lenyap.
+Yang dipakai rona yang sama, ditarik ke rentang pastel.
+
+**Terangnya tidak bisa ditetapkan sebagai angka HSL.** "Lightness" HSL bukan
+kecerahan yang terlihat: kuning di 55% terang benderang, merah di 55% gelap.
+Menetapkan satu angka membuat penanda merah gagal memikul teks gelap di stempel
+sumber — terukur kontrasnya jatuh ke 4,1 padahal ambangnya 7. Karena itu
+terangnya dinaikkan selangkah demi selangkah sampai **luminansi WCAG**-nya
+mencapai 0,45. Pagarnya jadi berlaku untuk seluruh lingkaran warna, bukan untuk
+rona yang kebetulan diuji.
+
+Pada gaya terang, pagar "penanda harus kontras dengan latar" sengaja tidak
+diberlakukan: penanda yang cukup cerah untuk memikul teks gelap pasti berdekatan
+dengan kertas terang. Itu sudah begitu sejak kartu ini memakai satu kuning tetap
+(#E4B429 di atas #DDD8CC kontrasnya cuma 1,3), jadi bukan kemunduran baru — tapi
+gaya terang memang belum pernah diperiksa sungguhan.
 
 Tiga keputusan di `toneOf` yang tidak kelihatan tapi menentukan:
 
@@ -359,21 +380,151 @@ Kontrolnya: paragraf asli 511 huruf (taksiran 764) memang terpotong — cocok.
 
 ## Ukuran huruf bisa disetel, dalam LANGKAH bukan piksel
 
-Judul dan paragraf punya kendalinya sendiri, masing-masing −2…+2 langkah (10%
-per langkah) dari ukuran standar. Angka piksel bebas sengaja tidak dipakai: ia
-membuang tangga, pengecilan otomatis, dan penskalaan rasio sekaligus, lalu
-memaksa pengguna menyetel ulang tiap kartu. Dengan langkah relatif, standar
-selalu jadi titik nol yang bisa dikembalikan.
+Judul dan paragraf punya kendalinya sendiri, masing-masing −10…+10 langkah (5%
+per langkah) dari ukuran standar — separuh sampai satu setengah kali. Angka
+piksel bebas sengaja tidak dipakai: ia membuang tangga, pengecilan otomatis, dan
+penskalaan rasio sekaligus, lalu memaksa pengguna menyetel ulang tiap kartu.
+Dengan langkah relatif, standar selalu jadi titik nol yang bisa dikembalikan.
 
-Urutannya penting: **tangga → langkah pengguna → pengecilan agar muat**.
-Membalik urutannya berarti pilihan pengguna dimakan lebih dulu oleh penyesuaian
-yang sebetulnya tidak perlu. Dan pengecilan tetap berlaku terakhir, jadi
-memperbesar paragraf panjang tidak bisa mendorongnya keluar kartu.
+**Besar langkahnya justru dikecilkan (10% → 5%) saat rentangnya diperlebar.**
+Pada 10% per langkah, −10 langkah berarti dikali nol dan hurufnya hilang sama
+sekali. Memperlebar rentang tanpa menyesuaikan besar langkah bukan menambah
+pilihan, melainkan menambah satu nilai yang merusak kartu.
 
-±20% dipilih sebagai batas karena lebih dari itu judul mulai bersaing dengan
-paragraf. Hierarki kartu ini dibalik dengan sengaja — paragraf yang jadi
-bintang, judul turun pangkat jadi keterangan — dan itu dijaga tes
-(`TestTitleStaysSmallerThanTheParagraph`).
+Urutannya: **tangga → langkah pengguna → pengecilan agar muat**. Pengecilan itu
+sekarang berjalan SELALU, bukan cuma untuk paragraf panjang. Aman bagi nilai
+tangga karena tidak satu pun melewati ruang yang ada (terbesar 240 huruf @ 50 px
+= 670 px, ruangnya 720 px), dan perlu karena +10 langkah pada paragraf sedang
+pun bisa mendorong teks keluar kartu.
+
+Rentang selebar ini membuat judul **bisa** dibuat lebih besar dari paragraf.
+Hierarki bawaan kartu ini dibalik dengan sengaja — paragraf yang jadi bintang,
+judul turun pangkat jadi keterangan — dan itu tetap dijaga pada langkah 0
+(`TestTitleStaysSmallerThanTheParagraph`). Di luar itu keputusan pengguna.
+
+## Isi dijangkarkan ke ATAS, bukan ke bawah
+
+Dulu `justify-content:flex-end`, supaya tidak ada rongga di bawah guntingan.
+Akibatnya mengecilkan huruf membuat guntingan **tenggelam** — arah yang
+berlawanan dengan yang dilakukan pengguna pada penggesernya, dan terasa seperti
+kendali yang rusak.
+
+Sekarang `flex-start`: memperbesar huruf menumbuhkan kotak ke bawah,
+mengecilkannya menaikkan kotak beserta kaki kartunya. Ongkosnya rongga pindah ke
+bawah kartu — dan justru di sanalah UI TikTok/Reels menutupinya, jadi ruang
+kosong lebih baik ada di situ daripada di tengah.
+
+Kartu kutipan (tanpa foto) tetap di tengah: menjangkarkan ke atas di sana
+menyisakan setengah kartu kosong.
+
+## Menggeser isi turun: satu knop, bukan empat
+
+`Header` menggeser judul, guntingan, dan kaki kartu turun **bersama-sama**.
+Fotonya tidak ikut membesar; yang bertambah cuma jarak di bawahnya, dan bagian
+foto di situ memang sudah memudar jadi latar. Ini pengganti yang benar untuk
+penggeser per blok yang dicabut: kebutuhannya sama ("isinya kurang turun"),
+tanpa memecah kesatuan ketiga blok itu.
+
+### Yang mengalah adalah geserannya, BUKAN ukuran hurufnya
+
+Percobaan pertama membuat geseran memakan ruang teks: geser 200 px → ruang teks
+berkurang 200 px → paragraf dikecilkan supaya muat. Secara aritmetika benar,
+sebagai fitur salah total. Pengguna menggeser sedikit, lalu paragrafnya menyusut
+drastis sementara ruang di bawahnya masih kosong — kebalikan dari yang diminta.
+Yang diminta adalah isi yang sama, turun.
+
+Sekarang urutannya dibalik: ukuran huruf ditentukan lebih dulu dan tidak tahu
+apa-apa soal geseran (parameternya memang dihapus dari `heroSizeFor`), lalu
+`headerFor` menjepit geseran ke sejauh isi berukuran itu masih muat.
+
+Konsekuensinya sejauh apa isi bisa turun **berbeda tiap artikel**: paragraf 111
+huruf bisa turun 229 px, paragraf 240 huruf tidak bisa turun sama sekali karena
+sudah nyaris memenuhi kartunya. Penggeser yang berhenti sendiri itu disengaja,
+dan disebutkan di keterangan GUI supaya tidak terbaca sebagai kendali rusak.
+
+Terukur (paragraf 111 huruf, tinggi kotak kertas tidak berubah sama sekali):
+
+| diminta | kotak atas | kotak bawah |
+| --- | --- | --- |
+| 0 | 1047 | 1609 |
+| 100 | 1147 | 1709 |
+| 200 | 1247 | 1809 |
+| 300 | 1276 | 1838 (mentok di 229) |
+| 400 | 1276 | 1838 (mentok) |
+
+### Taksiran tinggi meleset satu baris
+
+Teks membungkus di batas KATA, taksirannya menghitung HURUF. Selisihnya sampai
+satu baris — di ukuran besar itu 80 px, cukup untuk memotong stempel. Karena itu
+disisakan satu baris kelonggaran, **tapi hanya saat penyetelan dipakai**: nilai
+tangga di setelan bawaan sudah diuji satu per satu di render sungguhan dan
+memang muat, jadi menerapkan kelonggaran di sana justru mengecilkan kartu yang
+sudah benar.
+
+Diverifikasi dengan 63 kombinasi render sungguhan (geseran 0-400 x langkah huruf
+-10..+10 x paragraf 120-1400 huruf): nol terpotong.
+
+## Dua penggeser yang berbeda, jangan tertukar
+
+Kosakatanya sempat kacau dan menyebabkan tiga kali salah kerja. Yang dipakai
+sekarang:
+
+| Sebutan | Isinya | Nama di kode |
+| --- | --- | --- |
+| **Area foto** | gambar + lencana sumber + gradasi | `.photo` |
+| **Blok isi** | garis kuning + judul + kotak paragraf + kaki kartu | `.content` |
+| **Kartu** | keduanya, di atas latar | `body` |
+
+Dan dua penggeser yang bunyinya mirip tapi berbeda:
+
+- **`Header`** — menurunkan **blok isi** saja. Area foto diam, yang bertambah
+  jarak di bawahnya.
+- **`CardTop`** — menurunkan **seluruh kartu**. Area foto ikut turun, jarak
+  antara foto dan isi tidak berubah, dan pita kosong muncul di atas.
+
+`CardTop` dipasang sebagai `padding-top` pada `body`. Karena itu `.photo`
+tingginya harus **piksel, bukan persen**: persen dihitung terhadap kotak yang
+sudah dikurangi pita, jadi menurunkan kartu malah memendekkan fotonya — padahal
+yang diminta foto yang sama, turun.
+
+**Keduanya memakan jatah yang sama**, sebab sama-sama mendorong isi ke tepi
+bawah. Kalau dijepit sendiri-sendiri, memakai keduanya sekaligus tetap bisa
+memotong kaki kartu. Jatahnya karena itu dihitung berurutan: `Header` dilayani
+dulu, sisanya untuk `CardTop`.
+
+Terukur (paragraf 111 huruf; jarak foto → kertas tetap 1047 px di semua baris,
+bukti isi kartunya tidak diregangkan):
+
+| turunkan | foto mulai | kertas atas |
+| --- | --- | --- |
+| 0 | 0 | 1047 |
+| 100 | 100 | 1147 |
+| 200 | 200 | 1247 |
+| 300 | 229 | 1276 (mentok) |
+
+### Jebakan uji yang menghabiskan waktu
+
+Dua kali hasil pengukuran menyesatkan karena harnessnya, bukan kodenya:
+
+- **Server lama masih memegang port.** Build baru gagal bind (`address already
+  in use`), permintaan mendarat di build lama, dan hasilnya terlihat seperti
+  kode yang tidak berfungsi. Sekarang: `fuser -k 8799/tcp` dulu, lalu periksa
+  log-nya tidak berisi pesan bind.
+- **Detektor "terpotong" menangkap fotonya.** Mencari piksel terang di satu
+  kolom ikut menangkap bagian terang foto. Yang benar: cari PITA MENDATAR lebar
+  yang seragam terang — foto tidak pernah begitu.
+
+## "…" di ujung paragraf bukan dari kami
+
+Sempat dikira kartunya memotong teks. Bukan: `truncate` di paket news berbatas
+300 huruf, sementara teks yang bermasalah cuma ~117 huruf. Yang memotongnya
+**medianya sendiri** — RSS ANTARA mengirim teaser 106–123 huruf yang sudah
+berakhir "...".
+
+Konsekuensinya penting: mengecilkan ukuran huruf TIDAK akan memunculkan teks
+yang hilang, karena teks itu tidak pernah sampai ke engine. Yang membawanya
+hanya **Analisis**, yang mengambil badan artikel dan memilih paragraf utuh.
+Kartu yang dibuat tanpa analisis selalu memakai teaser/og:description apa adanya.
 
 ## Kartu jadi bisa disetel — dan pagar yang menjaganya
 

@@ -99,7 +99,9 @@ func (s *Server) newsFeeds(w http.ResponseWriter, r *http.Request) {
 		"photo_fills": []string{card.FillBlur, card.FillSolid},
 		// Banyaknya langkah ukuran huruf ke tiap arah. Dikirim dari sini supaya
 		// GUI tidak menyalin angkanya — satu tempat, satu kebenaran.
-		"font_steps": card.FontSteps,
+		"font_steps":   card.FontSteps,
+		"header_max":   card.HeaderMax,
+		"card_top_max": card.CardTopMax,
 	})
 }
 

@@ -43,6 +43,7 @@ type palette struct {
 	LightBgRGB string
 	Muted      string // judul-keterangan di atas latar
 	Faint      string // kaki kartu
+	Accent     string // garis penanda & stempel sumber
 }
 
 // Palet bawaan = warna kartu sebelum fitur ini ada. Dipakai apa adanya saat
@@ -57,6 +58,7 @@ var (
 		LightBgRGB: "221,216,204",
 		Muted:      "#9AA3AD",
 		Faint:      "#79818B",
+		Accent:     baseAccent,
 	}
 	defaultLight = palette{
 		Ink:        "#14171C",
@@ -66,8 +68,58 @@ var (
 		LightBgRGB: "221,216,204",
 		Muted:      "#5C5750",
 		Faint:      "#6B665E",
+		Accent:     baseAccent,
 	}
 )
+
+// baseAccent = kuning penanda template dasar. Dipakai saat tidak ada rona yang
+// bisa diikuti: foto hitam putih, atau warna pilihan yang tak punya rona
+// (putih/abu/hitam).
+const baseAccent = "#E4B429"
+
+// accentMinLum = kecerahan terkecil yang masih sanggup memikul teks gelap.
+//
+// Stempel sumber menulis teks #1A1714 di atas penanda, dan atribusi adalah janji
+// fitur ini — kalau ia tidak terbaca, fiturnya gagal di titik yang paling
+// penting. 0,45 memberi kontras sekitar 8:1 terhadap teks itu.
+const accentMinLum = 0.45
+
+// accentFor menurunkan warna penanda dari rona kartu.
+//
+// Bukan disamakan dengan warna kartunya: penanda yang persis sewarna latar akan
+// lenyap. Yang dicari warna yang COCOK — rona sama, ditarik ke rentang pastel.
+//
+// Terangnya TIDAK bisa ditetapkan sebagai angka HSL. "Lightness" HSL bukan
+// kecerahan yang terlihat: kuning di 55% terang benderang, biru di 55% gelap.
+// Menetapkan satu angka akan membuat penanda biru gagal memikul teks gelap
+// sementara penanda kuning kelewat pucat. Karena itu terangnya dinaikkan
+// selangkah demi selangkah sampai LUMINANSI sungguhannya cukup — pagar yang
+// berlaku untuk seluruh lingkaran warna, bukan untuk rona yang kebetulan diuji.
+func accentFor(t tone) string {
+	if !t.ok {
+		return baseAccent
+	}
+	s := between(t.sat*0.7, 0.28, 0.50)
+	l := 0.72
+	for ; l < 0.95; l += 0.02 {
+		if luminance(toRGB(t.hue, s, l)) >= accentMinLum {
+			break
+		}
+	}
+	return hex(t.hue, s, l)
+}
+
+// luminance = luminansi relatif menurut WCAG, dari komponen 0..255.
+func luminance(r, g, b int) float64 {
+	f := func(v int) float64 {
+		c := float64(v) / 255
+		if c <= 0.03928 {
+			return c / 12.92
+		}
+		return math.Pow((c+0.055)/1.055, 2.4)
+	}
+	return 0.2126*f(r) + 0.7152*f(g) + 0.0722*f(b)
+}
 
 // paletteFor menurunkan seluruh warna kartu dari satu rona.
 //
@@ -99,6 +151,7 @@ func paletteFor(t tone, dark bool) palette {
 		p.Muted = hex(h, 0.07, 0.340)
 		p.Faint = hex(h, 0.06, 0.400)
 	}
+	p.Accent = accentFor(t)
 	p.InkRGB = rgbList(h, between(t.sat, 0.12, 0.32), 0.094)
 	p.LightBgRGB = rgbList(h, between(t.sat*0.30, 0.06, 0.18), 0.830)
 	return p

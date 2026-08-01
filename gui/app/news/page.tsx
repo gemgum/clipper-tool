@@ -15,7 +15,12 @@ const CARD_HEIGHT: Record<string, number> = { "9:16": 1920, "4:5": 1350, "1:1": 
 const PHOTO_PERCENT: Record<string, number> = { "9:16": 50, "4:5": 50, "1:1": 48 };
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
 // tiap arah dari ukuran standar.
-const FONT_STEPS = 2;
+const FONT_STEPS = 10;
+// Harus sama dengan card.HeaderMax di engine: sejauh mana isi boleh digeser turun.
+const HEADER_MAX = 400;
+// Harus sama dengan card.CardTopMax di engine: setinggi apa pita kosong di atas
+// kartu boleh dibuat.
+const CARD_TOP_MAX = 400;
 // photoFrameHeight = tinggi bingkai foto dalam piksel kartu — cerminan rumus di
 // engine/internal/card/card.go. Kalau rumusnya berbeda, menyeret foto sejauh N
 // piksel di sini tidak lagi berarti N piksel di PNG hasil.
@@ -119,6 +124,10 @@ export default function News() {
   // berarti template standar apa adanya, dan selalu bisa dikembalikan ke sana.
   const [titleStep, setTitleStep] = useState(0);
   const [paragraphStep, setParagraphStep] = useState(0);
+  // Menggeser SELURUH isi turun sebagai satu kesatuan, dalam piksel ruang kartu.
+  const [header, setHeader] = useState(0);
+  // Menurunkan SELURUH kartu: area foto ikut turun, pita kosong muncul di atas.
+  const [cardTop, setCardTop] = useState(0);
 
   // Warna: dari foto (bawaan) atau dari warna yang kamu tentukan sendiri.
   const [colorSource, setColorSource] = useState("photo");
@@ -356,6 +365,8 @@ export default function News() {
           hashtags: hashtags.split(/\s+/).filter(Boolean),
           photo: { offset_x: photoX, offset_y: photoY, zoom, fit: photoFit, fill: photoFill },
           fonts: { title: titleStep, paragraph: paragraphStep },
+          header,
+          card_top: cardTop,
           colors: {
             source: colorSource,
             custom: customColor,
@@ -380,7 +391,7 @@ export default function News() {
       setBuildBusy(false);
     }
   }, [article, style, ratio, align, lang, caption, hashtags, photoX, photoY, zoom,
-      photoFit, photoFill, titleStep, paragraphStep,
+      photoFit, photoFill, titleStep, paragraphStep, header, cardTop,
       colorSource, customColor, boxMode, boxColor, t]);
 
   // Seret di pratinjau → geser foto. Perpindahan piksel layar dikembalikan ke
@@ -868,9 +879,35 @@ export default function News() {
                 </div>
               ))}
               <p className="meta">{t("fontStepsNote")}</p>
+
+              {/* Menggeser isi sebagai SATU kesatuan — judul, guntingan, dan kaki
+                  kartu bergerak bersama. Bukan penggeser per blok: itu sudah
+                  dicoba dan dicabut karena blok jadi saling tumpang tindih. */}
+              <div className="field">
+                <label>
+                  {t("headerSpace")}{" "}
+                  <em>{header === 0 ? t("fontStandard") : `+${header} px`}</em>
+                </label>
+                <input type="range" min={0} max={HEADER_MAX} step={10}
+                  value={header} onChange={(e) => setHeader(Number(e.target.value))} />
+              </div>
+              <p className="meta">{t("headerSpaceNote")}</p>
+
+              {/* Menurunkan SELURUH kartu — area foto ikut turun, dan pita
+                  kosong di atas memakai warna latar kartu. */}
+              <div className="field">
+                <label>
+                  {t("cardDown")}{" "}
+                  <em>{cardTop === 0 ? t("fontStandard") : `+${cardTop} px`}</em>
+                </label>
+                <input type="range" min={0} max={CARD_TOP_MAX} step={10}
+                  value={cardTop} onChange={(e) => setCardTop(Number(e.target.value))} />
+              </div>
+              <p className="meta">{t("cardDownNote")}</p>
+
               <button className="ghost tiny"
-                onClick={() => { setTitleStep(0); setParagraphStep(0); }}
-                disabled={titleStep === 0 && paragraphStep === 0}>
+                onClick={() => { setTitleStep(0); setParagraphStep(0); setHeader(0); setCardTop(0); }}
+                disabled={titleStep === 0 && paragraphStep === 0 && header === 0 && cardTop === 0}>
                 {t("fontReset")}
               </button>
             </div>

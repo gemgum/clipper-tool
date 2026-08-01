@@ -112,12 +112,29 @@ type Fonts struct {
 const (
 	// Banyaknya langkah ke tiap arah, dan besar tiap langkah.
 	//
-	// 10% per langkah dipilih karena di bawah itu perubahannya tidak terlihat di
-	// kartu 1080 px — kendali yang tidak terasa efeknya lebih buruk daripada
-	// tidak ada kendali. Dua langkah (±20%) sudah cukup jauh: lebih dari itu
-	// judul mulai bersaing dengan paragraf, dan hierarki kartunya rusak.
-	FontSteps   = 2
-	fontStepPct = 10
+	// 10 langkah x 5% = separuh sampai satu setengah kali ukuran standar. Besar
+	// langkahnya dikecilkan dari 10% ke 5% justru saat rentangnya diperlebar:
+	// pada 10% per langkah, -10 langkah berarti dikali nol dan hurufnya hilang.
+	//
+	// Rentang selebar ini membuat judul BISA dibuat lebih besar dari paragraf.
+	// Itu memang menyalahi hierarki bawaan kartu ini, dan disengaja: bawaannya
+	// tetap paragraf yang jadi bintang, tapi keputusan akhir ada di pengguna.
+	FontSteps   = 10
+	fontStepPct = 5
+
+	// Batas bawah judul. Di bawah ini judul tidak lagi terbaca di layar ponsel,
+	// dan yang tersisa cuma hiasan yang memakan tempat.
+	contextMin = 16
+
+	// HeaderMax = sejauh mana isi boleh digeser turun.
+	//
+	// 400 px kira-kira separuh ruang teks yang tersedia. Lebih dari itu isinya
+	// bukan lagi "turun sedikit" melainkan terdesak ke tepi bawah kartu, dan
+	// ruang yang tersisa untuk paragraf tinggal sedikit sekali.
+	HeaderMax = 400
+
+	// CardTopMax = setinggi apa pita kosong di atas kartu boleh dibuat.
+	CardTopMax = 400
 )
 
 // scaled menerapkan langkah pengguna pada satu ukuran standar.
@@ -156,7 +173,24 @@ type Request struct {
 	Photo   Photo        `json:"photo"`
 	Fonts   Fonts        `json:"fonts"`
 	Colors  Colors       `json:"colors"`
-	Lang    string       `json:"lang"` // bahasa teks tetap di kartu (en | id)
+	// Header = ruang tambahan di bawah foto, dalam piksel ruang kartu 1920.
+	//
+	// Menggeser SELURUH isi (judul, guntingan, kaki kartu) turun sebagai satu
+	// kesatuan. Bukan penggeser per blok — itu sudah dicoba dan dicabut, karena
+	// blok yang bisa bergerak sendiri-sendiri akhirnya saling tumpang tindih.
+	// Fotonya sendiri tidak ikut membesar; yang bertambah cuma jarak di
+	// bawahnya, dan bagian foto di situ memang sudah memudar jadi latar.
+	Header int `json:"header"`
+	// CardTop = pita kosong di ATAS kartu, dalam piksel ruang kartu 1920.
+	//
+	// Menurunkan SELURUH kartu: area foto dan blok isi sama-sama turun, jarak
+	// antara keduanya tidak berubah. Kanvasnya tetap 1080x1920 — yang muncul di
+	// atas adalah latar kartu, bukan kartu yang mengecil.
+	//
+	// Bedanya dengan Header: Header hanya menurunkan blok isi dan menyisakan
+	// ruang di bawah foto; CardTop menurunkan fotonya juga.
+	CardTop int    `json:"card_top"`
+	Lang    string `json:"lang"` // bahasa teks tetap di kartu (en | id)
 	// Caption & Hashtags ikut disimpan sebagai berkas pendamping agar satu ZIP
 	// berisi semua yang dibutuhkan saat memposting.
 	Caption  string   `json:"caption"`
@@ -337,22 +371,24 @@ func writeSidecars(dir string, req Request) error {
 // Angka penghitungnya diukur dari render sungguhan, bukan ditebak: paragraf 520
 // huruf pada ukuran 38 px jatuh tepat 15 baris di guntingan selebar 824 px.
 const (
-	// Tinggi yang tersisa untuk teks guntingan di ruang kartu 1920 px.
+	// Tinggi yang tersisa untuk teks guntingan di ruang kartu 1920 px, saat isi
+	// belum digeser (Header = 0).
 	//
-	// DIUKUR, bukan dijumlahkan dari tata letaknya. Penjumlahan sempat dipakai
-	// dan hasilnya 550 — terlalu kecil, karena blok isi boleh tumbuh ke atas
-	// menutupi bagian bawah foto, dan itu tidak terlihat dari angka padding.
-	// Akibatnya kartu yang sebenarnya baik-baik saja ikut dikecilkan.
+	// DIUKUR, bukan dijumlahkan dari tata letaknya — penjumlahan sempat dipakai
+	// dan meleset jauh. Cara mengukurnya: render dengan pengecilan dimatikan,
+	// lalu periksa apakah kertas atau stempel menyentuh tepi bawah kanvas.
+	//   440 huruf @ 38 px → taksiran tinggi 662 px → masih muat
+	//   480 huruf @ 38 px → taksiran tinggi 713 px → terpotong
+	// 680 diambil di antara keduanya.
 	//
-	// Cara mengukurnya: render dengan pengecilan dimatikan, lalu periksa apakah
-	// kertas guntingan menyentuh tepi bawah kanvas.
-	//   460 huruf @ 38 px → taksiran tinggi 713 px → masih muat
-	//   500 huruf @ 38 px → taksiran tinggi 764 px → terpotong
-	// 720 diambil di antara keduanya, condong ke sisi aman.
-	heroRoomWithPhoto = 720
+	// ANGKA INI TERIKAT PADA CARA ISI DIJANGKARKAN. Ia pernah 720 waktu isi
+	// dijangkarkan ke bawah; begitu jangkarnya pindah ke atas, angkanya berubah
+	// dan sempat tidak diukur ulang — akibatnya menggeser isi ke bawah membuat
+	// kaki kartu terpotong. Setiap kali tata letaknya diubah, ukur lagi.
+	heroRoomWithPhoto = 680
 	// Kartu kutipan tidak berfoto, jadi seluruh porsi foto (960 px) jadi ruang
 	// tambahan. Diturunkan dari angka di atas, bukan diukur tersendiri.
-	heroRoomNoPhoto = 1680
+	heroRoomNoPhoto = 1640
 
 	heroCharWidth = 0.62  // lebar rata-rata satu huruf, relatif ke ukuran font
 	heroLineWidth = 824.0 // lebar satu baris di dalam guntingan
@@ -365,6 +401,33 @@ const (
 	// pertanda paragrafnya yang perlu dipilih ulang, bukan kartunya.
 	heroMin = 22
 )
+
+// headerFor menjepit geseran ke sejauh isi masih muat DI UKURAN YANG SUDAH
+// DIPILIH.
+//
+// Menggeser isi ke bawah TIDAK boleh mengecilkan hurufnya. Sempat begitu, dan
+// hasilnya persis kebalikan dari yang diminta: pengguna menggeser sedikit, lalu
+// paragrafnya menyusut drastis sementara ruang di bawahnya masih kosong. Yang
+// diminta adalah isi yang sama, turun.
+//
+// Karena ukurannya tidak boleh mengalah, yang mengalah adalah geserannya:
+// penggeser berhenti di titik isi menyentuh tepi bawah kartu. Berapa jauh ia
+// bisa turun karena itu berbeda tiap artikel — paragraf pendek bisa jauh,
+// paragraf panjang hampir tidak bisa.
+func headerFor(want, chars int, hasImage bool, size int) int {
+	want = min(HeaderMax, max(0, want))
+	if chars <= 0 {
+		return want
+	}
+	room := float64(heroRoomWithPhoto)
+	if !hasImage {
+		room = heroRoomNoPhoto
+	}
+	// Satu baris kelonggaran, alasannya sama dengan di heroSizeFor: taksiran
+	// tinggi meleset sampai satu baris karena teks membungkus di batas kata.
+	used := heroHeight(chars, size) + float64(size)*heroLineGap
+	return min(want, max(0, int(room-used)))
+}
 
 // heroHeight menaksir tinggi teks guntingan pada satu ukuran huruf.
 //
@@ -405,11 +468,14 @@ const (
 
 // heroSizeFor menentukan ukuran huruf paragraf.
 //
-// Urutannya penting: tangga dulu (agar kartu yang selama ini enak dilihat tidak
-// berubah), lalu langkah pilihan pengguna, baru pengecilan agar muat — dan
-// pengecilan itu HANYA untuk paragraf yang lebih panjang dari anak tangga
-// teratas. Membalik urutannya berarti pilihan pengguna bisa dimakan lebih dulu
-// oleh penyesuaian yang sebetulnya tidak perlu.
+// Urutannya: tangga dulu (agar kartu yang selama ini enak dilihat tidak
+// berubah), lalu langkah pilihan pengguna, baru pengecilan agar muat.
+//
+// Pengecilan itu berjalan SELALU, bukan hanya untuk paragraf panjang. Ia aman
+// bagi nilai tangga karena tidak satu pun dari mereka melewati ruang yang ada
+// (yang terbesar 240 huruf @ 50 px = 670 px, ruangnya 720 px) — dijaga oleh
+// TestStandardSizeMatchesTheOriginalLadderExactly. Gunanya sekarang untuk
+// pengguna: memperbesar +10 langkah tidak bisa mendorong teks keluar kartu.
 func heroSizeFor(chars int, hasImage, quote bool, step int) int {
 	if chars <= 0 {
 		chars = 1
@@ -420,14 +486,22 @@ func heroSizeFor(chars int, hasImage, quote bool, step int) int {
 	}
 	size = scaled(size, step)
 
-	if chars > heroLadderTop {
-		room := float64(heroRoomWithPhoto)
-		if !hasImage {
-			room = heroRoomNoPhoto
-		}
-		for size > heroMin && heroHeight(chars, size) > room {
-			size--
-		}
+	room := float64(heroRoomWithPhoto)
+	if !hasImage {
+		room = heroRoomNoPhoto
+	}
+	// Taksiran tinggi meleset sampai SATU BARIS, karena teks membungkus di batas
+	// kata sementara taksirannya menghitung huruf. Di ukuran besar satu baris itu
+	// 80 px — cukup untuk memotong stempel sumber.
+	//
+	// Kelonggaran ini TIDAK dipakai pada setelan bawaan, sebab nilai tangga sudah
+	// diuji satu per satu di render sungguhan dan memang muat. Menerapkannya di
+	// sana justru mengecilkan kartu yang sudah benar.
+	if step != 0 {
+		room -= float64(size) * heroLineGap
+	}
+	for size > heroMin && heroHeight(chars, size) > room {
+		size--
 	}
 	if size < heroMin {
 		size = heroMin
@@ -446,18 +520,20 @@ type templateData struct {
 	Domain        string
 	Date          string
 	FontCSS       template.CSS
-	PhotoHeight   int
 	PhotoX        int
 	PhotoY        int
-	PhotoZoom     string // ditulis sebagai teks agar tidak jadi notasi ilmiah
-	Align         string // nilai text-align
-	RuleMargin    string // margin blok, ikut perataan
-	Lang          string // atribut lang= pada <html>
+	PhotoZoom     string  // ditulis sebagai teks agar tidak jadi notasi ilmiah
+	Align         string  // nilai text-align
+	RuleMargin    string  // margin blok, ikut perataan
+	Lang          string  // atribut lang= pada <html>
 	ReadMore      string  // teks kaki kartu
 	Palette       palette // warna kartu, diturunkan dari foto atau warna pilihan
 	PhotoFit      string  // cover | contain
 	PhotoFill     bool    // isi ruang sisa dengan salinan buram fotonya
 	BoxOff        bool    // kotak paragraf dihilangkan
+	ContentTop    int     // jarak isi dari bawah foto, sudah termasuk geseran
+	CardTop       int     // pita kosong di atas kartu
+	PhotoPx       int     // tinggi area foto dalam piksel
 
 	// Hero = teks yang jadi bintang kartu, ditaruh di guntingan kertas.
 	// Context = judul artikel sebagai keterangan di atasnya; kosong bila judul
@@ -515,7 +591,18 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 		hero, context = context, ""
 	}
 
-	heroSize := heroSizeFor(len([]rune(hero)), hasImage, quote, req.Fonts.Paragraph)
+	// Ukuran huruf ditentukan lebih dulu dan TIDAK dipengaruhi geseran; geseran
+	// yang menyesuaikan diri, bukan sebaliknya.
+	chars := len([]rune(hero))
+	heroSize := heroSizeFor(chars, hasImage, quote, req.Fonts.Paragraph)
+	header := headerFor(req.Header, chars, hasImage, heroSize)
+	// Menurunkan kartu memakan sisa ruang yang SAMA dengan menurunkan blok isi:
+	// keduanya mendorong isi ke arah tepi bawah. Karena itu jatah dihitung
+	// berurutan — geseran blok isi dilayani dulu, sisanya untuk pita atas.
+	cardTop := min(CardTopMax, max(0, req.CardTop))
+	if room := headerFor(CardTopMax, chars, hasImage, heroSize) - header; cardTop > room {
+		cardTop = max(0, room)
+	}
 
 	// Isi kartu dijangkarkan ke bawah, jadi sisa ruang jatuh tepat di bawah foto.
 	// Porsi foto dibuat agak besar supaya ruang itu terisi gambar, bukan jadi
@@ -547,22 +634,27 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 
 	d := templateData{
 		Width: width, Height: height,
-		Dark:        req.Style != StyleLight,
-		Quote:       quote,
-		HasImage:    hasImage,
-		Image:       a.Image,
-		Hero:        hero,
-		Context:     context,
-		Source:      firstNonEmpty(a.Source, a.Domain),
-		Domain:      a.Domain,
-		Date:        a.Date,
-		FontCSS:     b.fonts(),
-		PhotoHeight: photoHeight,
-		PhotoX:      clamp(req.Photo.OffsetX, limitW),
-		PhotoY:      clamp(req.Photo.OffsetY, limitH),
-		PhotoFit:    fitCSS,
-		PhotoFill:   fillBlur,
-		BoxOff:      boxTransparent,
+		Dark:      req.Style != StyleLight,
+		Quote:     quote,
+		HasImage:  hasImage,
+		Image:     a.Image,
+		Hero:      hero,
+		Context:   context,
+		Source:    firstNonEmpty(a.Source, a.Domain),
+		Domain:    a.Domain,
+		Date:      a.Date,
+		FontCSS:   b.fonts(),
+		PhotoX:    clamp(req.Photo.OffsetX, limitW),
+		PhotoY:    clamp(req.Photo.OffsetY, limitH),
+		PhotoFit:  fitCSS,
+		PhotoFill: fillBlur,
+		BoxOff:    boxTransparent,
+		// -72 = jarak bawaan: isi sedikit menaiki bagian foto yang sudah memudar,
+		// supaya tidak ada garis pemisah yang kentara. Geseran pengguna menambah
+		// dari sana.
+		ContentTop:  px(-72 + header),
+		CardTop:     px(cardTop),
+		PhotoPx:     frameHeight,
 		PhotoZoom:   strconv.FormatFloat(zoom, 'f', 3, 64),
 		Align:       align,
 		RuleMargin:  ruleMargin,
@@ -570,7 +662,7 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 		ReadMore:    p.readMore,
 		Palette:     pal,
 		HeroSize:    px(heroSize),
-		ContextSize: px(scaled(contextSize, req.Fonts.Title)),
+		ContextSize: px(max(contextMin, scaled(contextSize, req.Fonts.Title))),
 		SmallSize:   px(26),
 		Padding:     px(64),
 	}
@@ -661,25 +753,30 @@ var tmpl = template.Must(template.New("card").Parse(`<!doctype html>
    tiap berita membawa warnanya sendiri. Yang dipinjam hanya ronanya; terangnya
    dikunci palet supaya foto malam dan foto siang sama terbacanya.
 
-   Kuning penanda TIDAK ikut berubah. Ia satu-satunya warna tetap di kartu, dan
-   itulah yang membuat kartu-kartu ini terlihat satu keluarga walau latarnya
-   berbeda-beda. Kuning juga sengaja menghindari merah: hampir semua media
-   Indonesia memakai merah di logonya, jadi aksen merah akan bertabrakan dengan
-   lencana sumbernya sendiri. */
+   Penanda (garis & stempel sumber) ikut rona itu juga, tapi ditarik ke rentang
+   pastel — bukan disamakan. Penanda yang persis sewarna latar akan lenyap.
+   Kuning #E4B429 tetap jadi warna dasarnya: dipakai saat tidak ada rona yang
+   bisa diikuti (foto hitam putih, atau warna pilihan tanpa rona seperti putih). */
 :root{
   --ink:{{.Palette.Ink}};           /* latar, segelap tinta cetak */
   --paper:{{.Palette.Paper}};       /* kertas guntingan, ikut menghangat */
   --ink-on-paper:#1A1714;           /* hitam kehangatan, untuk teks di atas kertas */
-  --highlight:#E4B429;              /* kuning penanda — satu-satunya warna tetap */
+  --highlight:{{.Palette.Accent}};  /* penanda: rona kartu, ditarik ke pastel */
 }
 html,body{width:{{.Width}}px;height:{{.Height}}px;overflow:hidden}
+/* padding-top = pita kosong saat SELURUH kartu diturunkan. Kanvasnya tetap
+   1080x1920 (box-sizing:border-box), jadi yang muncul di atas adalah latar
+   kartu — bukan kartu yang mengecil. */
 body{
   font-family:'Clipper Sans',"Segoe UI",Roboto,Arial,sans-serif;
-  display:flex;flex-direction:column;
+  display:flex;flex-direction:column;padding-top:{{.CardTop}}px;
   {{if .Dark}}background:var(--ink);color:var(--paper)
   {{else}}background:{{.Palette.LightBg}};color:#1A1714{{end}}
 }
-.photo{position:relative;height:{{.PhotoHeight}}%;flex:none;overflow:hidden;
+/* Tinggi dalam PIKSEL, bukan persen: persen dihitung terhadap kotak yang sudah
+   dikurangi pita atas, jadi menurunkan kartu malah memendekkan fotonya —
+   padahal yang diminta foto yang sama, turun. */
+.photo{position:relative;height:{{.PhotoPx}}px;flex:none;overflow:hidden;
   background:var(--ink)}
 /* object-fit:cover dipakai—bukan min-width/min-height dengan width:auto—karena
    yang terakhir membuat penskalaan bergantung pada ukuran asli gambar relatif
@@ -727,9 +824,17 @@ body{
    sudah memudar — tidak ada rongga menganga di bawah guntingan.
    Tanpa foto: dijangkarkan ke bawah justru menyisakan setengah kartu kosong di
    atas, jadi isinya ditaruh di tengah. */
+/* Isi dijangkarkan ke ATAS, tepat di bawah foto. Jadi mengecilkan huruf membuat
+   guntingan dan kaki kartu NAIK, bukan tenggelam ke bawah — arah yang sama
+   dengan yang dilakukan pengguna pada penggesernya.
+   Dulu dijangkarkan ke bawah supaya tidak ada rongga di bawah guntingan;
+   ongkosnya rongga itu pindah ke bawah kartu, dan di sanalah UI aplikasi sosmed
+   menutupinya — jadi ruang kosong justru lebih baik ada di situ.
+   Tanpa foto: ditaruh di tengah, karena menjangkarkan ke atas menyisakan
+   setengah kartu kosong di bawah. */
 .content{flex:1;padding:0 {{.Padding}}px {{.Padding}}px;display:flex;flex-direction:column;
   position:relative;z-index:2;
-  {{if .HasImage}}justify-content:flex-end;margin-top:-72px
+  {{if .HasImage}}justify-content:flex-start;margin-top:{{.ContentTop}}px
   {{else}}justify-content:center;padding-top:{{.Padding}}px{{end}}}
 
 /* Tanda mulai kutipan. Menandai di mana bahan orang lain mulai dikutip —

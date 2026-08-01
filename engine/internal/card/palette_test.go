@@ -51,6 +51,9 @@ func TestPhotoWithoutHueKeepsTheOriginalPalette(t *testing.T) {
 	}
 	// Gradasi bawah foto memakai komponen RGB, dan harus menyebut warna yang
 	// sama dengan latarnya — kalau meleset, ada garis warna di batas foto.
+	if dark.Accent != "#E4B429" || light.Accent != "#E4B429" {
+		t.Errorf("penanda tanpa rona berubah: %q / %q", dark.Accent, light.Accent)
+	}
 	if dark.InkRGB != "20,23,28" || dark.LightBgRGB != "221,216,204" {
 		t.Errorf("komponen gradasi tidak cocok dengan latarnya: %+v", dark)
 	}
@@ -78,7 +81,20 @@ func TestTextStaysReadableForEveryHue(t *testing.T) {
 				if c := contrast(p.Faint, bg); c < 3 {
 					t.Errorf("h=%.0f s=%.1f dark=%v: kaki kartu kontras %.1f (mau >=3)", h, s, dark, c)
 				}
+				// Stempel sumber memikul teks gelap di atas penanda; kalau
+				// kontrasnya jatuh, atribusinya tidak terbaca — dan atribusi
+				// adalah janji fitur ini.
+				if c := contrast(p.Accent, onPaper); c < 7 {
+					t.Errorf("h=%.0f s=%.1f dark=%v: teks di stempel kontras %.1f (mau >=7)", h, s, dark, c)
+				}
 				if dark {
+					// Penanda harus terlihat di atas latar gelap. Di gaya terang
+					// pagar ini tidak berlaku: penanda yang cukup cerah untuk
+					// memikul teks gelap pasti berdekatan dengan kertas terang —
+					// itu sudah begitu sejak kartu ini memakai satu kuning tetap.
+					if c := contrast(p.Accent, bg); c < 3 {
+						t.Errorf("h=%.0f s=%.1f: penanda vs latar kontras %.1f (mau >=3)", h, s, c)
+					}
 					// Guntingan kertas harus terbaca jelas sebagai kertas di atas
 					// latar gelap — itu seluruh gagasan desainnya.
 					if c := contrast(p.Paper, p.Ink); c < 10 {
@@ -275,5 +291,21 @@ func TestParseHexAcceptsOnlyFullSixDigits(t *testing.T) {
 func TestGreyCustomColourFallsBack(t *testing.T) {
 	if got := toneOfHex("#808080"); got.ok {
 		t.Errorf("abu-abu menghasilkan rona %.0f, mau jatuh ke bawaan", got.hue)
+	}
+}
+
+// Penanda mengikuti rona kartu, tapi tidak pernah SAMA dengan latar atau
+// kertasnya — kalau sama, ia lenyap dan kartu kehilangan penandanya.
+func TestAccentFollowsTheHueWithoutMatchingIt(t *testing.T) {
+	for h := 0.0; h < 360; h += 30 {
+		for _, dark := range []bool{true, false} {
+			p := paletteFor(tone{hue: h, sat: 0.6, ok: true}, dark)
+			if p.Accent == baseAccent {
+				t.Errorf("h=%.0f dark=%v: penanda masih kuning dasar", h, dark)
+			}
+			if p.Accent == p.Ink || p.Accent == p.Paper || p.Accent == p.LightBg {
+				t.Errorf("h=%.0f dark=%v: penanda sewarna dengan latar/kertas (%s)", h, dark, p.Accent)
+			}
+		}
 	}
 }
