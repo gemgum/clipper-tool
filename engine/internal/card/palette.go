@@ -204,6 +204,14 @@ func Swatches() [][]string {
 		row(func(i int) string { return hex(hue(i), 0.10, 0.62) }),
 		// Monokromatik — satu rona, kepekatan menaik.
 		row(func(i int) string { return hex(220, float64(i)*0.04, 0.55) }),
+		// Hitam-putih — hitam pekat sampai putih, langkahnya rata seperti baris
+		// lain supaya jumlahnya sama.
+		//
+		// Yang membedakan kedua belasnya di mata engine adalah PENANDA, sebab
+		// penanda memakai warna pilihan apa adanya. Latarnya sendiri tidak ikut
+		// berubah: terang latar dikunci demi keterbacaan. Kartu yang benar-benar
+		// putih didapat dengan memasangkan warna terang ini ke gaya Terang.
+		row(func(i int) string { return hex(0, 0, float64(i)/(n-1)) }),
 	}
 }
 

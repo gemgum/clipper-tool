@@ -310,8 +310,15 @@ func TestAccentFollowsTheHueWithoutMatchingIt(t *testing.T) {
 func TestEverySwatchProducesADistinctCard(t *testing.T) {
 	seen := map[palette]string{}
 	rows := Swatches()
-	if len(rows) < 6 {
+	if len(rows) < 7 {
 		t.Fatalf("baru %d keluarga warna", len(rows))
+	}
+	// "jumlahnya sama" — tiap baris harus sepanjang baris lain, kalau tidak
+	// tabelnya terlihat compang-camping.
+	for i, r := range rows {
+		if len(r) != len(rows[0]) {
+			t.Errorf("baris %d berisi %d warna, baris lain %d", i, len(r), len(rows[0]))
+		}
 	}
 	for r, row := range rows {
 		if len(row) < 6 {
@@ -398,6 +405,11 @@ func TestStampTextPicksWhicheverReadsBetter(t *testing.T) {
 			if p.OnAccent != want {
 				t.Errorf("penanda %s: teks %s (kontras %.1f), padahal %s memberi %.1f",
 					sw, p.OnAccent, contrast(p.Accent, p.OnAccent), want, max(dark, light))
+			}
+			// 4,05 adalah batas matematis di titik peralihan; di bawah itu berarti
+			// ada yang salah, bukan sekadar warna yang sulit.
+			if c := contrast(p.Accent, p.OnAccent); c < 4 {
+				t.Errorf("penanda %s: kontras teks stempel %.1f (mau >=4)", sw, c)
 			}
 		}
 	}

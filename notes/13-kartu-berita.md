@@ -388,6 +388,17 @@ berbeda tetap kelabu di mata engine — semuanya akan menghasilkan kartu yang
 sama. Menyapu kepekatan pada satu rona membuat mereka berbeda sungguhan, dan
 kebetulan itu juga arti "monokromatik" yang sebenarnya.
 
+**Baris hitam-putih baru mungkin setelah penanda memakai warna pilihan apa
+adanya.** Sebelum itu, dua belas kelabu semuanya jatuh ke kartu yang sama — rona
+dan kepekatannya identik di mata engine. Sekarang yang membedakannya penandanya
+sendiri: dari `#000000` sampai `#FFFFFF`.
+
+Latarnya TIDAK ikut berubah, sebab terang latar dikunci demi keterbacaan. Kartu
+yang benar-benar putih didapat dengan memasangkan warna terang itu ke **gaya
+Terang** — sudah diverifikasi lewat render. Yang perlu diterima: pada pilihan
+paling hitam, garis penanda hampir menyatu dengan latar gelap. Itu konsekuensi
+dari memakai warna pilihan apa adanya, bukan kelalaian.
+
 **Earth tone tidak menyapu seluruh lingkaran warna.** Ronanya dibatasi ke busur
 15-114 derajat: tanah liat, oker, zaitun. Merah muda dan biru bukan warna tanah,
 jadi menyapu 360 derajat akan membuat namanya bohong.
