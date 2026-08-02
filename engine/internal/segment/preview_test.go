@@ -36,7 +36,7 @@ func TestOpeningPreviewIsRecognised(t *testing.T) {
 		"wartawan menuliskan berita meninggalnya penjaga rumahnya",
 	)
 	tr := build(lines, 5)
-	if !IsOpeningPreview(tr, 0, 15) {
+	if OpeningPreviewEnd(tr) <= 0 {
 		t.Error("cuplikan pembuka tidak dikenali")
 	}
 }
@@ -52,8 +52,8 @@ func TestRealOpeningIsKept(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("pembicaraan lainnya seputar perkara berbeda nomor %d puluhan", i))
 	}
 	tr := build(lines, 5)
-	if IsOpeningPreview(tr, 0, 15) {
-		t.Error("pembuka yang memang isi ikut dibuang")
+	if end := OpeningPreviewEnd(tr); end > 0 {
+		t.Errorf("pembuka yang memang isi ikut dibuang (ujung cuplikan %.0f)", end)
 	}
 }
 
@@ -69,11 +69,15 @@ func TestOnlyTheOpeningIsChecked(t *testing.T) {
 			"bersama masyarakat menjalankan perjanjian kehidupan berbangsa")
 	}
 	tr := build(lines, 5) // 600 detik
-	if IsOpeningPreview(tr, 300, 330) {
-		t.Error("momen di tengah video ikut diperiksa")
+	end := OpeningPreviewEnd(tr)
+	if end <= 0 {
+		t.Fatal("prasyarat uji tidak terpenuhi: pembuka seharusnya terdeteksi bergema")
 	}
-	if !IsOpeningPreview(tr, 0, 30) {
-		t.Error("prasyarat uji tidak terpenuhi: pembuka seharusnya terdeteksi bergema")
+	// Walau SELURUH video bergema, vonisnya tidak boleh menjalar melewati
+	// pembuka — kalau tidak, video yang topiknya konsisten akan kehilangan
+	// separuh isinya.
+	if end > previewOpening+previewWindow {
+		t.Errorf("ujung cuplikan %.0f menjalar melewati pembuka (%.0f)", end, previewOpening)
 	}
 }
 
@@ -81,7 +85,7 @@ func TestOnlyTheOpeningIsChecked(t *testing.T) {
 // menggeser rasionya jauh, dan menuduh berdasarkan itu asal-asalan.
 func TestTooFewWordsIsNeverFlagged(t *testing.T) {
 	tr := build([]string{"iya", "oh ya", "begitu"}, 5)
-	if IsOpeningPreview(tr, 0, 15) {
+	if OpeningPreviewEnd(tr) > 0 {
 		t.Error("rentang tanpa kata isi ikut dituduh cuplikan")
 	}
 }
@@ -92,7 +96,75 @@ func TestNothingAfterMeansNoVerdict(t *testing.T) {
 		"pemerintah membangun universitas kebangsaan bersama",
 		"koruptor ditangkap kejaksaan kemarin sekali",
 	}, 5)
-	if IsOpeningPreview(tr, 0, 10) {
+	if OpeningPreviewEnd(tr) > 0 {
 		t.Error("dituduh cuplikan padahal tidak ada isi setelahnya")
 	}
+}
+
+// hybridTranscript meniru bentuk yang dulu lolos: cuplikan, lalu bumper acara
+// yang kosakatanya diucapkan SEKALI seumur video, lalu isi sebenarnya.
+//
+//	0-90    cuplikan  (kosakatanya bergema di isi)
+//	90-125  bumper    (kosakatanya unik, tidak pernah muncul lagi)
+//	125+    isi
+func hybridTranscript() types.Transcript {
+	teaser := []string{
+		"pemerintah membangun universitas kebangsaan bersama masyarakat",
+		"koruptor ditangkap kejaksaan kemarin dengan tuduhan penggelapan",
+		"wartawan menuliskan berita meninggalnya penjaga rumahnya",
+	}
+	var lines []string
+	for i := 0; i < 6; i++ {
+		lines = append(lines, teaser...) // 18 baris = 90 detik
+	}
+	lines = append(lines, // bumper: kosakata yang tidak muncul di mana pun lagi
+		"halo pemirsa selamat menyaksikan tayangan mingguan",
+		"jangan lupa berlangganan menekan lonceng notifikasi",
+		"sekarang mari simak obrolannya sampai penghabisan",
+		"disiarkan langsung setiap petang menjelang",
+		"terima kasih sudah menemani sepanjang episodenya",
+		"salam hangat kepada seluruh penonton setianya",
+		"ikuti juga tayangan berikutnya pekan mendatang",
+	)
+	for i := 0; i < 45; i++ { // isi: mengulang kosakata cuplikan
+		lines = append(lines, teaser[i%len(teaser)])
+	}
+	return build(lines, 5)
+}
+
+// Inilah bug yang sebenarnya: klip 78,4-124,8 detik berkaki di dua tempat —
+// separuh cuplikan, separuh bumper. Kosakata bumper mengencerkan rasio gemanya
+// jadi 0,607, di dalam pita normal isi video, sehingga vonis per kandidat tidak
+// mungkin menangkapnya. Yang menangkapnya: mengetahui di mana cuplikan berakhir.
+func TestStraddlingClipIsCaught(t *testing.T) {
+	tr := hybridTranscript()
+	end := OpeningPreviewEnd(tr)
+	if end <= 0 {
+		t.Fatal("cuplikan tidak dikenali sama sekali")
+	}
+	// Klip yang MULAI di dalam cuplikan tapi berakhir jauh di dalam bumper.
+	const straddleStart = 75.0
+	if straddleStart >= end {
+		t.Errorf("klip berkaki dua (mulai %.0f) lolos: ujung cuplikan cuma %.0f",
+			straddleStart, end)
+	}
+	// Dan ujungnya tidak boleh menjalar sampai ke isi.
+	if end >= 125 {
+		t.Errorf("ujung cuplikan %.0f sudah memakan isi video (mulai 125)", end)
+	}
+}
+
+// Rasio klip berkaki dua itu memang jatuh di dalam pita isi video — bukti bahwa
+// tidak ada ambang yang bisa memisahkannya, dan karena itu pendekatan lamanya
+// mustahil diperbaiki dengan menyetel angka.
+func TestStraddlingClipRatioSitsInsideTheContentBand(t *testing.T) {
+	r, ok := echoRatio(hybridTranscript(), 75, 125)
+	if !ok {
+		t.Fatal("rasio tidak terhitung")
+	}
+	if r >= previewThreshold {
+		t.Fatalf("prasyarat uji meleset: rasio %.2f, seharusnya di bawah ambang %.2f", r, previewThreshold)
+	}
+	t.Logf("rasio klip berkaki dua = %.2f (ambang %.2f) — persis kenapa vonis per kandidat gagal",
+		r, previewThreshold)
 }

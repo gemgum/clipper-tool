@@ -216,13 +216,13 @@ type Options struct {
 	// mengenal nama daerah atau istilah Jawa, jadi ia menuliskannya sebagai kata
 	// Indonesia terdekat ("Londo Ireng" → "Londo Irang"), dan tanpa daftar ini
 	// tahap koreksi justru diperintahkan membiarkan kata asing apa adanya.
-	Terms []string `json:"terms"`
-	Provider       string      `json:"provider"`       // claude | ollama (mesin scoring)
-	LLMModel       string      `json:"llm_model"`      // model Claude (mode hybrid)
-	OllamaModel    string      `json:"ollama_model"`   // model lokal (mode offline)
-	OllamaURL      string      `json:"ollama_url"`     // default http://localhost:11434
-	MinScore       int         `json:"min_score"`
-	OutputDir      string      `json:"output_dir"`
+	Terms       []string `json:"terms"`
+	Provider    string   `json:"provider"`     // claude | ollama (mesin scoring)
+	LLMModel    string   `json:"llm_model"`    // model Claude (mode hybrid)
+	OllamaModel string   `json:"ollama_model"` // model lokal (mode offline)
+	OllamaURL   string   `json:"ollama_url"`   // default http://localhost:11434
+	MinScore    int      `json:"min_score"`
+	OutputDir   string   `json:"output_dir"`
 }
 
 // DefaultOptions mengembalikan opsi default (konten Indonesia, CPU, HD).

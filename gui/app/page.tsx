@@ -513,6 +513,10 @@ export default function Home() {
       if (d.stage) setStage(d.stage);
       if (typeof d.progress === "number") setProgress(d.progress);
       if (d.message) { setMessage(d.message); addLog(`${d.stage || ""}: ${d.message}`); }
+      // Ringkasan waktu per tahap, hanya ada di peristiwa terakhir. Dicatat
+      // tanpa awalan tahap: isinya tabel monospace yang perataannya harus utuh
+      // (.logbox sudah pre-wrap + monospace).
+      if (d.summary) addLog(d.summary);
     });
     events.addEventListener("clip", (e: MessageEvent) => {
       const clip: Clip = JSON.parse(e.data);

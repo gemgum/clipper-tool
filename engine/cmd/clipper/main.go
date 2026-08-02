@@ -187,6 +187,11 @@ func cmdRun(root string, args []string) {
 		if pr.Clip == nil {
 			fmt.Fprintf(os.Stderr, "[%3.0f%%] %-12s %s\n", pr.Value*100, pr.Stage, pr.Message)
 		}
+		// Ringkasan dicetak apa adanya: ia tabel multi-baris, jadi awalan
+		// "[100%] done" di depannya justru merusak perataan kolomnya.
+		if pr.Summary != "" {
+			fmt.Fprintln(os.Stderr, pr.Summary)
+		}
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "FAILED:", err)

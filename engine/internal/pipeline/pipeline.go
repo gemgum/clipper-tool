@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/correct"
@@ -36,6 +37,10 @@ type Progress struct {
 	Value   float64     `json:"progress"`
 	Message string      `json:"message,omitempty"`
 	Clip    *types.Clip `json:"clip,omitempty"`
+	// Summary hanya terisi pada peristiwa terakhir: tabel rincian waktu siap
+	// tampil. Dikirim sebagai teks, bukan data mentah, karena kedua penampilnya
+	// (terminal & kotak log GUI) sama-sama monospace.
+	Summary string `json:"summary,omitempty"`
 }
 
 // ProgressFunc callback progres (boleh nil).
@@ -90,6 +95,11 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		return nil, fmt.Errorf("work folder %q: %w", tmpDir, err)
 	}
 
+	rec := newRecorder()
+	// Durasi video dipakai menghitung rasio realtime di ringkasan. Gagal probe
+	// tidak boleh menggagalkan job — ringkasannya cukup tampil tanpa rasio.
+	videoSec, _ := p.ff.Duration(ctx, input)
+
 	// 1. Cache transkrip: kunci dari isi video + model + bahasa. Transkripsi
 	// adalah tahap termahal (bisa puluhan menit), jadi percobaan ulang setelah
 	// job gagal tidak perlu mengulanginya.
@@ -115,21 +125,30 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	var rms worker.FeaturesResult
 	if needAudio {
 		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Extracting audio"})
+		t0 := time.Now()
 		if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
 			return nil, err
 		}
+		rec.since("Extract audio", t0, "ffmpeg")
 		// 2. Fitur audio (opsional, dari worker C++).
 		if p.wk.Available() {
 			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy (C++ worker)"})
-			if r, err := p.wk.Features(ctx, wav, 100); err == nil {
+			t0 := time.Now()
+			r, err := p.wk.Features(ctx, wav, 100)
+			note := "C++ worker"
+			if err == nil {
 				rms = r
+			} else {
+				note = "C++ worker (failed, ignored)"
 			}
+			rec.since("Audio features", t0, note)
 		}
 	}
 
 	// 3. Transkripsi (bagian paling lama; progress diparse dari whisper).
 	if !cacheHit {
 		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transcribing (whisper.cpp)"})
+		tTr := time.Now()
 		outBase := filepath.Join(tmpDir, "transcript")
 		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
 			// Petakan 0..1 transkripsi ke pita 0.20..0.48 dari total.
@@ -143,10 +162,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			return nil, err
 		}
 		tr = got
+		rec.since("Transcribe", tTr, "whisper "+p.Opts.WhisperModel)
 		if cachePath != "" {
 			// Gagal menyimpan cache tidak boleh menggagalkan job.
 			_ = saveTranscriptCache(cachePath, tr)
 		}
+	} else {
+		rec.add("Transcribe", 0, "whisper "+p.Opts.WhisperModel+" (from cache)")
 	}
 	if len(tr.Segments) == 0 {
 		return nil, fmt.Errorf("the transcript is empty — check the audio/language")
@@ -163,11 +185,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// hanya sebelum subtitle: tanda baca yang salah tempat membuat
 	// segment.BuildCandidates memotong klip di tengah kalimat.
 	if p.Opts.TranscriptFix != config.TranscriptFixOff {
+		t0 := time.Now()
 		fixed, err := p.correctTranscript(ctx, tr, cacheKey, onProgress)
 		if err != nil {
 			return nil, err
 		}
 		tr = fixed
+		rec.since("Correct transcript", t0, correctionNote(p.Opts))
 	}
 
 	// 4-5. Pemilihan momen. Mesin dipilih pengguna dan TIDAK diganti diam-diam:
@@ -188,6 +212,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		return nil, fmt.Errorf("unknown score engine %q — choose claude, ollama, or heuristic", p.Opts.Provider)
 	}
 
+	tSel := time.Now()
 	if sel != nil {
 		clips, err := p.selectWith(ctx, tr, sel, engineName, onProgress)
 		if err != nil {
@@ -198,6 +223,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		emit(onProgress, Progress{Stage: "segmenting", Value: 0.58, Message: "Selecting clips (heuristic)"})
 		selected = p.heuristicSelect(tr, rms)
 	}
+	rec.since("Select moments", tSel, engineName)
 	// Buang momen yang jatuh di cuplikan pembuka. Berlaku untuk SEMUA mesin:
 	// prompt sudah melarangnya, tapi diuji langsung qwen2.5 tetap memilihnya —
 	// model lokal tidak terikat instruksi panjang.
@@ -217,6 +243,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// 6. Render klip.
 	tw, th := p.Opts.Dims()
 	crf, preset := p.Opts.Encode()
+	tRender := time.Now()
 	for i := range selected {
 		cl := &selected[i]
 		cl.ID = fmt.Sprintf("clip_%02d", i+1)
@@ -296,7 +323,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		emit(onProgress, Progress{Stage: "rendering", Value: frac, Clip: cl})
 	}
 
-	emit(onProgress, Progress{Stage: "done", Value: 1.0, Message: fmt.Sprintf("Done: %d clips", len(selected))})
+	rec.since(fmt.Sprintf("Render %d %s", len(selected), plural(len(selected), "clip", "clips")), tRender,
+		fmt.Sprintf("%s, %s", p.Opts.Resolution, p.Opts.Quality))
+
+	sum := rec.summary(jobID, videoSec, len(selected), cacheHit)
+	emit(onProgress, Progress{Stage: "done", Value: 1.0,
+		Message: fmt.Sprintf("Done: %d clips", len(selected)),
+		Summary: sum.Format()})
 	return selected, nil
 }
 
@@ -314,6 +347,24 @@ func correctionProvider(o config.Options) string {
 		return "claude"
 	}
 	return "ollama"
+}
+
+// correctionNote menyebut mesin & jumlah istilah yang dipakai tahap koreksi,
+// untuk ditampilkan di ringkasan. Daftar istilah ikut disebut karena ia
+// mengubah hasil DAN kunci cache — dua percobaan yang waktunya mirip tapi
+// daftarnya berbeda bukan percobaan yang sama.
+func correctionNote(o config.Options) string {
+	name := "Ollama (" + o.OllamaModel + ")"
+	if correctionProvider(o) == "claude" {
+		name = "Claude (" + o.LLMModel + ")"
+	}
+	switch n := len(o.Terms); {
+	case n == 1:
+		name += ", 1 term"
+	case n > 1:
+		name += fmt.Sprintf(", %d terms", n)
+	}
+	return name
 }
 
 // correctTranscript membenahi transkrip sebelum dipakai tahap berikutnya.
@@ -354,8 +405,19 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 		}
 	}
 
+	// Jumlah istilah ikut dilaporkan: daftar yang tidak terkirim gagal secara
+	// senyap — hasilnya sekadar "tidak ada yang berubah", persis seperti daftar
+	// yang terkirim tapi tidak dipakai model. Tanpa angka ini keduanya mustahil
+	// dibedakan tanpa membongkar berkas cache.
+	terms := ""
+	switch n := len(p.Opts.Terms); {
+	case n == 1:
+		terms = " (1 term)"
+	case n > 1:
+		terms = fmt.Sprintf(" (%d terms)", n)
+	}
 	emit(onProgress, Progress{Stage: "correcting", Value: 0.48,
-		Message: fmt.Sprintf("%s is correcting the transcript", engineName)})
+		Message: fmt.Sprintf("%s is correcting the transcript%s", engineName, terms)})
 
 	fixed, report, err := correct.Correct(ctx, tr, p.Opts.Terms, complete, engineName, func(done, total int) {
 		emit(onProgress, Progress{
@@ -561,9 +623,19 @@ func segmentsInRange(tr types.Transcript, start, end float64) []types.Transcript
 // Dipisah dari pemanggilnya supaya bisa diuji tanpa menjalankan seluruh
 // pipeline — dan supaya jelas bahwa ia hanya MENYARING, tidak mengubah momen.
 func dropOpeningPreview(tr types.Transcript, clips []types.Clip) []types.Clip {
+	// Ujung cuplikan dihitung sekali, bukan per klip: satu video punya satu
+	// ujung cuplikan, dan menghitungnya ulang tiap klip hanya memindai seluruh
+	// transkrip berkali-kali untuk jawaban yang sama.
+	previewEnd := segment.OpeningPreviewEnd(tr)
+	if previewEnd <= 0 {
+		return clips
+	}
 	kept := make([]types.Clip, 0, len(clips))
 	for _, c := range clips {
-		if segment.IsOpeningPreview(tr, c.Start, c.End) {
+		// Cukup awalnya yang diperiksa. Klip yang MULAI di dalam cuplikan sudah
+		// cacat betapa pun panjang ekornya — justru klip berkaki dua seperti
+		// itulah yang dulu lolos.
+		if c.Start < previewEnd {
 			continue
 		}
 		kept = append(kept, c)

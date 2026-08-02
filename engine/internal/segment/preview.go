@@ -30,6 +30,19 @@ import (
 //	cuplikan (video dengan cuplikan) : 0,97 dan 0,95
 //	seluruh jendela isi, tiga video  : 0,33 - 0,81
 //	90 detik pertama, dua video lain : 0,33 - 0,76 (memang tidak bercuplikan)
+//
+// # Kenapa yang dicari UJUNG cuplikan, bukan vonis per kandidat
+//
+// Versi pertama bertanya "apakah kandidat INI cuplikan?" dan lolos pada klip
+// yang berkaki di dua tempat: 78,4-124,8 detik, separuh cuplikan separuh bumper
+// acara ("Halo saudara semua, senang bisa menyapa..."). Kosakata bumper cuma
+// diucapkan sekali seumur video, jadi ia MENGENCERKAN rasio gema klip itu jadi
+// 0,607 — di dalam pita normal isi video (0,33-0,81).
+//
+// Artinya tidak ada ambang yang bisa memisahkannya. Bukan angkanya yang salah,
+// tapi pertanyaannya. Maka yang dihitung sekarang: SAMPAI DETIK BERAPA cuplikan
+// berakhir — sekali per transkrip — lalu kandidat mana pun yang mulai sebelum
+// titik itu dibuang, seberapa pun jauh ekornya menjulur.
 const (
 	// previewThreshold = ambang "hampir semuanya muncul lagi nanti".
 	//
@@ -51,6 +64,19 @@ const (
 	// previewMinWords = kosakata terkecil yang layak dinilai. Di bawah ini satu
 	// dua kata sudah menggeser rasionya jauh.
 	previewMinWords = 8
+
+	// previewWindow = lebar jendela pemindaian.
+	//
+	// Harus selebar ini karena sinyal PER SEGMEN terlalu berisik: di tengah
+	// cuplikan pun ada segmen yang jatuh ke 0,75 hanya karena satu kata unik
+	// ("tersangka", "terbetunya"). Diukur pada dua video bercuplikan, jendela 30
+	// detik meratakan derau itu tanpa mengaburkan batasnya — rasio bertahan
+	// 0,93-1,00 di sepanjang cuplikan lalu jatuh ke 0,58 tepat sesudahnya.
+	previewWindow = 30.0
+
+	// previewStep = jarak geser antar jendela. Lebih kecil = batas lebih tepat,
+	// tapi tidak ada gunanya lebih halus daripada panjang satu-dua segmen.
+	previewStep = 10.0
 )
 
 // reWord memilih kata yang cukup panjang untuk membawa makna. Kata pendek di
@@ -71,26 +97,21 @@ func vocab(tr types.Transcript, from, to float64) map[string]bool {
 	return out
 }
 
-// IsOpeningPreview menilai apakah rentang ini bagian dari cuplikan pembuka.
-//
-// Sengaja mengembalikan bool, bukan skor: pemanggilnya cuma perlu memutuskan
-// pakai atau tidak, dan membocorkan angkanya mengundang pemanggil membuat
-// ambangnya sendiri-sendiri.
-func IsOpeningPreview(tr types.Transcript, start, end float64) bool {
-	if start > previewOpening {
-		return false
-	}
-	here := vocab(tr, start, end)
+// echoRatio menghitung berapa bagian kosakata di [from,to] yang muncul lagi
+// jauh di belakang. ok=false berarti tidak ada dasar untuk menilai — kosakatanya
+// terlalu sedikit, atau tidak ada "nanti" untuk dibandingkan.
+func echoRatio(tr types.Transcript, from, to float64) (float64, bool) {
+	here := vocab(tr, from, to)
 	if len(here) < previewMinWords {
-		return false
+		return 0, false
 	}
 	var last float64
 	if n := len(tr.Segments); n > 0 {
 		last = tr.Segments[n-1].End
 	}
-	later := vocab(tr, end+previewGap, last)
+	later := vocab(tr, to+previewGap, last)
 	if len(later) == 0 {
-		return false // tidak ada "nanti" untuk dibandingkan
+		return 0, false
 	}
 	echoed := 0
 	for w := range here {
@@ -98,5 +119,30 @@ func IsOpeningPreview(tr types.Transcript, start, end float64) bool {
 			echoed++
 		}
 	}
-	return float64(echoed)/float64(len(here)) >= previewThreshold
+	return float64(echoed) / float64(len(here)), true
+}
+
+// OpeningPreviewEnd mengembalikan detik di mana cuplikan pembuka berakhir.
+// Nol berarti video ini tidak dibuka dengan cuplikan.
+//
+// Dihitung SEKALI per transkrip, lalu dipakai untuk menyaring semua kandidat —
+// bukan dihitung ulang per kandidat. Selain jauh lebih murah, itu juga yang
+// membuat jawabannya konsisten: satu video punya satu ujung cuplikan, bukan
+// satu vonis per klip.
+//
+// Jendela digeser dari detik 0 selama rasio gemanya masih tinggi. Begitu satu
+// jendela jatuh — atau tidak bisa dinilai sama sekali — pemindaian berhenti di
+// situ. Ujungnya diambil dari jendela TERAKHIR yang masih tinggi, jadi ekor
+// cuplikan ikut terlindungi; wilayah tepat sesudahnya pun biasanya bumper
+// acara, yang sama tidak layaknya untuk dijadikan klip.
+func OpeningPreviewEnd(tr types.Transcript) float64 {
+	end := 0.0
+	for t := 0.0; t < previewOpening; t += previewStep {
+		r, ok := echoRatio(tr, t, t+previewWindow)
+		if !ok || r < previewThreshold {
+			break
+		}
+		end = t + previewWindow
+	}
+	return end
 }

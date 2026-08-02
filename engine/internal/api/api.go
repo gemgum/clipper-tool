@@ -466,7 +466,7 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 		size string
 	}{
 		{"tiny", "~75 MB"}, {"base", "~142 MB"}, {"small", "~466 MB"},
-		{"medium", "~1.5 GB"}, {"large-v3", "~2.9 GB"},
+		{"medium", "~1.5 GB"}, {"large-v3", "~2.9 GB"}, {"large-v3-turbo", "~1.5 GB"},
 	}
 	type modelInfo struct {
 		Name       string `json:"name"`
