@@ -58,7 +58,7 @@ func replyWith(fn func(index int, original string) string) Completer {
 
 func TestCorrectAppliesPunctuationAndKeepsTiming(t *testing.T) {
 	tr := transcript("- dari kemarin harusnya digeledah", "iya dong")
-	fixed, report, err := Correct(context.Background(), tr,
+	fixed, report, err := Correct(context.Background(), tr, nil,
 		replyWith(func(i int, original string) string {
 			if i == 0 {
 				return "Dari kemarin harusnya digeledah."
@@ -92,7 +92,7 @@ func TestCorrectAppliesPunctuationAndKeepsTiming(t *testing.T) {
 func TestCorrectDoesNotMutateInput(t *testing.T) {
 	tr := transcript("halo dunia")
 	before := tr.Segments[0].Text
-	_, _, err := Correct(context.Background(), tr,
+	_, _, err := Correct(context.Background(), tr, nil,
 		replyWith(func(int, string) string { return "Halo dunia." }), "uji", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestCorrectDoesNotMutateInput(t *testing.T) {
 // Pagar pengaman: model yang memparafrase harus ditolak, teks asli dipertahankan.
 func TestCorrectRejectsParaphrase(t *testing.T) {
 	tr := transcript("ada beberapa poin yang lagi rime sekarang")
-	fixed, report, err := Correct(context.Background(), tr,
+	fixed, report, err := Correct(context.Background(), tr, nil,
 		replyWith(func(int, string) string {
 			return "Terdapat sejumlah hal hangat belakangan ini."
 		}), "uji", nil)
@@ -126,7 +126,7 @@ func TestCorrectRejectsParaphrase(t *testing.T) {
 // Pagar pengaman: model yang membuang separuh kalimat juga ditolak.
 func TestCorrectRejectsTruncation(t *testing.T) {
 	tr := transcript("satu dua tiga empat lima enam tujuh delapan sembilan sepuluh")
-	_, report, err := Correct(context.Background(), tr,
+	_, report, err := Correct(context.Background(), tr, nil,
 		replyWith(func(int, string) string { return "Satu dua." }), "uji", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestCorrectRejectsTruncation(t *testing.T) {
 // terlalu ketat sampai membunuh koreksi yang sah.
 func TestCorrectAcceptsSingleWordFix(t *testing.T) {
 	tr := transcript("ada beberapa poin yang lagi rime sekarang dan itu ditanyakan")
-	_, report, err := Correct(context.Background(), tr,
+	_, report, err := Correct(context.Background(), tr, nil,
 		replyWith(func(_ int, original string) string {
 			return strings.Replace(original, "rime", "rame", 1)
 		}), "uji", nil)
@@ -155,7 +155,7 @@ func TestCorrectAcceptsSingleWordFix(t *testing.T) {
 // Segmen yang tidak dibalas model dihitung, bukan diam-diam dianggap kosong.
 func TestCorrectCountsMissingSegments(t *testing.T) {
 	tr := transcript("satu", "dua", "tiga")
-	fixed, report, err := Correct(context.Background(), tr,
+	fixed, report, err := Correct(context.Background(), tr, nil,
 		func(ctx context.Context, system, user string, schema any) (string, error) {
 			// Hanya membalas segmen 0.
 			return `{"segments":[{"index":0,"text":"Satu."}]}`, nil
@@ -176,7 +176,7 @@ func TestCorrectCountsMissingSegments(t *testing.T) {
 // menghasilkan transkrip kosong (notes/12: tanpa fallback senyap).
 func TestCorrectFailsOnUnreadableReply(t *testing.T) {
 	tr := transcript("satu")
-	_, _, err := Correct(context.Background(), tr,
+	_, _, err := Correct(context.Background(), tr, nil,
 		func(ctx context.Context, system, user string, schema any) (string, error) {
 			return "maaf saya tidak mengerti", nil
 		}, "Ollama (qwen2.5)", nil)
@@ -228,7 +228,7 @@ func TestCorrectReportsProgress(t *testing.T) {
 	}
 	tr := transcript(texts...)
 	calls := 0
-	_, _, err := Correct(context.Background(), tr,
+	_, _, err := Correct(context.Background(), tr, nil,
 		replyWith(func(_ int, original string) string { return original }),
 		"uji", func(done, total int) { calls++ })
 	if err != nil {
@@ -247,7 +247,7 @@ func TestCorrectRejectsDroppedQuotationMarks(t *testing.T) {
 
 	// Kutip dihapus seluruhnya.
 	tr := transcript(quoted)
-	_, report, err := Correct(context.Background(), tr,
+	_, report, err := Correct(context.Background(), tr, nil,
 		replyWith(func(_ int, original string) string {
 			return strings.ReplaceAll(original, `"`, "")
 		}), "uji", nil)
@@ -259,7 +259,7 @@ func TestCorrectRejectsDroppedQuotationMarks(t *testing.T) {
 	}
 
 	// Kutip ditukar jadi kutip tunggal.
-	_, report, err = Correct(context.Background(), transcript(quoted),
+	_, report, err = Correct(context.Background(), transcript(quoted), nil,
 		replyWith(func(_ int, original string) string {
 			return strings.ReplaceAll(original, `"`, "'")
 		}), "uji", nil)
@@ -271,7 +271,7 @@ func TestCorrectRejectsDroppedQuotationMarks(t *testing.T) {
 	}
 
 	// Menambahkan tanda baca lain di dalam kutipan tetap boleh.
-	_, report, err = Correct(context.Background(), transcript(quoted),
+	_, report, err = Correct(context.Background(), transcript(quoted), nil,
 		replyWith(func(_ int, original string) string { return original + "." }), "uji", nil)
 	if err != nil {
 		t.Fatal(err)

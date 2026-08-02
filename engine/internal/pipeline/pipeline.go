@@ -25,6 +25,11 @@ import (
 	"github.com/gemgum/clipper/engine/internal/worker"
 )
 
+// clipLeadIn adalah ancang-ancang (detik) sebelum awal ucapan saat memotong
+// klip. Whisper menandai awal segmen pas di atau sesudah onset suara, sehingga
+// memotong tepat di angka itu memenggal suku kata pertama.
+const clipLeadIn = 0.3
+
 // Progress dilaporkan selama proses.
 type Progress struct {
 	Stage   string      `json:"stage"`
@@ -146,6 +151,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	if len(tr.Segments) == 0 {
 		return nil, fmt.Errorf("the transcript is empty — check the audio/language")
 	}
+	// Dihentikan DI SINI, sebelum koreksi: melewatkan ribuan segmen halusinasi ke
+	// LLM makan waktu sangat lama dan hasilnya tetap sampah. Diperiksa juga pada
+	// cache hit — transkrip buruk yang terlanjur tersimpan tidak boleh lolos
+	// hanya karena tidak dihitung ulang.
+	if err := detectRepetitionLoop(tr); err != nil {
+		return nil, err
+	}
 
 	// 3b. Koreksi transkrip. Dijalankan SEBELUM segmentasi & scoring, bukan
 	// hanya sebelum subtitle: tanda baca yang salah tempat membuat
@@ -214,6 +226,17 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			Message: fmt.Sprintf("Rendering %s (score %d)", cl.ID, cl.Score)})
 
 		segs := segmentsInRange(tr, cl.Start, cl.End)
+
+		// Mundur sedikit dari awal ucapan: timestamp awal whisper jatuh pas atau
+		// sesudah onset suara, jadi memotong tepat di angka itu memenggal suku
+		// kata pertama. Dilakukan SETELAH segmentsInRange supaya ancang-ancang
+		// ini tidak ikut menarik masuk segmen sebelumnya, dan cl.Start memang
+		// diubah agar metadata klip cocok dengan berkas yang jadi — termasuk
+		// titik acuan subtitle di bawah, supaya tetap sinkron.
+		cl.Start -= clipLeadIn
+		if cl.Start < 0 {
+			cl.Start = 0
+		}
 
 		// Teks ucapan klip tanpa timestamp — bahan untuk dibuatkan caption oleh
 		// LLM mana pun. Ditulis untuk SETIAP klip, tidak seperti .srt yang hanya
@@ -323,7 +346,7 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 
 	cachePath := ""
 	if cacheKey != "" {
-		cachePath = correctedCachePath(p.Paths.DataDir, cacheKey, engineName, correct.PromptVersion)
+		cachePath = correctedCachePath(p.Paths.DataDir, cacheKey, engineName, correct.CacheVersion(p.Opts.Terms))
 		if cached, ok := loadTranscriptCache(cachePath); ok {
 			emit(onProgress, Progress{Stage: "correcting", Value: 0.58,
 				Message: "Corrected transcript loaded from cache"})
@@ -334,7 +357,7 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 	emit(onProgress, Progress{Stage: "correcting", Value: 0.48,
 		Message: fmt.Sprintf("%s is correcting the transcript", engineName)})
 
-	fixed, report, err := correct.Correct(ctx, tr, complete, engineName, func(done, total int) {
+	fixed, report, err := correct.Correct(ctx, tr, p.Opts.Terms, complete, engineName, func(done, total int) {
 		emit(onProgress, Progress{
 			Stage:   "correcting",
 			Value:   0.48 + 0.10*float64(done)/float64(total),

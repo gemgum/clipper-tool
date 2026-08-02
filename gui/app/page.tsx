@@ -89,6 +89,7 @@ export default function Home() {
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [pulling, setPulling] = useState(false);
   const [transcriptFix, setTranscriptFix] = useState(true);
+  const [terms, setTerms] = useState("");
   const [durationPreset, setDurationPreset] = useState("auto");
   const [maxClips, setMaxClips] = useState(10);
   const [models, setModels] = useState<WhisperModel[]>([]);
@@ -204,6 +205,7 @@ export default function Home() {
       if (s.offlineEngine) setOfflineEngine(s.offlineEngine);
       if (s.ollamaModel) setOllamaModel(s.ollamaModel);
       if (typeof s.transcriptFix === "boolean") setTranscriptFix(s.transcriptFix);
+      if (typeof s.terms === "string") setTerms(s.terms);
       if (s.durationPreset) setDurationPreset(s.durationPreset);
       if (s.maxClips) setMaxClips(s.maxClips);
       if (s.subFont) { setSubFont(s.subFont); fontFromPreset.current = s.subFont; }
@@ -222,9 +224,9 @@ export default function Home() {
 
   // Simpan preset setiap kali setelan berubah.
   useEffect(() => {
-    const preset = { resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
+    const preset = { resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
     try { localStorage.setItem("clipper.preset", JSON.stringify(preset)); } catch {}
-  }, [resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
+  }, [resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
 
   // Sambung ulang ke job yang sedang berjalan (mis. setelah tab di-reload/tab baru).
   useEffect(() => {
@@ -479,6 +481,7 @@ export default function Home() {
             provider: mode === "hybrid" ? "claude" : offlineEngine,
             llm_model: claudeModel, ollama_model: ollamaModel,
             transcript_fix: transcriptFix ? "on" : "off",
+            terms: terms.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean),
             duration_preset: durationPreset, max_clips: Number(maxClips), output_dir: outputDir,
             subtitle_output: saveMode,
             subtitle: {
@@ -493,7 +496,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || t("errCreateJob"));
       setJobId(data.id); addLog(t("logJobCreated", { id: data.id }));
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, mode, model, resolution, quality, reframe, background, zoom, fps, offlineEngine, claudeModel, ollamaModel, transcriptFix, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
+  }, [path, mode, model, resolution, quality, reframe, background, zoom, fps, offlineEngine, claudeModel, ollamaModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -771,6 +774,16 @@ export default function Home() {
               {mode !== "hybrid" && offlineEngine === "heuristic" && (
                 <div className="warn" style={{ marginTop: 6 }}>⚠ {t("transcriptFixNeedsLLM")}</div>
               )}
+              {/* Daftar istilah menempel di bawah koreksi transkrip karena hanya
+                  tahap itu yang memakainya — tanpa centang di atas, isian ini
+                  tidak berpengaruh apa pun. */}
+              <div style={{ marginTop: 10 }}>
+                <label htmlFor="terms">{t("terms")}</label>
+                <input id="terms" type="text" value={terms}
+                  placeholder={t("termsPlaceholder")}
+                  onChange={(e) => setTerms(e.target.value)} />
+                <div className="meta" style={{ marginTop: 6 }}>{t("termsNote")}</div>
+              </div>
             </>
           )}
         </div>

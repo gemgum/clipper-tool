@@ -138,22 +138,34 @@ func contentTokens(tokens []string) []string {
 // yang memparafrase, memangkas kalimat, atau memecah nama ("Londo-Irang" jadi
 // "Londo-I rang") menyentuh jauh lebih banyak. Mengembalikan juga jumlah kata
 // isi versi lama, sebagai dasar menghitung jatah perubahan.
-func contentEdits(oldWords, newWords []string) (changed, total int) {
+//
+// exempt berisi kata-kata penyusun daftar istilah pengguna (boleh nil).
+// Perubahan YANG MENUJU kata di daftar itu tidak dihitung: ejaannya sudah
+// disetujui pengguna, jadi itu koreksi terarah, bukan karangan. Tanpa
+// pengecualian ini jatah per segmen (satu kata per enam) sering habis lebih
+// dulu oleh pembenahan tanda baca, dan justru perbaikan istilah yang ditolak.
+func contentEdits(oldWords, newWords []string, exempt map[string]bool) (changed, total int) {
 	oldContent := contentTokens(oldWords)
 	newContent := contentTokens(newWords)
 	total = len(oldContent)
 
-	matched := 0
+	matched, forgiven := 0, 0
 	for _, o := range alignWords(oldContent, newContent) {
-		if o.old >= 0 && o.new >= 0 &&
-			normalize(oldContent[o.old]) == normalize(newContent[o.new]) {
-			matched++
+		switch {
+		case o.old >= 0 && o.new >= 0:
+			if normalize(oldContent[o.old]) == normalize(newContent[o.new]) {
+				matched++
+			} else if exempt[normalize(newContent[o.new])] {
+				matched++ // substitusi menuju ejaan baku
+			}
+		case o.old < 0 && o.new >= 0 && exempt[normalize(newContent[o.new])]:
+			forgiven++ // kata yang dulu hilang, kini melengkapi istilah
 		}
 	}
 	// Kata lama yang tak tercocokkan + kata baru yang tak tercocokkan. Sepasang
 	// substitusi dihitung sekali, sebab keduanya menempati posisi yang sama.
 	dropped := len(oldContent) - matched
-	added := len(newContent) - matched
+	added := len(newContent) - matched - forgiven
 	changed = dropped
 	if added > changed {
 		changed = added

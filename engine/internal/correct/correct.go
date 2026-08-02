@@ -30,7 +30,7 @@ import (
 // PromptVersion ikut jadi bahan kunci cache di pemanggil. Naikkan bila prompt
 // atau pagar pengamannya berubah, supaya hasil lama tidak dipakai ulang secara
 // keliru.
-const PromptVersion = "v2"
+const PromptVersion = "v3"
 
 // Completer adalah satu panggilan ke LLM. Fungsi, bukan antarmuka, supaya paket
 // ini tidak perlu mengenal llm/ollama.
@@ -139,7 +139,7 @@ func languageName(code string) string {
 
 // systemPrompt menyusun instruksi koreksi. Instruksinya bahasa Inggris, tetapi
 // transkripnya WAJIB tetap dalam bahasanya sendiri.
-func systemPrompt(contentLang string) string {
+func systemPrompt(contentLang string, terms []string) string {
 	lang := languageName(contentLang)
 	var b strings.Builder
 	b.WriteString(`You clean up an automatic speech-recognition transcript. You are CORRECTING a transcript, not rewriting it.
@@ -157,8 +157,11 @@ WHAT TO FIX:
 1. Punctuation and capitalisation, so each sentence reads properly.
 2. Dialogue dashes the recogniser inserted to mark a change of speaker. They are
    not spoken, so remove EVERY one of them — at the start of the segment AND in
-   the middle of it. Keep the words around the dash. For example
+   the middle of it. This covers every dash character the recogniser produces:
+   the plain hyphen "-", the en dash "–", the em dash "—" and the minus sign "−".
+   Keep the words around the dash. For example
    "- Oh ya? - Iya dulu."  becomes  "Oh ya? Iya dulu."
+   "− Kita lanjutkan, Pak."  becomes  "Kita lanjutkan, Pak."
 3. Sentences that run across two segments: end the earlier segment with a comma or with no punctuation at all (NOT a full stop), and begin the next segment in lower case. A full stop in the wrong place makes the clip get cut in the wrong place.
 4. Obvious speech-recognition errors, but ONLY where the intended word is unmistakable from the surrounding context. Prefer the word that was actually spoken. If you are unsure, leave it exactly as it is.
 
@@ -173,7 +176,28 @@ WHAT NOT TO TOUCH:
   For example, the Javanese "ireng" must stay "ireng" — it is not a misheard
   "irang" and it is not to be replaced with "hitam".
 - Any word you do not recognise at all. If it means nothing to you, that is not
-  evidence it was misheard. Write it exactly as it is and move on.
+  evidence it was misheard. Write it exactly as it is and move on.`)
+
+	if len(terms) > 0 {
+		// Ditaruh SESUDAH "WHAT NOT TO TOUCH" dan disebut tegas sebagai
+		// pengecualiannya: tanpa itu aturan "biarkan kata asing apa adanya" di
+		// atas justru melindungi salah dengar yang mau kita perbaiki.
+		b.WriteString("\n\nKNOWN TERMS — THE ONE EXCEPTION TO THE RULES ABOVE:\n")
+		b.WriteString("These are the correct spellings of names and terms this speaker uses:\n")
+		for _, t := range terms {
+			fmt.Fprintf(&b, "  - %s\n", t)
+		}
+		b.WriteString(`If a segment contains something that clearly SOUNDS like one of these but is written differently, replace it with the spelling above. The recogniser does not know these terms, so it writes down the nearest word it does know, and that is exactly the mistake you are fixing here.
+
+The same term is usually misheard in SEVERAL different ways in one transcript, so fix every variant you meet, not just the most common one:
+- the words may be joined by a hyphen ("Londo-Irang");
+- only ONE word of the term may be wrong ("Londo Iram", "Londo Hirang");
+- the term may appear WITHOUT its other words, on its own ("Anda yang Irang" → "Anda yang Ireng"), including when the segment starts or ends mid-sentence.
+
+This overrides the two rules above about regional words and unfamiliar words — but ONLY for close acoustic matches to this list. Never force a listed term onto a word that merely looks similar in writing, never insert a term the speaker did not say, and leave every other unfamiliar word alone.`)
+	}
+
+	b.WriteString(`
 
 Reply with VALID JSON ONLY, in exactly this shape:
 {"segments":[{"index":<number>,"text":"<corrected text>"}]}`)
@@ -256,7 +280,7 @@ func extractJSON(s string) string {
 // Inilah pagar yang membedakan "koreksi" dari "karangan": model boleh membenahi
 // kata, tapi tidak boleh mengganti isinya. Alasan penolakan dikembalikan supaya
 // bisa dicatat, bukan dibuang diam-diam.
-func acceptable(before, after string) (bool, string) {
+func acceptable(before, after string, exempt map[string]bool) (bool, string) {
 	after = strings.TrimSpace(after)
 	if after == "" {
 		return false, "empty"
@@ -279,7 +303,7 @@ func acceptable(before, after string) (bool, string) {
 	}
 	// Pagar utama: berapa kata ISI yang berubah. Tanda hubung dialog tidak
 	// dihitung, sebab membuangnya justru tugas koreksi.
-	changed, total := contentEdits(oldWords, newWords)
+	changed, total := contentEdits(oldWords, newWords, exempt)
 	budget := total / editBudgetDivisor
 	if budget < 1 {
 		budget = 1
@@ -319,7 +343,7 @@ type Progress func(done, total int)
 // mesin lain, dan koreksi tidak pernah dilewati diam-diam (notes/12). Yang
 // boleh gagal senyap hanyalah koreksi PER SEGMEN yang ditolak pagar pengaman,
 // dan itu pun dihitung di Report.
-func Correct(ctx context.Context, tr types.Transcript, complete Completer, engineName string, onProgress Progress) (types.Transcript, Report, error) {
+func Correct(ctx context.Context, tr types.Transcript, terms []string, complete Completer, engineName string, onProgress Progress) (types.Transcript, Report, error) {
 	report := Report{Engine: engineName, Total: len(tr.Segments)}
 	if len(tr.Segments) == 0 {
 		return tr, report, nil
@@ -331,7 +355,8 @@ func Correct(ctx context.Context, tr types.Transcript, complete Completer, engin
 	out.Segments = make([]types.TranscriptSegment, len(tr.Segments))
 	copy(out.Segments, tr.Segments)
 
-	system := systemPrompt(tr.Language)
+	system := systemPrompt(tr.Language, terms)
+	exempt := termWords(terms)
 	chunks := buildChunks(tr, chunkWords)
 
 	for ci, c := range chunks {
@@ -357,7 +382,7 @@ func Correct(ctx context.Context, tr types.Transcript, complete Completer, engin
 				report.Missing++
 				continue
 			}
-			applyCorrection(&out.Segments[i], tr.Segments[i], text, &report)
+			applyCorrection(&out.Segments[i], tr.Segments[i], text, exempt, &report)
 		}
 
 		if onProgress != nil {
@@ -369,12 +394,12 @@ func Correct(ctx context.Context, tr types.Transcript, complete Completer, engin
 
 // applyCorrection memasang satu koreksi ke segmen, lengkap dengan penyejajaran
 // ulang timestamp per kata.
-func applyCorrection(dst *types.TranscriptSegment, src types.TranscriptSegment, text string, report *Report) {
+func applyCorrection(dst *types.TranscriptSegment, src types.TranscriptSegment, text string, exempt map[string]bool, report *Report) {
 	text = strings.TrimSpace(text)
 	if text == src.Text {
 		return
 	}
-	if ok, _ := acceptable(src.Text, text); !ok {
+	if ok, _ := acceptable(src.Text, text, exempt); !ok {
 		report.Rejected++
 		return // teks asli dipertahankan
 	}

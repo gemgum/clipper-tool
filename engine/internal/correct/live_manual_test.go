@@ -58,7 +58,7 @@ func TestCorrectLive(t *testing.T) {
 	defer cancel()
 
 	started := time.Now()
-	fixed, report, err := Correct(ctx, tr, complete, "Ollama ("+model+")", func(done, total int) {
+	fixed, report, err := Correct(ctx, tr, nil, complete, "Ollama ("+model+")", func(done, total int) {
 		t.Logf("potongan %d/%d", done, total)
 	})
 	if err != nil {

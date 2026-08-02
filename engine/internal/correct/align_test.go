@@ -125,7 +125,7 @@ func TestContentEditsIgnoresDialogueDashes(t *testing.T) {
 	// pagar pengaman akan menolak koreksi yang justru paling kita inginkan.
 	oldW := []string{"-", "Oh", "ya?", "-", "Iya", "dulu."}
 	newW := []string{"Oh", "ya?", "Iya", "dulu."}
-	changed, total := contentEdits(oldW, newW)
+	changed, total := contentEdits(oldW, newW, nil)
 	if changed != 0 {
 		t.Errorf("changed = %d, ingin 0 (hanya tanda hubung yang hilang)", changed)
 	}
@@ -137,7 +137,7 @@ func TestContentEditsIgnoresDialogueDashes(t *testing.T) {
 func TestContentEditsCountsSubstitutionOnce(t *testing.T) {
 	oldW := []string{"poin", "yang", "lagi", "rime", "sekarang"}
 	newW := []string{"poin", "yang", "lagi", "rame", "sekarang"}
-	if changed, _ := contentEdits(oldW, newW); changed != 1 {
+	if changed, _ := contentEdits(oldW, newW, nil); changed != 1 {
 		t.Errorf("changed = %d, ingin 1", changed)
 	}
 }
@@ -148,7 +148,7 @@ func TestContentEditsCountsSubstitutionOnce(t *testing.T) {
 func TestContentEditsCatchesSplitNameAndDroppedWord(t *testing.T) {
 	oldW := []string{"-", "Agak", "menyakitkan", "ya", "tujuan", "Londo-Irang.", "-", "Menyakitkan."}
 	newW := []string{"Agak", "menyakitkan", "ya", "tujuan", "Londo-I", "rang."}
-	changed, total := contentEdits(oldW, newW)
+	changed, total := contentEdits(oldW, newW, nil)
 	if total != 6 {
 		t.Fatalf("total kata isi = %d, ingin 6", total)
 	}

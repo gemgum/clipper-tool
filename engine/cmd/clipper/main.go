@@ -15,6 +15,7 @@ import (
 
 	"github.com/gemgum/clipper/engine/internal/api"
 	"github.com/gemgum/clipper/engine/internal/config"
+	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
 )
@@ -79,6 +80,11 @@ Usage:
                structure and misheard words before clips are cut (default on).
                Needs an LLM even when -provider is heuristic: Claude in hybrid
                mode, Ollama otherwise. Turn it off to use the raw transcript.
+  -terms       comma-separated correct spellings of names and terms used in this
+               video, e.g. -terms "Londo Ireng,Mahfud MD,URI". Whisper does not
+               know them and writes down the nearest word it does know, so the
+               correction step uses this list to put them back. Needs
+               -transcript-fix on.
   -max         maximum number of clips (default 10)
   -min-score   minimum score 0-100 (default 0)
   -llm-model   Claude model (default claude-haiku-4-5)
@@ -111,6 +117,7 @@ func cmdRun(root string, args []string) {
 	provider := fs.String("provider", opts.Provider, "")
 	ollamaModel := fs.String("ollama-model", opts.OllamaModel, "")
 	transcriptFix := fs.String("transcript-fix", opts.TranscriptFix, "")
+	terms := fs.String("terms", "", "")
 	duration := fs.String("duration", opts.DurationPreset, "")
 	maxClips := fs.Int("max", opts.MaxClips, "")
 	minScore := fs.Int("min-score", opts.MinScore, "")
@@ -138,6 +145,7 @@ func cmdRun(root string, args []string) {
 	opts.Provider = *provider
 	opts.OllamaModel = *ollamaModel
 	opts.TranscriptFix = *transcriptFix
+	opts.Terms = correct.ParseTerms(*terms)
 	opts.DurationPreset = *duration
 	opts.MaxClips = *maxClips
 	opts.MinScore = *minScore
@@ -236,6 +244,7 @@ func splitInput(args []string) (input string, flagArgs []string) {
 		"-resolution": true, "-quality": true, "-background": true, "-zoom": true,
 		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,
 		"-provider": true, "-ollama-model": true, "-transcript-fix": true,
+		"-terms": true,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]

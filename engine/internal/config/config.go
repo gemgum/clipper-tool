@@ -211,6 +211,12 @@ type Options struct {
 	TargetMax      float64     `json:"target_max"`
 	ScoreEngine    ScoreEngine `json:"score_engine"`
 	TranscriptFix  string      `json:"transcript_fix"` // on | off (default on)
+	// Terms adalah ejaan baku nama & istilah khas video ini, dipakai tahap
+	// koreksi untuk menarik salah dengar ke ejaan yang benar. Whisper tidak
+	// mengenal nama daerah atau istilah Jawa, jadi ia menuliskannya sebagai kata
+	// Indonesia terdekat ("Londo Ireng" → "Londo Irang"), dan tanpa daftar ini
+	// tahap koreksi justru diperintahkan membiarkan kata asing apa adanya.
+	Terms []string `json:"terms"`
 	Provider       string      `json:"provider"`       // claude | ollama (mesin scoring)
 	LLMModel       string      `json:"llm_model"`      // model Claude (mode hybrid)
 	OllamaModel    string      `json:"ollama_model"`   // model lokal (mode offline)

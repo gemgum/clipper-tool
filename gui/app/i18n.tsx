@@ -120,6 +120,10 @@ const en = {
     "An LLM repairs punctuation, sentence structure and obviously misheard words before the clips are cut — so it improves the subtitles AND where each clip starts and ends. Corrections that rewrite rather than repair are rejected automatically and reported.",
   transcriptFixNeedsLLM:
     "Needs an LLM even with the heuristic engine: Claude in hybrid mode, Ollama otherwise. If it is unreachable the job stops — untick this to use the raw transcript.",
+  terms: "Names and terms in this video",
+  termsPlaceholder: "Londo Ireng, Mahfud MD, URI",
+  termsNote:
+    "Speech recognition does not know regional words, names or new acronyms, so it writes down the nearest word it does know — \"Londo Ireng\" comes out as \"Londo Irang\". List the correct spellings here, separated by commas, and the correction step puts them back. Only words that sound like one of these are touched.",
   localModel: "Local model (run through Ollama)",
   modelNeedsDownload: "needs download",
   modelReady: "✓ ready",
@@ -478,6 +482,10 @@ const id: Record<MessageKey, string> = {
     "LLM membenahi tanda baca, struktur kalimat, dan kata yang jelas salah dengar sebelum klip dipotong — jadi ia memperbaiki subtitle SEKALIGUS titik awal & akhir tiap klip. Koreksi yang sifatnya menulis ulang ditolak otomatis dan dilaporkan.",
   transcriptFixNeedsLLM:
     "Butuh LLM walau mesin skornya heuristik: Claude di mode hybrid, selain itu Ollama. Bila tak terjangkau job berhenti — hilangkan centang ini untuk memakai transkrip mentah.",
+  terms: "Nama & istilah di video ini",
+  termsPlaceholder: "Londo Ireng, Mahfud MD, URI",
+  termsNote:
+    "Pengenalan suara tidak mengenal kata daerah, nama orang, atau akronim baru, jadi ia menuliskan kata terdekat yang ia tahu — \"Londo Ireng\" keluar jadi \"Londo Irang\". Tulis ejaan yang benar di sini, dipisah koma, dan tahap koreksi akan mengembalikannya. Hanya kata yang bunyinya mirip yang disentuh.",
   localModel: "Model lokal (dijalankan via Ollama)",
   modelNeedsDownload: "perlu unduh",
   modelReady: "✓ siap",

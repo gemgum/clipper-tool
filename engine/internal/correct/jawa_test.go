@@ -43,7 +43,7 @@ func TestJavaneseWordsSurviveLive(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	out, rep, err := Correct(ctx, tr, complete, "Ollama (qwen2.5)", nil)
+	out, rep, err := Correct(ctx, tr, nil, complete, "Ollama (qwen2.5)", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

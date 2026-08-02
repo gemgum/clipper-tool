@@ -19,6 +19,12 @@ const probeBytes = 4 << 20 // 4 MB
 
 // transcriptCacheKey membuat kunci cache dari isi video + model + bahasa.
 // Model/bahasa ikut dikunci karena transkrip berbeda untuk tiap kombinasi.
+//
+// Awalan versi ("v2") dinaikkan setiap kali flag decoding whisper berubah:
+// flag tidak ikut masuk kunci, jadi tanpa itu transkrip lama akan dipakai ulang
+// dan perbaikan decoding seolah-olah tidak berpengaruh. v2 = pemakaian -mc 0
+// dan -sns (anti-loop halusinasi); transkrip v1 dibuang karena bisa mengandung
+// loop tersebut.
 func transcriptCacheKey(video, model, lang string) (string, error) {
 	f, err := os.Open(video)
 	if err != nil {
@@ -31,7 +37,7 @@ func transcriptCacheKey(video, model, lang string) (string, error) {
 	}
 
 	h := sha256.New()
-	fmt.Fprintf(h, "v1|%d|%s|%s|", st.Size(), model, lang)
+	fmt.Fprintf(h, "v2|%d|%s|%s|", st.Size(), model, lang)
 
 	headLen := int64(probeBytes)
 	if st.Size() < headLen {

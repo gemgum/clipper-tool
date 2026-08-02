@@ -20,6 +20,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/capture"
 	"github.com/gemgum/clipper/engine/internal/card"
 	"github.com/gemgum/clipper/engine/internal/config"
+	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/news"
@@ -834,6 +835,10 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := req.Options
+	// Daftar istilah dibersihkan di sini, bukan di klien, supaya GUI dan CLI
+	// memperlakukan masukan yang sama persis: klien boleh mengirim satu string
+	// berisi koma maupun daftar yang sudah dipecah.
+	opts.Terms = correct.ParseTerms(strings.Join(opts.Terms, ","))
 	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

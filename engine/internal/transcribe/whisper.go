@@ -136,6 +136,16 @@ func (w *Whisper) Transcribe(ctx context.Context, wavPath, outBase, language str
 		"-f", wavPath,
 		"-l", language,
 		"-t", fmt.Sprintf("%d", threads),
+		// Jangan suapkan teks segmen sebelumnya sebagai konteks decoder
+		// (bawaan -1 = tanpa batas). Konteks itu yang membuat model besar
+		// terjebak: sekali tergelincir mengulang satu kalimat, kalimat itu
+		// ikut jadi konteks segmen berikutnya dan loop-nya menguatkan diri
+		// sendiri sampai audio habis. Kerugiannya kecil untuk kita — subtitle
+		// dinilai per kalimat, bukan sebagai prosa panjang.
+		"-mc", "0",
+		// Tekan token non-ucapan ([MUSIC], tepuk tangan, dsb) yang jadi pemicu
+		// halusinasi di bagian hening.
+		"-sns",
 		"-ojf",         // output JSON lengkap (termasuk timestamp per token)
 		"-of", outBase, // output file prefix
 		"-pp", // print progress (ke stderr)
