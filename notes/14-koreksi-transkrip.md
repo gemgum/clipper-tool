@@ -113,3 +113,40 @@ CLIPPER_TEST_SEGMENTS=32 \
 
 Mencetak setiap segmen yang berubah (sebelum/sesudah), dan memeriksa bahwa batas
 segmen tidak bergeser serta kata bertimestamp tetap urut naik.
+
+## Prompt v4 — MENUNGGU PENGUKURAN (4 Agustus 2026)
+
+Butir terakhir "WHAT NOT TO TOUCH" dipertajam, `PromptVersion` naik ke `v4`.
+
+**Sebabnya.** Butir lama berbunyi "any word you do not recognise at all …
+write it exactly as it is". Terlalu lebar: ia ikut melindungi salah dengar kata
+Indonesia biasa. Terlihat pada `job_0002_2026-08-04`, empat dari lima kesalahan
+adalah kata umum, bukan nama:
+
+| Tertulis | Seharusnya |
+| --- | --- |
+| terlalu gegab | gegabah |
+| perguruan tinggi itu gagab | gagap |
+| numenkelaturnya | nomenklaturnya |
+| bukan rondo hirang | Londo Ireng (ini memang butuh `-terms`) |
+
+**Pembedanya bukan kenal/tidak kenal, melainkan ada/tidaknya tetangga dekat.**
+`ireng` tidak punya kata Indonesia yang berjarak satu-dua huruf (`irang` juga
+bukan kata) → biarkan. `numenkelatur` berjarak dua huruf dari `nomenklatur` dan
+kalimatnya jadi masuk akal → perbaiki. Butir baru memakai dua syarat itu
+sekaligus, dan dua syarat itu WAJIB digabung: `mangan` berjarak dua huruf dari
+`makan` DAN kalimatnya tetap masuk akal, jadi yang menahannya cuma rujukan
+silang ke aturan bahasa daerah di atasnya.
+
+**Sudah diuji:** `CLIPPER_TEST_LIVE=1 go test ./internal/correct/ -run Javanese`
+lolos — kelima kata daerah utuh, termasuk `mangan` yang paling berisiko.
+
+**Belum diukur:** apakah keempat kesalahan di tabel benar-benar hilang, dan
+apakah `N correction(s) rejected as rewrites` ikut naik. Kenaikan angka tolakan
+adalah efek samping yang paling mungkin: prompt yang lebih tajam membuat model
+menyunting lebih banyak kata per segmen, dan begitu lewat jatah
+`editBudgetDivisor = 6`, SELURUH koreksi segmen itu dibuang — termasuk
+perbaikan tanda bacanya.
+
+Cara mengukur: jalankan video yang sama seperti `job_0002`, sekali **tanpa**
+`-terms` dulu supaya efek prompt terpisah dari efek daftar istilah.

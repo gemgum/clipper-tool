@@ -30,7 +30,7 @@ import (
 // PromptVersion ikut jadi bahan kunci cache di pemanggil. Naikkan bila prompt
 // atau pagar pengamannya berubah, supaya hasil lama tidak dipakai ulang secara
 // keliru.
-const PromptVersion = "v3"
+const PromptVersion = "v4"
 
 // Completer adalah satu panggilan ke LLM. Fungsi, bukan antarmuka, supaya paket
 // ini tidak perlu mengenal llm/ollama.
@@ -174,9 +174,20 @@ WHAT NOT TO TOUCH:
   words are what the person actually said. Do not turn them into their national
   equivalent, and do not "fix" their spelling towards a word you recognise.
   For example, the Javanese "ireng" must stay "ireng" — it is not a misheard
-  "irang" and it is not to be replaced with "hitam".
-- Any word you do not recognise at all. If it means nothing to you, that is not
-  evidence it was misheard. Write it exactly as it is and move on.`)
+  "irang" and it is not to be replaced with "hitam"
+- Words with no close neighbour in standard Indonesian. Before you leave an
+  unfamiliar word alone, run one check: is there a common Indonesian word that
+  differs from it by only one or two letters, AND does the sentence read
+  correctly with that word in its place? BOTH must be true. If they are not,
+  the word is not a mistake — it is simply a word you do not know, so write it
+  exactly as it is and move on. Failing to recognise a word is never, on its
+  own, evidence that it was misheard. This check does not apply to the regional
+  words covered by the rule above: those stay as they are even when a national
+  word sits close to them.
+  Leave alone: "ireng" — no Indonesian word sits that close to it, and "irang"
+  is not a word either.
+  Fix: "numenkelatur" → "nomenklatur" — the letters are transposed, and the
+  sentence is about a budget heading, so the intended word is unmistakable..`)
 
 	if len(terms) > 0 {
 		// Ditaruh SESUDAH "WHAT NOT TO TOUCH" dan disebut tegas sebagai

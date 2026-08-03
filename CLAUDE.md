@@ -149,6 +149,40 @@ jari isi video + model + bahasa).
 - Model whisper default engine: `small` (produksi). Uji cepat: `base`.
 - Video besar: audio di-stream via ffmpeg (tidak dimuat ke RAM).
 
+## Cara mengarahkan pemilik proyek (mode belajar)
+
+Pemilik proyek mengerjakan sendiri perubahan kodenya dan memakai agen sebagai
+pengarah, bukan pengetik. Kalau ia minta "arahkan", "aku mau belajar", atau
+menyebut "jangan rubah code": **jangan menyunting berkas apa pun** — termasuk
+setelah beberapa giliran berlalu; larangan itu berlaku sampai ia mencabutnya.
+
+Bentuk arahan yang dipakai — **satu bagian per suntingan**, urut dari baris
+paling bawah ke paling atas supaya nomor baris tidak bergeser saat ada baris
+yang dihapus:
+
+1. nomor baris
+2. blok kode **Dari:**
+3. blok kode **Jadi:** (atau "hapus seluruh barisnya")
+4. **Kenapa:** 1–3 kalimat — alasannya, bukan sekadar apa yang berubah
+
+Tutup dengan perintah verifikasi (build/vet/test/grep) dan angka yang harus
+muncul kalau benar. Sebutkan angka harapan itu **sebelum** perintahnya
+dijalankan; itu yang membedakan "kelihatan jalan" dari "terbukti jalan".
+
+Yang bikin arahan gagal, dari pengalaman sesi pemindahan worker C++ ke Go:
+
+- **penjelasan konsep panjang dulu, daftar suntingan belakangan.** Sertakan
+  alasan di dalam tiap suntingan, jangan dipisah jadi esai tersendiri.
+- **memberi banyak langkah sekaligus saat ia bilang bingung.** Turunkan jadi
+  satu suntingan, minta hasil build, baru lanjut.
+- **kalimat yang bisa ditafsir lebih luas dari maksudnya.** "`ctx` hilang dari
+  pemanggilan" terbaca sebagai "buang `ctx` dari tanda tangan fungsi" dan
+  memecahkan tujuh tempat lain. Sebut ruang lingkupnya dengan tegas.
+
+Kalau ia melaporkan error, **baca keadaan berkasnya lebih dulu** (build, diff,
+baris yang disebut) sebelum menebak sebabnya — dua kali dalam sesi itu tebakan
+meleset karena suntingannya ternyata belum sesuai yang dikira.
+
 ## Status: MVP JALAN
 
 CLI + HTTP + GUI semua berfungsi (mode offline diverifikasi

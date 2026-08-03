@@ -1,5 +1,25 @@
 # Memindahkan worker C++ ke Go
 
+**SELESAI 4 Agustus 2026.** Keenam langkah dikerjakan. Bukti kecocokannya: Go
+dan C++ diadu pada WAV 38 menit (73,7 MB, 36.868.087 sampel) dan menghasilkan
+**23.043 jendela RMS yang sama persis** — 23.042 jendela penuh + satu jendela
+sisa 887 sampel, cocok dalam batas 1e-5 (presisi `%.5f` yang dipancarkan C++).
+
+Jebakan yang benar-benar muncul saat pengerjaan, semuanya sudah diperingatkan di
+bagian "Hal yang gampang bikin salah" di bawah:
+
+- Berkas WAV keluaran ffmpeg ternyata **memang** menyisipkan chunk `LIST`
+  (`INFO ISFT Lavf60.100`, 23 byte — panjang ganjil, jadi ada byte sisipan).
+  Data suara mulai di **byte 78, bukan 44**. Ada test yang mengunci ini:
+  WAV dengan dan tanpa `LIST` wajib menghasilkan angka identik.
+- Sampel dibaca tak-bertanda dua kali berturut-turut (`int64(Uint16(…))` lalu
+  `uint16(Uint16(…))`). Keduanya menghasilkan angka yang sama persis dan tidak
+  pernah error — ketahuan hanya karena diadu dengan C++.
+
+Catatan kerja di bawah ini disimpan apa adanya sebagai rekaman rencananya.
+
+---
+
 Catatan kerja untuk menghapus `worker/` dan memindahkan tugasnya ke Go.
 Ditulis untuk dikerjakan sendiri — tidak ada kode di sini, hanya peta jalannya.
 
