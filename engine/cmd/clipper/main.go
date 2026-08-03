@@ -230,7 +230,6 @@ func cmdServe(root string, args []string) {
 	fmt.Printf("clipper engine %s\n", version)
 	fmt.Printf("  whisper : %s\n", paths.Whisper)
 	fmt.Printf("  model   : %s\n", paths.Model)
-	fmt.Printf("  worker  : %s\n", paths.Worker)
 	fmt.Printf("  API key : %s\n", maskKey(paths.APIKey))
 	fmt.Printf("  listen  : http://%s\n", *addr)
 

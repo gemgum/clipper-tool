@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Setup dependensi native: build whisper.cpp + unduh model, build worker C++.
+# Setup dependensi native: build whisper.cpp + unduh model.
 # Jalankan sekali. Butuh: git, cmake, g++, curl/wget. Butuh internet.
 set -euo pipefail
 
@@ -10,7 +10,7 @@ WHISPER_DIR="$THIRD/whisper.cpp"
 
 mkdir -p "$ROOT/bin" "$ROOT/models" "$THIRD"
 
-echo "==> 1/4 whisper.cpp"
+echo "==> 1/3 whisper.cpp"
 if [ ! -d "$WHISPER_DIR" ]; then
   git clone --depth 1 https://github.com/ggerganov/whisper.cpp "$WHISPER_DIR"
 fi
@@ -30,7 +30,7 @@ cp "$BIN" "$ROOT/bin/whisper-cli"
 cp -a "$WHISPER_DIR/build/bin/"*.so* "$ROOT/bin/" 2>/dev/null || true
 echo "    whisper-cli + .so -> bin/"
 
-echo "==> 2/4 model: $MODEL"
+echo "==> 2/3 model: $MODEL"
 MODEL_PATH="$ROOT/models/ggml-$MODEL.bin"
 if [ ! -f "$MODEL_PATH" ]; then
   URL="https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$MODEL.bin"
@@ -42,13 +42,7 @@ if [ ! -f "$MODEL_PATH" ]; then
 fi
 echo "    model -> $MODEL_PATH"
 
-echo "==> 3/4 C++ worker"
-rm -rf "$ROOT/worker/build" # clean build: cache CMake simpan path absolut
-cmake -S "$ROOT/worker" -B "$ROOT/worker/build" -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$ROOT/worker/build" >/dev/null
-echo "    clipper-worker -> bin/clipper-worker"
-
-echo "==> 4/4 subtitle fonts"
+echo "==> 3/3 subtitle fonts"
 mkdir -p "$ROOT/assets/fonts"
 gf="https://github.com/google/fonts/raw/main/ofl"
 dl() { [ -f "$2" ] || curl -sL --fail "$1" -o "$2" || echo "    (skipped $2)"; }

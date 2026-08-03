@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/audio"
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
@@ -23,7 +24,6 @@ import (
 	"github.com/gemgum/clipper/engine/internal/subtitle"
 	"github.com/gemgum/clipper/engine/internal/transcribe"
 	"github.com/gemgum/clipper/engine/internal/types"
-	"github.com/gemgum/clipper/engine/internal/worker"
 )
 
 // clipLeadIn adalah ancang-ancang (detik) sebelum awal ucapan saat memotong
@@ -52,7 +52,6 @@ type Pipeline struct {
 	Opts  config.Options
 	ff    *ffmpeg.Client
 	wh    *transcribe.Whisper
-	wk    *worker.Client
 }
 
 func New(paths config.Paths, opts config.Options) *Pipeline {
@@ -61,7 +60,6 @@ func New(paths config.Paths, opts config.Options) *Pipeline {
 		Opts:  opts,
 		ff:    ffmpeg.New(paths.FFmpeg, paths.FFprobe),
 		wh:    transcribe.New(paths.Whisper, paths.Model),
-		wk:    worker.New(paths.Worker),
 	}
 }
 
@@ -119,10 +117,10 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	}
 
 	// Audio hanya perlu diekstrak bila masih harus transkripsi, atau bila
-	// heuristik butuh fitur energi dari worker C++.
+	// heuristik butuh fitur energi audio.
 	needAudio := !cacheHit || p.Opts.Provider == "heuristic"
 	wav := filepath.Join(tmpDir, "audio.wav")
-	var rms worker.FeaturesResult
+	var rms audio.FeaturesResult
 	if needAudio {
 		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Extracting audio"})
 		t0 := time.Now()
@@ -130,18 +128,15 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			return nil, err
 		}
 		rec.since("Extract audio", t0, "ffmpeg")
-		// 2. Fitur audio (opsional, dari worker C++).
-		if p.wk.Available() {
+		if p.Opts.Provider == "heuristic" {
 			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy (C++ worker)"})
 			t0 := time.Now()
-			r, err := p.wk.Features(ctx, wav, 100)
-			note := "C++ worker"
+			r, err := audio.Features(wav, 100)
 			if err == nil {
-				rms = r
-			} else {
-				note = "C++ worker (failed, ignored)"
+				return nil, fmt.Errorf("audio features: %w", err)
 			}
-			rec.since("Audio features", t0, note)
+			rms = r
+			rec.since("Audio features", t0, "built-in")
 		}
 	}
 
@@ -545,7 +540,7 @@ func picksToClips(picks []llm.Pick, cands []types.Candidate, lo, hi int) ([]type
 }
 
 // heuristicSelect memilih klip via segmentasi window + skor heuristik (fallback).
-func (p *Pipeline) heuristicSelect(tr types.Transcript, rms worker.FeaturesResult) []types.Clip {
+func (p *Pipeline) heuristicSelect(tr types.Transcript, rms audio.FeaturesResult) []types.Clip {
 	cands := segment.BuildCandidates(tr, p.Opts.TargetMin, p.Opts.TargetMax)
 	var clips []types.Clip
 	for _, c := range cands {
@@ -589,7 +584,7 @@ func topN(clips []types.Clip, n, minScore int) []types.Clip {
 }
 
 // rmsSlice mengambil potongan RMS untuk jendela kandidat.
-func rmsSlice(r worker.FeaturesResult, c types.Candidate) []float64 {
+func rmsSlice(r audio.FeaturesResult, c types.Candidate) []float64 {
 	if len(r.RMS) == 0 || r.HopMS <= 0 {
 		return nil
 	}

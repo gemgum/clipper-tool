@@ -131,7 +131,6 @@ type Paths struct {
 	FFprobe  string
 	Whisper  string
 	Model    string
-	Worker   string
 	Chrome   string // browser untuk merender kartu berita (boleh kosong)
 	DataDir  string
 	FontsDir string
@@ -515,14 +514,11 @@ func ResolvePaths(root string, o Options) Paths {
 			filepath.Join(root, "bin", "main"),
 			"whisper-cli",
 		))
-	worker := env("CLIPPER_WORKER_BIN",
-		firstExisting(filepath.Join(root, "bin", "clipper-worker"), "clipper-worker"))
 	return Paths{
 		FFmpeg:  env("CLIPPER_FFMPEG_BIN", "ffmpeg"),
 		FFprobe: env("CLIPPER_FFPROBE_BIN", "ffprobe"),
 		Whisper: whisper,
 		Model:   model,
-		Worker:  worker,
 		// Browser dicari oleh paket capture (termasuk chrome.exe lewat WSL).
 		// Boleh kosong: hanya fitur kartu berita yang membutuhkannya.
 		Chrome:   capture.Find(),

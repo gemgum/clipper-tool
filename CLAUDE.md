@@ -3,16 +3,17 @@
 Proyek **Clipper**: memotong video panjang (1–4 jam) jadi klip pendek 9:16
 bersubtitle otomatis + skor "berpotensi viral". Konten target: **bahasa Indonesia**.
 
-## Arsitektur (3 lapis, terpisah)
+## Arsitektur (2 lapis, terpisah)
 
-```
-gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
-                                    |
-                                    +-- exec --> whisper.cpp, ffmpeg
-```
+gui/ (Next.js) --HTTP+SSE--> engine/ (Go)
+
+`````````````````````````````|
+````````````````````````````+-- exec --> whisper.cpp, ffmpeg
+
+````
 
 - **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, panggil
-  whisper.cpp/ffmpeg/worker. Standard library saja (tanpa dependency eksternal).
+  whisper.cpp/ffmpeg. Standard library saja. (tanpa dependency eksternal).
 - **worker/** (C++) — native: `features` (RMS energi audio). `reframe`/face-follow
   (OpenCV) = milestone berikut. Kontrak: stdin JSON → stdout NDJSON.
 - **gui/** (Next.js) — dua tab: `/` klip video (form → progress SSE → daftar klip)
@@ -23,16 +24,16 @@ gui/ (Next.js)  --HTTP+SSE-->  engine/ (Go)  --stdin/NDJSON-->  worker/ (C++)
 ## Perintah penting
 
 ```bash
-./setup.sh [base|small|medium]   # build whisper.cpp + unduh model + build worker (sekali)
-./build.sh                       # build engine (Go) + worker (C++)
+./setup.sh [base|small|medium|large-v3|large-v3-turbo]   # build whisper.cpp + unduh model
+./build.sh                       # build engine (Go)
 ./bin/clipper run <video> [-mode -model -duration -max -min-score \
                            -reframe center|fit -background blur|black -zoom 5..200 \
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
-                           -transcript-fix on|off \
+                           -transcript-fix on|off -terms "Londo Ireng,Mahfud MD" \
                            -save burn|clean|both]                # CLI
 ./bin/clipper serve              # HTTP API di 127.0.0.1:8787
 cd gui && npm run dev            # GUI di 3000
-```
+````
 
 Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
 mencarinya sendiri; timpa dengan `CLIPPER_CHROME=/path/ke/chrome`.
@@ -42,10 +43,14 @@ Di tab itu LLM hanya **memilih nomor paragraf**, tidak pernah menulis: isi kartu
 
 ## Alur pipeline (engine/internal/pipeline)
 
-extract audio (ffmpeg) → features (worker C++) → transkripsi (whisper.cpp) →
-**koreksi transkrip (LLM)** → segmentasi kandidat → **LLM MEMILIH NOMOR kandidat**
-(bukan mengarang timestamp — lihat notes/18) + scoring
-→ render klip 9:16 + burn .ass.
+extract audio (ffmpeg) → features (RMS di engine) → transkripsi (whisper.cpp) →
+**deteksi loop halusinasi** → **koreksi transkrip (LLM)** → segmentasi kandidat →
+**LLM MEMILIH NOMOR kandidat** (bukan mengarang timestamp — lihat notes/18) +
+scoring → buang kandidat dari cuplikan pembuka → render klip 9:16 + burn .ass.
+
+Setiap job diakhiri **ringkasan waktu per tahap** (tabel monospace di terminal &
+kotak log GUI), lengkap dengan rasio realtime. Itu angka pembanding antar
+percobaan — model, mesin skor, CPU vs GPU.
 
 Tiap klip juga menghasilkan `<clip>.txt`: ucapan klip itu tanpa timestamp dan
 tanpa nomor, satu kalimat per baris. Bukan pengganti `.srt` (yang untuk editor
@@ -59,7 +64,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | config          | Options, mode, ResolvePaths                                                   |
 | ffmpeg          | ekstrak audio, clip + zoom/reframe, burn subtitle                             |
 | transcribe      | wrapper whisper-cli (-ojf), parse segmen + kata bertimestamp                  |
-| worker          | client subprocess ke clipper-worker (NDJSON)                                  |
+| audio           | baca WAV (PCM 16-bit) + hitung RMS energi per hop                             |
 | segment         | bangun kandidat klip (incar durasi ideal, potong di kalimat/jeda)             |
 | score/heuristic | aturan Indonesia (emosi, hook, energi, durasi)                                |
 | score/llm       | Claude API (pilih momen, skor + judul + hashtag)                              |
@@ -82,6 +87,26 @@ Mode hybrid butuh `ANTHROPIC_API_KEY` di `.env` atau lewat GUI.
 job berhenti dengan pesan akar masalah — engine TIDAK diam-diam pindah ke
 heuristik. Lihat `notes/12-kebijakan-mesin-skor.md`.
 
+## Transkripsi: flag yang TIDAK boleh diubah sembarangan
+
+whisper dipanggil dengan **`-mc 0`** (jangan suapkan teks sebelumnya sebagai
+konteks) dan **`-sns`**. Tanpa `-mc 0`, model besar bisa terjebak mengulang satu
+kalimat sampai audio habis — pernah terjadi: 1603 dari 1644 segmen isinya
+kalimat yang sama.
+
+Konsekuensinya: **`--prompt` whisper mati total** saat `-mc 0`, jadi kosakata
+tidak bisa dibias di tingkat decoding. Itu sebabnya nama & istilah daerah
+dibenahi di tahap koreksi lewat `-terms`. Jangan mencoba menghidupkan `--prompt`
+tanpa membaca `notes/21-flag-whisper.md` lebih dulu.
+
+Flag decoding ikut menentukan kunci cache: **naikkan awalan versi di
+`transcriptCacheKey`** (kini `v2`) setiap kali flag berubah, kalau tidak
+transkrip lama dipakai ulang dan perubahannya seolah tak berefek.
+
+Ada penjaga `detectRepetitionLoop` sebelum tahap koreksi: job berhenti dengan
+pesan yang menyebut kalimat pengulangnya, bukan diam-diam menghasilkan klip
+sampah.
+
 ## Koreksi transkrip
 
 Keluaran mentah whisper membawa tanda hubung dialog, tanda baca salah tempat, dan
@@ -97,6 +122,13 @@ deterministik (panjang, jatah kata isi yang berubah, tanda kutip hilang, balasan
 kosong), dan koreksi yang ditolak dilaporkan di `Report.Rejected`. Timestamp per
 kata disejajarkan ulang lewat jarak edit supaya mode karaoke/word tetap tepat.
 Hasilnya di-cache di `data/cache/corrected`. Lihat `notes/14-koreksi-transkrip.md`.
+
+**Daftar istilah (`-terms`)** memperbaiki nama & kata daerah yang salah dengar
+("Londo Irang" → "Londo Ireng"). Diperlukan karena `--prompt` whisper mati (lihat
+di atas), DAN karena prompt koreksi justru melarang menyentuh kata daerah —
+daftar ini pengecualiannya. Ikut jadi bahan kunci cache koreksi, jadi menambah
+istilah memicu koreksi ulang. Untuk tugas ini **llama3.1 jelas lebih baik
+daripada qwen2.5**. Lihat `notes/22-daftar-istilah.md`.
 
 Transkrip panjang dipecah bertumpang-tindih sebelum dikirim ke LLM (12 mnt
 Ollama / 25 mnt Claude); momen yang terbelah batas disambung lewat tanda
@@ -119,5 +151,6 @@ jari isi video + model + bahasa).
 
 ## Status: MVP JALAN
 
-CLI + HTTP + GUI + worker C++ semua berfungsi (mode offline diverifikasi
+CLI + HTTP + GUI semua berfungsi (mode offline diverifikasi
 end-to-end). Lihat notes/08-status-mvp.md untuk yang sudah/belum.
+`````````````````````````````

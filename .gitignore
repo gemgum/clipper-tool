@@ -40,8 +40,6 @@
 /go.work
 /go.work.sum
 
-# --- C++ worker build ---
-/worker/build/
 
 # --- Node / Next.js (GUI) ---
 /gui/node_modules/
