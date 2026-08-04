@@ -23,7 +23,14 @@ import (
 // LD_LIBRARY_PATH ke folder biner itu. Struktur folder di dalam arsip tidak
 // membawa arti apa pun bagi kita.
 type recipe struct {
-	url string
+	// urls dicoba berurutan. Cermin pertama yang menjawab dipakai.
+	//
+	// Bukan kemewahan: gyan.dev — sumber ffmpeg Windows yang lazim — adalah
+	// satu server kecil yang dari sebagian jaringan tidak terjangkau sama
+	// sekali (terbukti: TLS handshake timeout dari Indonesia). Satu alamat mati
+	// berarti komponen wajib tidak bisa dipasang, dan pengguna tidak punya
+	// jalan lain di dalam aplikasi.
+	urls []string
 	// kind: "zip" atau "tar.gz". Keduanya ada di pustaka standar Go — itu
 	// sebabnya rilis .tar.xz (mis. ffmpeg statis untuk Linux) tidak dipakai:
 	// menambah dependensi eksternal hanya untuk membongkarnya melanggar aturan
@@ -66,17 +73,22 @@ func (r *recipe) wanted(name string) bool {
 // adalah keputusan sadar, bukan efek samping waktu.
 const whisperVersion = "v1.9.1"
 
+// Versi ffmpeg yang dipaku di cermin GitHub. gyan.dev sendiri hanya menyediakan
+// "release terbaru" tanpa versi di alamatnya, jadi cermin inilah yang membuat
+// hasil unduhan bisa diulang persis.
+const ffmpegVersion = "9.0"
+
 func whisperRecipe() *recipe {
 	base := "https://github.com/ggml-org/whisper.cpp/releases/download/" + whisperVersion + "/"
 	switch runtime.GOOS {
 	case "windows":
 		// Berisi whisper-cli.exe + DLL pendampingnya.
-		return &recipe{url: base + "whisper-bin-x64.zip", kind: "zip"}
+		return &recipe{urls: []string{base + "whisper-bin-x64.zip"}, kind: "zip"}
 	case "linux":
 		if runtime.GOARCH == "arm64" {
-			return &recipe{url: base + "whisper-bin-ubuntu-arm64.tar.gz", kind: "tar.gz"}
+			return &recipe{urls: []string{base + "whisper-bin-ubuntu-arm64.tar.gz"}, kind: "tar.gz"}
 		}
-		return &recipe{url: base + "whisper-bin-ubuntu-x64.tar.gz", kind: "tar.gz"}
+		return &recipe{urls: []string{base + "whisper-bin-ubuntu-x64.tar.gz"}, kind: "tar.gz"}
 	}
 	// macOS: rilis resminya hanya xcframework, bukan biner baris perintah.
 	return nil
@@ -103,19 +115,26 @@ func ffmpegRecipe() *recipe {
 	switch runtime.GOOS {
 	case "windows":
 		return &recipe{
-			url:  "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+			urls: []string{
+				// Cermin GitHub dari build yang sama — CDN GitHub terjangkau
+				// dari mana pun aplikasi ini bisa diunduh, jadi ia didahulukan.
+				"https://github.com/GyanD/codexffmpeg/releases/download/" + ffmpegVersion +
+					"/ffmpeg-" + ffmpegVersion + "-essentials_build.zip",
+				// Sumber aslinya, sebagai cadangan.
+				"https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+				// Build pihak lain, kalau dua di atas mati.
+				"https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+			},
 			kind: "zip",
 			want: []string{"ffmpeg.exe", "ffprobe.exe"},
 		}
-	case "darwin":
-		// evermeet.cx mengemas satu biner per zip, jadi ffprobe ikut terpasang
-		// lewat resep kedua di bawah.
-		return &recipe{
-			url:  "https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip",
-			kind: "zip",
-			want: []string{"ffmpeg"},
-		}
 	}
+	// macOS: sumber yang lazim (evermeet.cx) mengemas SATU biner per zip,
+	// sedangkan daftar urls di sini berarti "cermin" — dicoba sampai satu
+	// berhasil, lalu berhenti. Memakainya untuk dua berkas berbeda akan
+	// memasang ffmpeg saja dan meninggalkan ffprobe hilang tanpa pesan apa pun.
+	// Lebih jujur menyerahkannya ke Homebrew, yang memasang keduanya sekaligus.
+	//
 	// Linux: rilis statis resminya .tar.xz, dan xz tidak ada di pustaka standar.
 	return nil
 }
@@ -124,8 +143,6 @@ func ffmpegSize() string {
 	switch runtime.GOOS {
 	case "windows":
 		return "~110 MB"
-	case "darwin":
-		return "~26 MB"
 	}
 	return ""
 }
@@ -142,15 +159,70 @@ func ffmpegHint() string {
 
 // --- unduh ---
 
+// downloadAny mencoba tiap cermin sampai ada yang berhasil.
+//
+// Galat terakhir yang dilaporkan, bukan yang pertama: yang pertama biasanya
+// cermin yang memang sudah lama mati, sedangkan yang terakhir lebih mungkin
+// menggambarkan keadaan jaringan pengguna.
+func downloadAny(ctx context.Context, urls []string, dest string, onProgress func(Progress)) error {
+	onProgress = orNoop(onProgress)
+	var last error
+	for i, url := range urls {
+		if i > 0 {
+			onProgress(Progress{Message: fmt.Sprintf("Trying another source (%d of %d)…", i+1, len(urls))})
+		}
+		err := download(ctx, url, dest, onProgress)
+		if err == nil {
+			return nil
+		}
+		// Pembatalan oleh pengguna bukan kegagalan cermin — jangan pindah.
+		if ctx.Err() != nil {
+			return err
+		}
+		last = err
+	}
+	if last == nil {
+		last = fmt.Errorf("no download source is configured")
+	}
+	return last
+}
+
+// orNoop membuat pelapor progres selalu aman dipanggil. Penjaganya ada di sini,
+// bukan hanya di Install: fungsi unduh dipanggil juga dari tempat lain (dan
+// dari uji), dan "tanpa pelapor" adalah pemakaian yang sah — bukan alasan untuk
+// panik di tengah unduhan 111 MB.
+func orNoop(fn func(Progress)) func(Progress) {
+	if fn == nil {
+		return func(Progress) {}
+	}
+	return fn
+}
+
 // download menyimpan url ke dest sambil melaporkan kemajuannya.
 //
-// Ditulis ke berkas .part lalu diganti nama di akhir: unduhan model bisa
-// memakan menit, dan berkas setengah jadi yang bernama seperti berkas jadi akan
-// dianggap "sudah terpasang" pada percobaan berikutnya.
+// Ditulis ke berkas .part lalu diganti nama di akhir: berkas setengah jadi yang
+// bernama seperti berkas jadi akan dianggap "sudah terpasang" pada percobaan
+// berikutnya.
+//
+// Berkas .part TIDAK dihapus saat gagal — justru itu yang membuat percobaan
+// berikutnya bisa meminta sisanya saja lewat header Range. Di sambungan yang
+// putus-nyambung, gagal di 100 MB tidak lagi berarti mengulang 111 MB.
 func download(ctx context.Context, url, dest string, onProgress func(Progress)) error {
+	onProgress = orNoop(onProgress)
+	tmp := dest + ".part"
+
+	// Berapa byte yang sudah ada dari percobaan sebelumnya.
+	var have int64
+	if st, err := os.Stat(tmp); err == nil {
+		have = st.Size()
+	}
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
+	}
+	if have > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
 	}
 	client := &http.Client{Timeout: 6 * time.Hour} // model besar di sambungan lambat
 	res, err := client.Do(req)
@@ -158,25 +230,41 @@ func download(ctx context.Context, url, dest string, onProgress func(Progress)) 
 		return fmt.Errorf("download failed: %w", err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
+
+	// 206 = server menerima permintaan lanjutan. 200 = ia mengabaikannya dan
+	// mengirim dari awal, jadi berkas lama harus dibuang supaya tidak tersambung
+	// jadi berkas rusak yang ukurannya kelihatan benar.
+	resume := res.StatusCode == http.StatusPartialContent
+	switch {
+	case resume:
+	case res.StatusCode == http.StatusOK:
+		have = 0
+	default:
 		return fmt.Errorf("download failed: %s said %s", url, res.Status)
 	}
 
-	tmp := dest + ".part"
-	f, err := os.Create(tmp)
+	flag := os.O_CREATE | os.O_WRONLY
+	if resume {
+		flag |= os.O_APPEND
+	} else {
+		flag |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(tmp, flag, 0o644)
 	if err != nil {
 		return err
 	}
+
 	total := res.ContentLength
-	pr := &progressReader{r: res.Body, total: total, onProgress: onProgress}
+	if total > 0 {
+		total += have // ContentLength hanya menghitung sisanya saat melanjutkan
+	}
+	pr := &progressReader{r: res.Body, total: total, read: have, onProgress: onProgress}
 	_, err = io.Copy(f, pr)
 	closeErr := f.Close()
 	if err != nil {
-		os.Remove(tmp)
 		return fmt.Errorf("download interrupted: %w", err)
 	}
 	if closeErr != nil {
-		os.Remove(tmp)
 		return closeErr
 	}
 	return os.Rename(tmp, dest)

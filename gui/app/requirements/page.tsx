@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
+import Picker from "../picker";
 
 type Component = {
   id: string;
@@ -34,14 +35,27 @@ type Requirements = {
   dev: boolean;
 };
 
-// Kemajuan satu pemasangan yang sedang berjalan.
-type Running = { id: string; value: number; message: string };
+// Kemajuan pemasangan, apa adanya dari engine.
+//
+// Halaman ini TIDAK lagi menjalankan unduhannya. Ia hanya menonton: engine yang
+// mengunduh, di latar, dan tetap jalan walau jendela ditinggal atau ditutup.
+type Install = {
+  id: string;
+  running: boolean;
+  value: number;
+  message: string;
+  bytes: number;
+  total: number;
+  error?: string;
+  done: boolean;
+};
 
 export default function RequirementsPage() {
   const { t } = useI18n();
   const [req, setReq] = useState<Requirements | null>(null);
   const [error, setError] = useState("");
-  const [running, setRunning] = useState<Running | null>(null);
+  const [installs, setInstalls] = useState<Record<string, Install>>({});
+  const [picking, setPicking] = useState<Component | null>(null);
   const [busy, setBusy] = useState(true);
   // Pesan hasil per komponen (selesai / gagal), hilang saat dicoba lagi.
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -67,71 +81,40 @@ export default function RequirementsPage() {
     return () => abort.current?.abort();
   }, [load]);
 
-  // install membaca aliran SSE dari respons POST.
-  //
-  // EventSource tidak dipakai karena ia hanya bisa GET, sedangkan memasang
-  // komponen jelas mengubah keadaan mesin. Format datanya tetap SSE — sama
-  // dengan progres job.
+  // install hanya MEMULAI. Kemajuannya datang lewat langganan di bawah, jadi
+  // menutup atau meninggalkan halaman ini tidak menghentikan apa pun.
   const install = useCallback(
     async (c: Component) => {
       setNotes((n) => ({ ...n, [c.id]: "" }));
-      setRunning({ id: c.id, value: 0, message: t("reqStarting") });
-      const ctrl = new AbortController();
-      abort.current = ctrl;
       try {
         const res = await fetch(eng(`/api/requirements/install`), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ id: c.id }),
-          signal: ctrl.signal,
         });
-        if (!res.ok || !res.body) {
+        if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || `HTTP ${res.status}`);
         }
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let failed = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          // Satu pesan SSE berakhir di baris kosong.
-          const chunks = buffer.split("\n\n");
-          buffer = chunks.pop() || "";
-          for (const chunk of chunks) {
-            let event = "message";
-            let data = "";
-            for (const line of chunk.split("\n")) {
-              if (line.startsWith("event:")) event = line.slice(6).trim();
-              if (line.startsWith("data:")) data += line.slice(5).trim();
-            }
-            if (!data) continue;
-            const payload = JSON.parse(data);
-            if (event === "progress") {
-              setRunning({ id: c.id, value: payload.value, message: payload.message });
-            } else if (event === "error") {
-              failed = payload.message;
-            } else if (event === "done" && payload.components) {
-              setReq((r) => (r ? { ...r, components: payload.components } : r));
-            }
-          }
-        }
-        if (failed) throw new Error(failed);
-        setNotes((n) => ({ ...n, [c.id]: t("reqInstalled") }));
-        load(); // tarik status lengkap (termasuk "kurang apa lagi")
       } catch (e: any) {
-        if (e.name !== "AbortError") {
-          setNotes((n) => ({ ...n, [c.id]: `⚠ ${e.message}` }));
-        }
-      } finally {
-        setRunning(null);
-        abort.current = null;
+        setNotes((n) => ({ ...n, [c.id]: `⚠ ${e.message}` }));
       }
     },
-    [load, t]
+    []
   );
+
+  // Langganan kabar pemasangan. Pesan pertama dari engine berisi keadaan
+  // terkini, jadi halaman yang baru dibuka langsung menampilkan unduhan yang
+  // sedang berjalan — termasuk yang dimulai sebelum halaman ini dibuka.
+  useEffect(() => {
+    const es = new EventSource(eng(`/api/requirements/events`));
+    es.addEventListener("install", (ev) => {
+      const st: Install = JSON.parse((ev as MessageEvent).data);
+      setInstalls((prev) => ({ ...prev, [st.id]: st }));
+      if (st.done) load();
+    });
+    return () => es.close();
+  }, [load]);
 
   const remove = useCallback(
     async (c: Component) => {
@@ -156,6 +139,29 @@ export default function RequirementsPage() {
   // baris pertahanan di sini lebih murah daripada halaman yang gagal dirender.
   const missing = req?.missing ?? [];
 
+  // Menunjuk program yang sudah ada di komputer, bagi yang tidak mau (atau
+  // tidak bisa) mengunduh ulang — dan bagi Chrome/Edge yang memang tidak
+  // pernah kita unduh sendiri.
+  const setPath = useCallback(
+    async (c: Component, path: string) => {
+      setPicking(null);
+      try {
+        const res = await fetch(eng(`/api/requirements/path`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ id: c.id, path }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        setNotes((n) => ({ ...n, [c.id]: t("reqPathSaved") }));
+        load();
+      } catch (e: any) {
+        setNotes((n) => ({ ...n, [c.id]: `⚠ ${e.message}` }));
+      }
+    },
+    [load, t]
+  );
+
   const groups: { title: string; kind: Component["kind"] }[] = [
     { title: t("reqGroupTools"), kind: "tool" },
     { title: t("reqGroupModels"), kind: "model" },
@@ -164,6 +170,15 @@ export default function RequirementsPage() {
 
   return (
     <main className="wrap">
+      {picking && (
+        <Picker
+          mode="file"
+          start={picking.path}
+          onPick={(p) => setPath(picking, p)}
+          onClose={() => setPicking(null)}
+        />
+      )}
+
       <h1>{t("reqTitle")}</h1>
       <p className="sub">{t("reqSubtitle")}</p>
 
@@ -183,7 +198,8 @@ export default function RequirementsPage() {
           <div className="panel" key={g.kind}>
             <div className="meta" style={{ marginBottom: 12 }}>{g.title}</div>
             {items.map((c) => {
-              const live = running?.id === c.id;
+              const st = installs[c.id];
+              const live = st?.running ?? false;
               return (
                 <div className="req-row" key={c.id}>
                   <div className={`req-dot ${c.installed ? "on" : c.required ? "off" : "idle"}`} />
@@ -197,22 +213,31 @@ export default function RequirementsPage() {
                     {c.installed && c.path && <div className="req-path">{c.path}</div>}
                     {!c.installed && !c.installable && c.hint && <div className="meta">{c.hint}</div>}
                     {notes[c.id] && <div className="meta">{notes[c.id]}</div>}
+                    {st?.error && <div className="meta">⚠ {st.error}</div>}
                     {live && (
                       <div style={{ marginTop: 8 }}>
                         <div className="progress-outer">
                           <div
                             className="progress-inner"
-                            style={{ width: `${Math.max(0, running!.value) * 100}%` }}
+                            style={{ width: `${Math.max(0, st.value) * 100}%` }}
                           />
                         </div>
-                        <div className="meta" style={{ marginTop: 4 }}>{running!.message}</div>
+                        <div className="meta" style={{ marginTop: 4 }}>{st.message}</div>
                       </div>
                     )}
                   </div>
                   <div className="req-actions">
                     {!c.installed && c.installable && (
-                      <button disabled={!!running} onClick={() => install(c)}>
+                      <button disabled={live} onClick={() => install(c)}>
                         {live ? t("reqInstalling") : t("reqInstall")}
+                      </button>
+                    )}
+                    {/* Menunjuk sendiri berlaku untuk program, bukan model:
+                        model adalah berkas milik kita yang namanya sudah pasti,
+                        sedangkan program bisa ada di mana saja. */}
+                    {c.kind !== "model" && (
+                      <button className="ghost" disabled={live} onClick={() => setPicking(c)}>
+                        {c.installed ? t("reqPathChange") : t("reqPathPick")}
                       </button>
                     )}
                     {!c.installed && !c.installable && c.url && (
@@ -221,7 +246,7 @@ export default function RequirementsPage() {
                       </a>
                     )}
                     {c.installed && c.kind === "model" && (
-                      <button className="ghost" disabled={!!running} onClick={() => remove(c)}>
+                      <button className="ghost" disabled={live} onClick={() => remove(c)}>
                         {t("reqRemove")}
                       </button>
                     )}
@@ -243,7 +268,7 @@ export default function RequirementsPage() {
         </div>
       )}
 
-      <button className="ghost" disabled={busy || !!running} onClick={load}>
+      <button className="ghost" disabled={busy} onClick={load}>
         {busy ? t("loading") : t("reqRefresh")}
       </button>
     </main>

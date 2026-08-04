@@ -35,8 +35,8 @@ type Server struct {
 	paths  config.Paths
 	ff     *ffmpeg.Client
 	cards  *card.Builder
-	// installs menjaga satu komponen tidak dipasang dua kali sekaligus.
-	installs installing
+	// installs = pemasangan komponen yang berjalan di latar (lihat installs.go).
+	installs installs
 	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
 	token string
 }
@@ -52,6 +52,17 @@ func NewServer(mgr *job.Manager, l config.Layout) *Server {
 	}
 }
 
+// applyPaths membaca ulang letak program setelah pengguna menunjuknya sendiri.
+//
+// Server menyimpan Paths & pembuat kartu sejak dibuat; tanpa langkah ini,
+// browser yang baru saja dipilih baru terpakai setelah aplikasi dijalankan lagi
+// — dan pengguna wajar mengira pilihannya tidak tersimpan.
+func (s *Server) applyPaths() {
+	s.paths = config.ResolvePaths(s.layout, config.DefaultOptions())
+	s.ff = ffmpeg.New(s.paths.FFmpeg, s.paths.FFprobe)
+	s.cards = card.New(capture.New(s.paths.Chrome), s.paths.FontsDir)
+}
+
 // Handler membangun router.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -61,7 +72,9 @@ func (s *Server) Handler() http.Handler {
 	// Halaman Requirements: status komponen + pemasangannya.
 	mux.HandleFunc("GET /api/requirements", s.requirements)
 	mux.HandleFunc("POST /api/requirements/install", s.installComponent)
+	mux.HandleFunc("GET /api/requirements/events", s.installEvents)
 	mux.HandleFunc("POST /api/requirements/remove", s.removeComponent)
+	mux.HandleFunc("POST /api/requirements/path", s.setComponentPath)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.postSettings)
 	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)

@@ -119,6 +119,11 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
   dan model ke `ToolsDir`/`ModelsDir`; halaman Requirements memanggilnya. Kalau
   menambah komponen, tambahkan resepnya di sana — bukan instruksi di README
   (notes/25).
+- **GUI tidak mengendalikan apa pun yang memakan waktu.** Pemasangan komponen
+  dan job klip berjalan di latar dengan `context.Background()`; GUI memulai lalu
+  BERLANGGANAN kabarnya lewat SSE. Pernah dilanggar sekali (unduhan hidup di
+  dalam `r.Context()` permintaan halaman) dan akibatnya unduhan 111 MB mengulang
+  dari nol setiap pengguna pindah jendela.
 - **GUI disajikan engine.** `next build` menghasilkan `gui/out` (ekspor statis),
   dan engine menyajikannya di akar alamatnya. `npm run dev` tetap ada untuk
   mengembangkan, tapi aplikasi jadi tidak memakainya. Jendela Tauri di

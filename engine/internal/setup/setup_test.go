@@ -3,8 +3,10 @@ package setup
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -146,9 +148,12 @@ func TestTarGzKeepsSymlinks(t *testing.T) {
 	}
 }
 
-// Unduhan yang terputus tidak boleh meninggalkan berkas yang tampak jadi:
-// pemanggilan berikutnya akan menganggapnya "sudah terpasang".
-func TestAFailedDownloadLeavesNothingBehind(t *testing.T) {
+// Unduhan yang DITOLAK server tidak meninggalkan apa pun — termasuk .part,
+// sebab tidak ada satu byte pun yang sah untuk dilanjutkan.
+//
+// Bedakan dengan unduhan yang TERPUTUS di tengah: di situ .part sengaja
+// dipertahankan supaya bisa dilanjutkan (lihat TestDownloadResumes…).
+func TestARejectedDownloadLeavesNothingBehind(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 	}))
@@ -268,5 +273,98 @@ func TestRemoveModel(t *testing.T) {
 	}
 	if err := RemoveModel(l, "bukan-model"); err == nil {
 		t.Error("nama model asing tidak ditolak")
+	}
+}
+
+// Unduhan yang terputus dilanjutkan, bukan diulang. Ini yang membedakan gagal
+// di 100 MB dari "mengulang 111 MB dari nol" — dan di sambungan yang
+// putus-nyambung, itu selisih antara bisa dan tidak bisa memasang sama sekali.
+func TestDownloadResumesFromWhatIsAlreadyThere(t *testing.T) {
+	full := []byte(strings.Repeat("abcdefghij", 1000)) // 10.000 byte
+	var gotRange string
+	var sent int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("Range")
+		start := 0
+		if gotRange != "" {
+			_, _ = fmt.Sscanf(gotRange, "bytes=%d-", &start)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(full)-1, len(full)))
+			w.WriteHeader(http.StatusPartialContent)
+		}
+		sent = len(full) - start
+		_, _ = w.Write(full[start:])
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "berkas.bin")
+	// Separuh sudah terunduh dari percobaan sebelumnya.
+	if err := os.WriteFile(dest+".part", full[:4000], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := download(context.Background(), srv.URL, dest, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if gotRange != "bytes=4000-" {
+		t.Errorf("header Range = %q, mau %q", gotRange, "bytes=4000-")
+	}
+	if sent != 6000 {
+		t.Errorf("server mengirim %d byte, mau 6000 (sisanya saja)", sent)
+	}
+	if got, err := os.ReadFile(dest); err != nil || !bytes.Equal(got, full) {
+		t.Errorf("isi berkas tidak utuh (%d byte, err %v)", len(got), err)
+	}
+}
+
+// Server yang MENGABAIKAN Range (menjawab 200) mengirim dari awal. Kalau itu
+// ditambahkan ke berkas separuh, hasilnya berkas rusak yang ukurannya justru
+// terlihat wajar — kerusakan paling buruk, sebab tidak kelihatan.
+func TestDownloadStartsOverWhenTheServerIgnoresRange(t *testing.T) {
+	full := []byte(strings.Repeat("x", 5000))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(full)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "berkas.bin")
+	if err := os.WriteFile(dest+".part", []byte(strings.Repeat("y", 2000)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := download(context.Background(), srv.URL, dest, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, full) {
+		t.Errorf("berkas rusak: %d byte, mau %d byte berisi 'x'", len(got), len(full))
+	}
+}
+
+// Cermin pertama mati, yang kedua dipakai. Tanpa ini, satu server yang tidak
+// terjangkau dari jaringan pengguna berarti komponen wajib tidak bisa dipasang
+// sama sekali — persis yang terjadi dengan gyan.dev.
+func TestDownloadFallsBackToTheNextMirror(t *testing.T) {
+	mati := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(500)
+	}))
+	defer mati.Close()
+	hidup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("isi"))
+	}))
+	defer hidup.Close()
+
+	dest := filepath.Join(t.TempDir(), "berkas.bin")
+
+	if err := downloadAny(context.Background(), []string{mati.URL, hidup.URL}, dest, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := os.ReadFile(dest); string(got) != "isi" {
+		t.Errorf("isi = %q, mau %q", got, "isi")
 	}
 }

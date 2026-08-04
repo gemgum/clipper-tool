@@ -3,8 +3,8 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
-	"sync"
 
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 	"github.com/gemgum/clipper/engine/internal/setup"
@@ -49,85 +49,6 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// installing menjaga satu komponen tidak dipasang dua kali sekaligus. Dua
-// unduhan ke berkas tujuan yang sama akan saling menimpa dan menghasilkan
-// berkas rusak yang terlihat seperti berhasil.
-type installing struct {
-	mu sync.Mutex
-	on map[string]bool
-}
-
-func (i *installing) start(id string) bool {
-	i.mu.Lock()
-	defer i.mu.Unlock()
-	if i.on == nil {
-		i.on = map[string]bool{}
-	}
-	if i.on[id] {
-		return false
-	}
-	i.on[id] = true
-	return true
-}
-
-func (i *installing) done(id string) {
-	i.mu.Lock()
-	delete(i.on, id)
-	i.mu.Unlock()
-}
-
-// installComponent memasang satu komponen sambil mengalirkan progresnya.
-//
-// POST, bukan GET, sebab ia mengubah keadaan mesin — jadi klien membacanya
-// dengan fetch + reader, bukan EventSource. Bentuk aliran datanya tetap SSE.
-func (s *Server) installComponent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		ID string `json:"id"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		writeErr(w, 400, err.Error())
-		return
-	}
-	req.ID = strings.TrimSpace(req.ID)
-	if req.ID == "" {
-		writeErr(w, 400, "the 'id' field is required")
-		return
-	}
-	if !s.installs.start(req.ID) {
-		writeErr(w, 409, "that component is already being installed")
-		return
-	}
-	defer s.installs.done(req.ID)
-
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeErr(w, 500, "streaming is not supported by this connection")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(200)
-	writeSSE(w, "progress", setup.Progress{Message: "Starting…"})
-	flusher.Flush()
-
-	err := setup.Install(r.Context(), s.layout, req.ID, func(p setup.Progress) {
-		writeSSE(w, "progress", p)
-		flusher.Flush()
-	})
-	if err != nil {
-		writeSSE(w, "error", map[string]string{"message": err.Error()})
-		flusher.Flush()
-		return
-	}
-	// Status terbaru ikut dikirim supaya GUI tidak perlu bertanya lagi.
-	writeSSE(w, "done", map[string]any{
-		"id":         req.ID,
-		"components": setup.Status(s.layout, false, ""),
-	})
-	flusher.Flush()
-}
-
 // removeComponent menghapus model yang sudah diunduh.
 //
 // Ada karena model besar memakan 2,9 GB dan pengguna yang mencobanya sekali
@@ -149,6 +70,65 @@ func (s *Server) removeComponent(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	writeJSON(w, 200, map[string]any{
+		"ok":         true,
+		"components": setup.Status(s.layout, false, ""),
+	})
+}
+
+// setComponentPath menyimpan letak sebuah program yang ditunjuk pengguna.
+//
+// Ada karena mendeteksi otomatis tidak akan pernah menang melawan semua cara
+// orang memasang program. Sampai kini jalan keluarnya adalah menyuruh pengguna
+// menyunting berkas .env — instruksi yang masuk akal untuk CLI dan tidak masuk
+// akal sama sekali untuk aplikasi berjendela.
+//
+// Disimpan ke .env supaya bertahan setelah aplikasi ditutup, DAN dipasang ke
+// proses yang sedang jalan supaya langsung terpakai tanpa perlu memulai ulang.
+func (s *Server) setComponentPath(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID   string `json:"id"`
+		Path string `json:"path"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	req.Path = strings.TrimSpace(req.Path)
+	if req.Path == "" {
+		writeErr(w, 400, "the 'path' field is required")
+		return
+	}
+	st, err := os.Stat(req.Path)
+	if err != nil || st.IsDir() {
+		writeErr(w, 400, "that file does not exist: "+req.Path)
+		return
+	}
+
+	key := ""
+	switch req.ID {
+	case "chrome":
+		key = "CLIPPER_CHROME"
+	case "ffmpeg":
+		key = "CLIPPER_FFMPEG_BIN"
+	case "ffprobe":
+		key = "CLIPPER_FFPROBE_BIN"
+	case "whisper":
+		key = "CLIPPER_WHISPER_BIN"
+	default:
+		writeErr(w, 400, "that component cannot be pointed at a file")
+		return
+	}
+
+	if err := writeEnvKey(s.paths.EnvFile, key, req.Path); err != nil {
+		writeErr(w, 500, "cannot save the setting: "+err.Error())
+		return
+	}
+	// Env proses ikut diubah: ResolvePaths & capture.Find membacanya, jadi job
+	// berikutnya memakai pilihan ini tanpa aplikasi ditutup dulu.
+	_ = os.Setenv(key, req.Path)
+	s.applyPaths()
+
 	writeJSON(w, 200, map[string]any{
 		"ok":         true,
 		"components": setup.Status(s.layout, false, ""),

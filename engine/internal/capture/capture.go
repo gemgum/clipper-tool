@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,19 +26,86 @@ type Client struct {
 
 func New(bin string) *Client { return &Client{Bin: bin} }
 
-// Kandidat biner yang dicari bila CLIPPER_CHROME tidak diset. Urutannya:
-// Chromium/Chrome Linux dulu (paling cocok dengan engine), baru .exe Windows
-// lewat WSL sebagai cadangan.
+// Browser yang bisa dipakai HARUS keluarga Chromium.
+//
+// Bukan pilihan selera: kartu dirender dengan flag khas Chrome
+// (--headless=new, --screenshot, --force-device-scale-factor, --dump-dom).
+// Firefox tidak mengenal satu pun dari itu, jadi ia tidak bisa dipakai walau
+// terpasang. Yang bisa: Edge, Chrome, Brave, Vivaldi, Opera, Chromium.
 var linuxCandidates = []string{
 	"google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
 	"microsoft-edge", "microsoft-edge-stable", "brave-browser",
+	"vivaldi", "vivaldi-stable", "opera",
 }
 
-var windowsCandidates = []string{
-	`/mnt/c/Program Files/Google/Chrome/Application/chrome.exe`,
-	`/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe`,
-	`/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe`,
-	`/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe`,
+// Letak lazim di Windows, relatif terhadap folder program.
+//
+// Edge didahulukan: ia ada di setiap Windows 10/11 tanpa perlu dipasang, jadi
+// pencarian hampir selalu berhenti di baris pertama.
+var windowsRelative = []string{
+	`Microsoft\Edge\Application\msedge.exe`,
+	`Google\Chrome\Application\chrome.exe`,
+	`BraveSoftware\Brave-Browser\Application\brave.exe`,
+	`Vivaldi\Application\vivaldi.exe`,
+	`Chromium\Application\chrome.exe`,
+	`Opera\opera.exe`,
+	`Microsoft\Edge Beta\Application\msedge.exe`,
+	`Google\Chrome Beta\Application\chrome.exe`,
+}
+
+// windowsRoots = folder tempat program Windows dipasang, termasuk pemasangan
+// per-pengguna yang tidak butuh hak admin (LOCALAPPDATA) — Chrome dan Brave
+// sering mendarat di sana pada komputer kantor.
+func windowsRoots() []string {
+	var roots []string
+	for _, env := range []string{"ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "LOCALAPPDATA"} {
+		if v := os.Getenv(env); v != "" {
+			roots = append(roots, v)
+		}
+	}
+	if len(roots) == 0 {
+		roots = []string{`C:\Program Files`, `C:\Program Files (x86)`}
+	}
+	return roots
+}
+
+// wslCandidates = jalur ke browser Windows saat engine jalan DI DALAM WSL.
+//
+// Terpisah dari daftar Windows asli, dan itu bukan pengulangan: path /mnt/c
+// hanya ada di WSL, sedangkan aplikasi yang dipasang di Windows tidak pernah
+// melihatnya. Menggabungkan keduanya dulu membuat pengguna Windows mendapat
+// "No browser found" padahal Chrome-nya ada.
+func wslCandidates() []string {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+	var out []string
+	for _, base := range []string{`/mnt/c/Program Files`, `/mnt/c/Program Files (x86)`} {
+		for _, rel := range windowsRelative {
+			out = append(out, filepath.Join(base, strings.ReplaceAll(rel, `\`, "/")))
+		}
+	}
+	return out
+}
+
+// Candidates mengembalikan seluruh tempat yang dicari, apa pun sistemnya.
+// Dipakai Find dan juga untuk melaporkan "sudah dicari di mana saja".
+func Candidates() []string {
+	var out []string
+	if runtime.GOOS == "windows" {
+		for _, root := range windowsRoots() {
+			for _, rel := range windowsRelative {
+				out = append(out, filepath.Join(root, strings.ReplaceAll(rel, `\`, string(filepath.Separator))))
+			}
+		}
+		return out
+	}
+	for _, name := range linuxCandidates {
+		if p, err := exec.LookPath(name); err == nil {
+			out = append(out, p)
+		}
+	}
+	return append(out, wslCandidates()...)
 }
 
 // Find menemukan biner browser yang bisa dipakai. Mengembalikan "" bila tidak
@@ -46,12 +114,7 @@ func Find() string {
 	if v := os.Getenv("CLIPPER_CHROME"); v != "" {
 		return v
 	}
-	for _, name := range linuxCandidates {
-		if p, err := exec.LookPath(name); err == nil {
-			return p
-		}
-	}
-	for _, p := range windowsCandidates {
+	for _, p := range Candidates() {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}

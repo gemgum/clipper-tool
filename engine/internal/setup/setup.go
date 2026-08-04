@@ -231,6 +231,8 @@ func Install(ctx context.Context, l config.Layout, id string, onProgress func(Pr
 		return installModel(ctx, l, name, onProgress)
 	}
 	switch id {
+	// Satu unduhan menghasilkan keduanya — memasang "ffprobe" berarti memasang
+	// paket yang sama.
 	case "ffmpeg", "ffprobe":
 		return installRecipe(ctx, l, ffmpegRecipe(), "ffmpeg", ffmpegHint(), onProgress)
 	case "whisper":
@@ -256,10 +258,16 @@ func installModel(ctx context.Context, l config.Layout, name string, onProgress 
 	if err := os.MkdirAll(l.ModelsDir, 0o755); err != nil {
 		return err
 	}
-	url := "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-" + name + ".bin"
 	dest := ModelPath(l, name)
+	// Dua cermin: HuggingFace resmi, lalu cermin komunitas. Model "small" 466 MB
+	// dan "large-v3" 2,9 GB — unduhan sebesar itu di sambungan yang tidak
+	// stabil butuh lebih dari satu pintu.
+	urls := []string{
+		"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-" + name + ".bin",
+		"https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-" + name + ".bin",
+	}
 	onProgress(Progress{Message: "Downloading model " + name + "…"})
-	if err := download(ctx, url, dest, onProgress); err != nil {
+	if err := downloadAny(ctx, urls, dest, onProgress); err != nil {
 		return err
 	}
 	onProgress(Progress{Value: 1, Message: "Model " + name + " is ready."})
@@ -282,7 +290,7 @@ func installRecipe(ctx context.Context, l config.Layout, r *recipe, what, hint s
 
 	archive := filepath.Join(tmp, "download"+r.ext())
 	onProgress(Progress{Message: "Downloading " + what + "…"})
-	if err := download(ctx, r.url, archive, onProgress); err != nil {
+	if err := downloadAny(ctx, r.urls, archive, onProgress); err != nil {
 		return err
 	}
 	onProgress(Progress{Value: 1, Message: "Unpacking " + what + "…"})
