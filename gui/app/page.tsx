@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng, engineURL } from "./engine";
 import Picker from "./picker";
+import { useKeep, useRestore } from "./persist";
 
 const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
 
@@ -444,6 +445,52 @@ export default function Home() {
   const atCenterX = subX === CENTER_X;
   const atCenterY = subY === centerAnchorY;
   const guidesVisible = isDragging || alwaysGuides;
+
+  // Isian tab klip ikut disimpan, dengan alasan yang sama seperti tab kartu:
+  // halaman bisa termuat ulang tanpa diminta, dan menyusun ulang setelan render
+  // dari awal jauh lebih menyakitkan daripada mengetik satu path.
+  //
+  // Yang TIDAK disimpan: daftar klip & status job — itu milik engine, dan
+  // ditarik ulang saat halaman dibuka.
+  useKeep("clips", {
+    path, outputDir, mode, model, resolution, quality, reframe, background, zoom, fps,
+    durationPreset, maxClips, saveMode, transcriptFix, terms,
+    offlineEngine, claudeModel, ollamaModel,
+    subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed,
+  });
+  useRestore<Record<string, unknown>>("clips", (v) => {
+    const set = <T,>(fn: (x: T) => void, val: unknown) => {
+      if (val !== undefined && val !== null) fn(val as T);
+    };
+    set(setPath, v.path);
+    set(setOutputDir, v.outputDir);
+    set(setMode, v.mode);
+    set(setModel, v.model);
+    set(setResolution, v.resolution);
+    set(setQuality, v.quality);
+    set(setReframe, v.reframe);
+    set(setBackground, v.background);
+    set(setZoom, v.zoom);
+    set(setFps, v.fps);
+    set(setDurationPreset, v.durationPreset);
+    set(setMaxClips, v.maxClips);
+    set(setSaveMode, v.saveMode);
+    set(setTranscriptFix, v.transcriptFix);
+    set(setTerms, v.terms);
+    set(setOfflineEngine, v.offlineEngine);
+    set(setClaudeModel, v.claudeModel);
+    set(setOllamaModel, v.ollamaModel);
+    set(setSubFont, v.subFont);
+    set(setSubSize, v.subSize);
+    set(setSubX, v.subX);
+    set(setSubY, v.subY);
+    set(setSubColor, v.subColor);
+    set(setSubOutline, v.subOutline);
+    set(setSubBox, v.subBox);
+    set(setSubMode, v.subMode);
+    set(setSubHighlight, v.subHighlight);
+    set(setSubSpeed, v.subSpeed);
+  });
 
   const uploadFile = useCallback((file: File) => {
     setUploading(true); setUploadPct(0);

@@ -148,10 +148,25 @@ func TestBrowseHidesDotFiles(t *testing.T) {
 	}
 }
 
-// Folder yang tidak ada dijawab 400 dengan pesan, bukan 500 atau panik.
-func TestBrowseReportsAMissingFolder(t *testing.T) {
+// Folder yang ADA tapi tidak boleh dibaca tetap dijawab 400 dengan pesan,
+// bukan 500 atau panik.
+//
+// Bedakan dengan folder yang TIDAK ADA: sejak pemilih berkas boleh dibuka dari
+// letak sebuah program, path yang hilang justru naik ke induknya yang masih ada
+// (lihat TestBrowseClimbsToAFolderThatStillExists). Yang tidak bisa diselamatkan
+// hanyalah folder yang memang menolak dibuka.
+func TestBrowseReportsAFolderItCannotOpen(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root menembus izin berkas, jadi kasus ini tidak bisa diuji")
+	}
+	terkunci := filepath.Join(t.TempDir(), "terkunci")
+	if err := os.Mkdir(terkunci, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(terkunci, 0o755) })
+
 	s := &Server{}
-	req := httptest.NewRequest("GET", "/api/browse?dir="+url.QueryEscape(filepath.Join(t.TempDir(), "tidak-ada")), nil)
+	req := httptest.NewRequest("GET", "/api/browse?dir="+url.QueryEscape(terkunci), nil)
 	rec := httptest.NewRecorder()
 
 	s.browse(rec, req)
@@ -182,4 +197,32 @@ func browseJSON(t *testing.T, dir string) browseBody {
 		t.Fatal(err)
 	}
 	return body
+}
+
+// Pemilih berkas sering dibuka dari letak sebuah PROGRAM, bukan folder —
+// "ganti berkasnya" untuk ffprobe.exe mengirim path berkas itu. Dulu itu
+// berakhir sebagai "cannot open the folder: readdir …ffprobe.exe".
+func TestBrowseOpensTheFolderOfAFile(t *testing.T) {
+	dir := t.TempDir()
+	berkas := filepath.Join(dir, "ffprobe.exe")
+	write(t, berkas, 1)
+
+	body := browseJSON(t, berkas)
+
+	if body.Dir != dir {
+		t.Errorf("dir = %q, mau %q", body.Dir, dir)
+	}
+}
+
+// Path yang sudah tidak ada (program dipindah, folder dihapus) naik ke induknya
+// yang masih ada — bukan menolak dengan galat.
+func TestBrowseClimbsToAFolderThatStillExists(t *testing.T) {
+	dir := t.TempDir()
+	hilang := filepath.Join(dir, "sudah", "tidak", "ada.exe")
+
+	body := browseJSON(t, hilang)
+
+	if body.Dir != dir {
+		t.Errorf("dir = %q, mau %q", body.Dir, dir)
+	}
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
+import { useKeep, useRestore } from "../persist";
 
 
 // Ruang koordinat kartu — sama dengan yang dipakai engine saat merender.
@@ -114,6 +115,10 @@ export default function News() {
   // Analisis LLM.
   const [engine, setEngine] = useState("ollama");
   const [ollamaModel, setOllamaModel] = useState("qwen2.5");
+  // Model yang benar-benar terpasang. Sampai kini pengguna harus mengetik
+  // namanya dari ingatan — dan satu salah ketik berujung galat dari Ollama
+  // yang tidak menyebutkan bahwa masalahnya cuma nama.
+  const [ollamaInstalled, setOllamaInstalled] = useState<string[]>([]);
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([]);
@@ -365,6 +370,43 @@ export default function News() {
   // Pratinjau menimpa satu folder tetap di engine, jadi menyetel kartu berpuluh
   // kali tidak meninggalkan berpuluh folder. Berkas pendamping (caption &
   // keterangan sumber) baru ditulis saat benar-benar disimpan.
+  // Daftar model diambil sekali saat halaman dibuka, lalu setiap kali jendela
+  // kembali aktif — pengguna sering memasang model di terminal sebelah.
+  useEffect(() => {
+    if (engine !== "ollama") return;
+    const load = () => {
+      fetch(eng(`/api/ollama/status`))
+        .then((r) => r.json())
+        .then((d: { running: boolean; installed?: { name: string }[]; models?: string[] }) => {
+          const names = d.installed?.map((m) => m.name) ?? d.models ?? [];
+          setOllamaInstalled(names);
+          // Kalau yang terpilih tidak ada di daftar, ambil yang pertama —
+          // lebih baik langsung bisa dipakai daripada gagal saat ditekan.
+          setOllamaModel((cur) =>
+            names.length > 0 && !names.some((n) => n === cur || n.split(":")[0] === cur)
+              ? names[0]
+              : cur,
+          );
+        })
+        .catch(() => setOllamaInstalled([]));
+    };
+    load();
+    window.addEventListener("focus", load);
+    return () => window.removeEventListener("focus", load);
+  }, [engine]);
+
+  // Sidik jari dari SEMUA yang memengaruhi gambar kartu. Dipakai untuk memicu
+  // pratinjau ulang: mendaftar satu per satu di dependency effect berarti setiap
+  // setelan baru harus diingat untuk ditambahkan ke sana — dan yang terlupa
+  // berakhir sebagai "kenapa gambarku tidak berubah".
+  const cardFingerprint = JSON.stringify([
+    article.title, article.url, article.image, article.summary, article.source, article.date,
+    style, ratio, align, lang, caption, hashtags,
+    photoX, photoY, zoom, photoFit, photoFill,
+    titleStep, paragraphStep, header, cardTop,
+    colorSource, customColor, boxMode, boxColor,
+  ]);
+
   const buildCard = useCallback(async (preview: boolean) => {
     if (preview) setPreviewBusy(true); else setBuildBusy(true);
     setError("");
@@ -411,6 +453,64 @@ export default function News() {
   }, [article, style, ratio, align, lang, caption, hashtags, photoX, photoY, zoom,
       photoFit, photoFill, titleStep, paragraphStep, header, cardTop,
       colorSource, customColor, boxMode, boxColor, t]);
+
+  // Isian disimpan & dipulihkan sendiri: di aplikasi desktop halaman bisa
+  // termuat ulang tanpa diminta (WebView2 membuang proses penampilnya saat
+  // jendela ditinggal atau memori menipis), dan mengetik ulang semuanya karena
+  // berpindah jendela adalah hukuman yang tidak masuk akal.
+  //
+  // Yang disimpan hanya isian, bukan hasil: kartu jadi tetap ada di folder
+  // penyimpanan, dan pratinjau dibuat ulang sendiri.
+  useKeep("news", {
+    article, caption, hashtags, paragraphs, engine, ollamaModel, claudeModel,
+    style, ratio, align, photoX, photoY, zoom, photoFit, photoFill,
+    titleStep, paragraphStep, header, cardTop, colorSource, customColor,
+    boxMode, boxColor,
+  });
+  useRestore<Record<string, unknown>>("news", (v) => {
+    const set = <T,>(fn: (x: T) => void, val: unknown) => {
+      if (val !== undefined && val !== null) fn(val as T);
+    };
+    set(setArticle, v.article);
+    set(setCaption, v.caption);
+    set(setHashtags, v.hashtags);
+    set(setParagraphs, v.paragraphs);
+    set(setEngine, v.engine);
+    set(setOllamaModel, v.ollamaModel);
+    set(setClaudeModel, v.claudeModel);
+    set(setStyle, v.style);
+    set(setRatio, v.ratio);
+    set(setAlign, v.align);
+    set(setPhotoX, v.photoX);
+    set(setPhotoY, v.photoY);
+    set(setZoom, v.zoom);
+    set(setPhotoFit, v.photoFit);
+    set(setPhotoFill, v.photoFill);
+    set(setTitleStep, v.titleStep);
+    set(setParagraphStep, v.paragraphStep);
+    set(setHeader, v.header);
+    set(setCardTop, v.cardTop);
+    set(setColorSource, v.colorSource);
+    set(setCustomColor, v.customColor);
+    set(setBoxMode, v.boxMode);
+    set(setBoxColor, v.boxColor);
+  });
+
+  // Pratinjau otomatis: setiap perubahan setelan langsung terlihat, tanpa
+  // menekan tombol.
+  //
+  // Ditunda 700 ms sejak perubahan TERAKHIR, bukan dijalankan tiap perubahan:
+  // satu pratinjau berarti satu Chrome headless dirender penuh, sedangkan
+  // menggeser penggeser ukuran huruf menghasilkan puluhan perubahan per detik.
+  // Penundaan mengubahnya jadi satu render setelah tangan berhenti.
+  useEffect(() => {
+    if (!article.title || !config?.has_browser) return;
+    const id = setTimeout(() => buildCard(true), 700);
+    return () => clearTimeout(id);
+    // Sengaja hanya bergantung pada sidik jari: buildCard berubah identitasnya
+    // tiap render, dan cardFingerprint sudah mewakili seluruh isinya.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardFingerprint, config?.has_browser]);
 
   // Seret di pratinjau → geser foto. Perpindahan piksel layar dikembalikan ke
   // ruang koordinat kartu memakai skala kotak, supaya nilai yang dikirim ke
@@ -590,9 +690,25 @@ export default function News() {
             <div className="field">
               <label>{t("model")}</label>
               {engine === "ollama" ? (
-                <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)} />
+                // Daftar dipakai bila Ollama menjawab; kalau tidak, kolom ketik
+                // tetap ada supaya pengguna tidak terkunci saat Ollama sedang
+                // mati atau berjalan di mesin lain.
+                ollamaInstalled.length > 0 ? (
+                  <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
+                    {ollamaInstalled.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}
+                    placeholder="qwen2.5" />
+                )
               ) : (
-                <input value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)} />
+                <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
+                  <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+                  <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+                  <option value="claude-opus-4-1">claude-opus-4-1</option>
+                </select>
               )}
             </div>
             <div className="field" style={{ flex: "none", minWidth: 0 }}>

@@ -69,6 +69,7 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid folder: "+err.Error())
 		return
 	}
+	abs = openableDir(abs)
 	items, err := os.ReadDir(abs)
 	if err != nil {
 		writeErr(w, 400, "cannot open the folder: "+err.Error())
@@ -115,6 +116,36 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) {
 		"places":    places(),
 		"truncated": len(entries) >= maxEntries,
 	})
+}
+
+// openableDir mengubah apa pun yang diberikan klien jadi folder yang benar-benar
+// bisa dibuka.
+//
+// Dua keadaan yang wajar terjadi, dan keduanya dulu berakhir sebagai galat yang
+// membingungkan:
+//
+//   - Yang dikirim adalah BERKAS, bukan folder. Terjadi setiap kali pemilih
+//     dibuka dari sebuah komponen yang letaknya sudah diketahui ("ganti
+//     berkasnya" untuk ffprobe.exe) — yang dimaksud pengguna jelas: buka folder
+//     tempat berkas itu berada.
+//   - Path-nya sudah tidak ada lagi (program dipindah, folder dihapus). Naik ke
+//     induknya sampai ada yang bisa dibuka, dan kalau tidak ada sama sekali,
+//     kembali ke folder rumah.
+func openableDir(p string) string {
+	for cur := p; ; {
+		if st, err := os.Stat(cur); err == nil {
+			if st.IsDir() {
+				return cur
+			}
+			cur = filepath.Dir(cur) // berkas → foldernya
+			continue
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur { // sudah di akar dan tetap tidak ada
+			return homeDir()
+		}
+		cur = parent
+	}
 }
 
 // locate mencari path asli sebuah berkas dari nama & ukurannya.
