@@ -126,6 +126,16 @@ func Find() string {
 // interop WSL. Program Windows tidak paham path Linux, jadi berkas masukan &
 // keluaran harus lewat folder yang terlihat oleh kedua sisi.
 func (c *Client) isWindowsBin() bool {
+	// HANYA berlaku saat engine sendiri berjalan di Linux. Di Windows asli,
+	// browsernya memang .exe dan tidak ada yang perlu diterjemahkan — engine
+	// dan browser sama-sama memakai path Windows.
+	//
+	// Tanpa syarat ini, aplikasi Windows mencoba memanggil `wslpath` (perkakas
+	// yang hanya ada di dalam WSL) dan kartu berita gagal dengan pesan yang
+	// menyebut perkakas yang seharusnya tidak pernah ikut terlibat.
+	if runtime.GOOS != "linux" {
+		return false
+	}
 	return strings.HasSuffix(strings.ToLower(c.Bin), ".exe")
 }
 
@@ -389,21 +399,60 @@ func toWindowsPath(lx string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// fileURL menyusun URL file:// dari sebuah path absolut, di sistem mana pun.
+//
+// Menempelkan "file://" di depan path Windows menghasilkan alamat yang rusak:
+// "file://C:\Users\..." membuat "C:" terbaca sebagai NAMA HOST, dan backslash
+// bukan karakter yang sah di URL. Chrome menolaknya tanpa pesan yang berguna —
+// kartu berita tinggal keluar kosong.
+//
+// Bentuk yang benar untuk Windows adalah "file:///C:/Users/...": tiga garis
+// miring (host kosong) dan pemisah folder berupa garis miring biasa.
+func fileURL(abs string) string {
+	p := abs
+	// Sengaja BUKAN filepath.ToSlash: fungsi itu ikut sistem tempat kode
+	// berjalan, sedangkan di sini path Windows juga harus benar saat
+	// diterjemahkan dari WSL. Pemeriksaan huruf drive membuat backslash di
+	// dalam nama berkas Linux (sah, walau langka) tidak ikut diubah.
+	if isWindowsPath(p) {
+		p = strings.ReplaceAll(p, `\`, "/")
+	}
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p // "C:/Users/…" → "/C:/Users/…"
+	}
+	// Spasi lazim di path Windows ("C:/Users/Budi Santoso/…") dan memutus URL
+	// saat diteruskan sebagai argumen baris perintah.
+	p = strings.ReplaceAll(p, " ", "%20")
+	p = strings.ReplaceAll(p, "#", "%23")
+	p = strings.ReplaceAll(p, "?", "%3F")
+	return "file://" + p
+}
+
+// isWindowsPath melaporkan apakah path diawali huruf drive, mis. "C:\\…".
+func isWindowsPath(p string) bool {
+	if len(p) < 2 || p[1] != ':' {
+		return false
+	}
+	c := p[0]
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+}
+
 // FileURL mengubah path berkas lokal jadi URL file:// yang bisa dibuka Chrome.
-// Untuk chrome.exe path-nya diterjemahkan dulu ke bentuk Windows.
+// Saat engine di WSL memanggil chrome.exe, path-nya diterjemahkan dulu ke
+// bentuk Windows — chrome.exe tidak mengenal path Linux.
 func (c *Client) FileURL(path string) (string, error) {
 	if c.isWindowsBin() {
 		w, err := toWindowsPath(path)
 		if err != nil {
 			return "", err
 		}
-		return "file:///" + strings.ReplaceAll(w, `\`, "/"), nil
+		return fileURL(w), nil
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	return "file://" + abs, nil
+	return fileURL(abs), nil
 }
 
 // WriteTempFile menulis isi ke lokasi yang bisa dibaca browser, lalu
@@ -421,7 +470,7 @@ func (c *Client) WriteTempFile(content []byte, ext string) (url string, cleanup 
 		if err := os.WriteFile(lx, content, 0o644); err != nil {
 			return "", nil, err
 		}
-		return "file:///" + strings.ReplaceAll(win, `\`, "/"), func() { os.Remove(lx) }, nil
+		return fileURL(win), func() { os.Remove(lx) }, nil
 	}
 	f, err := os.CreateTemp("", "clipper-*"+ext)
 	if err != nil {
@@ -433,7 +482,7 @@ func (c *Client) WriteTempFile(content []byte, ext string) (url string, cleanup 
 		return "", nil, err
 	}
 	f.Close()
-	return "file://" + f.Name(), func() { os.Remove(f.Name()) }, nil
+	return fileURL(f.Name()), func() { os.Remove(f.Name()) }, nil
 }
 
 // summarizeStderr mengambil baris stderr yang berguna saja. Chrome membanjiri

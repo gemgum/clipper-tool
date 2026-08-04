@@ -58,6 +58,11 @@ func NewServer(mgr *job.Manager, l config.Layout) *Server {
 // browser yang baru saja dipilih baru terpakai setelah aplikasi dijalankan lagi
 // — dan pengguna wajar mengira pilihannya tidak tersimpan.
 func (s *Server) applyPaths() {
+	// Layout ikut dibaca ulang: setelan disimpan sebagai env, dan Locate yang
+	// membacanya. Tanpa ini, folder yang baru dipilih hanya berlaku setelah
+	// aplikasi dijalankan lagi.
+	s.layout = config.Locate(s.layout.Root)
+	s.mgr.SetLayout(s.layout)
 	s.paths = config.ResolvePaths(s.layout, config.DefaultOptions())
 	s.ff = ffmpeg.New(s.paths.FFmpeg, s.paths.FFprobe)
 	s.cards = card.New(capture.New(s.paths.Chrome), s.paths.FontsDir)
@@ -77,6 +82,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/requirements/path", s.setComponentPath)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.postSettings)
+	mux.HandleFunc("POST /api/settings/folders", s.postFolders)
 	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)
 	mux.HandleFunc("POST /api/ollama/pull", s.ollamaPull)
 	mux.HandleFunc("GET /api/fonts", s.listFonts)
@@ -351,7 +357,7 @@ func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cardDir(id string) string {
-	return filepath.Join(s.paths.DataDir, "cards", id)
+	return filepath.Join(s.layout.CardsRoot(), id)
 }
 
 // cardFile menyajikan PNG kartu. Id dibatasi pola yang kita buat sendiri
@@ -430,7 +436,7 @@ const keepCards = 50
 // Kegagalannya sengaja diabaikan: gagal membersihkan bukan alasan untuk
 // menggagalkan kartu yang barusan berhasil dibuat.
 func (s *Server) sweepCards() {
-	dir := filepath.Join(s.paths.DataDir, "cards")
+	dir := s.layout.CardsRoot()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -567,7 +573,70 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 
 // getSettings melaporkan status setelan (apakah API key sudah ada).
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"has_key": s.mgr.HasAPIKey()})
+	writeJSON(w, 200, map[string]any{
+		"has_key": s.mgr.HasAPIKey(),
+		// Kosong = mengikuti folder data. GUI menampilkan letak sebenarnya,
+		// bukan kekosongan itu, supaya pengguna tahu di mana berkasnya sekarang.
+		"clips_dir":      s.layout.ClipsDir,
+		"cards_dir":      s.layout.CardsDir,
+		"clips_dir_used": s.layout.ClipsRoot(),
+		"cards_dir_used": s.layout.CardsRoot(),
+	})
+}
+
+// postFolders menyimpan tempat klip & kartu disimpan.
+//
+// Nilai kosong mengembalikannya ke folder data — itu jalan pulang bila pengguna
+// memilih folder yang ternyata tidak cocok.
+func (s *Server) postFolders(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Clips *string `json:"clips"`
+		Cards *string `json:"cards"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	set := func(key string, val *string) error {
+		if val == nil {
+			return nil
+		}
+		dir := strings.TrimSpace(*val)
+		if dir != "" {
+			// Dibuat sekarang juga, lalu diuji dengan menulis: folder yang
+			// hanya "ada" belum tentu bisa ditulisi (Program Files, drive
+			// jaringan yang hanya-baca), dan kegagalannya harus muncul di sini
+			// — bukan setengah jam kemudian saat klip pertama selesai dirender.
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("cannot use that folder: %w", err)
+			}
+			probe := filepath.Join(dir, ".clipper-write-test")
+			if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+				return fmt.Errorf("that folder cannot be written to: %w", err)
+			}
+			os.Remove(probe)
+		}
+		if err := writeEnvKey(s.paths.EnvFile, key, dir); err != nil {
+			return err
+		}
+		return os.Setenv(key, dir)
+	}
+	if err := set("CLIPPER_CLIPS_DIR", req.Clips); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	if err := set("CLIPPER_CARDS_DIR", req.Cards); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	s.applyPaths()
+	writeJSON(w, 200, map[string]any{
+		"ok":             true,
+		"clips_dir":      s.layout.ClipsDir,
+		"cards_dir":      s.layout.CardsDir,
+		"clips_dir_used": s.layout.ClipsRoot(),
+		"cards_dir_used": s.layout.CardsRoot(),
+	})
 }
 
 // postSettings menyimpan API key Claude (dari GUI) — di memori + .env.
@@ -865,6 +934,12 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	opts := req.Options
+	// Folder klip pilihan pengguna dipakai bila job ini tidak menyebut folder
+	// sendiri. Pilihan per-job tetap menang: setelan hanyalah nilai bawaan,
+	// bukan pagar.
+	if opts.OutputDir == "" {
+		opts.OutputDir = s.layout.ClipsDir
+	}
 	// Daftar istilah dibersihkan di sini, bukan di klien, supaya GUI dan CLI
 	// memperlakukan masukan yang sama persis: klien boleh mengirim satu string
 	// berisi koma maupun daftar yang sudah dipecah.

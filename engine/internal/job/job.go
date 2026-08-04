@@ -58,6 +58,15 @@ type Manager struct {
 	apiKey string // API key Claude yang diset dari GUI (menimpa env bila ada)
 }
 
+// SetLayout memperbarui peta folder setelah pengguna mengubah setelannya.
+// Job yang sedang berjalan tidak terpengaruh — pathnya sudah ditentukan saat
+// job itu dimulai, dan memindahkannya di tengah jalan justru membingungkan.
+func (m *Manager) SetLayout(l config.Layout) {
+	m.mu.Lock()
+	m.layout = l
+	m.mu.Unlock()
+}
+
 // SetAPIKey menyimpan API key Claude (dari GUI) di memori.
 func (m *Manager) SetAPIKey(key string) {
 	m.mu.Lock()
@@ -151,7 +160,10 @@ func (m *Manager) run(j *Job) {
 	j.mu.Unlock()
 
 	// Resolve path per-job agar model whisper sesuai opsi job (mis. base vs small).
-	paths := config.ResolvePaths(m.layout, j.Options)
+	m.mu.RLock()
+	layout := m.layout
+	m.mu.RUnlock()
+	paths := config.ResolvePaths(layout, j.Options)
 	if k := m.getAPIKey(); k != "" {
 		paths.APIKey = k // key dari GUI menimpa env
 	}

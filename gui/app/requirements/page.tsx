@@ -26,6 +26,13 @@ type Component = {
   url: string;
 };
 
+type Folders = {
+  clips_dir: string;
+  cards_dir: string;
+  clips_dir_used: string;
+  cards_dir_used: string;
+};
+
 type Requirements = {
   components: Component[];
   missing: string[];
@@ -56,6 +63,9 @@ export default function RequirementsPage() {
   const [error, setError] = useState("");
   const [installs, setInstalls] = useState<Record<string, Install>>({});
   const [picking, setPicking] = useState<Component | null>(null);
+  const [folders, setFolders] = useState<Folders | null>(null);
+  // Folder mana yang sedang dipilih: "clips" | "cards" | null.
+  const [pickingFolder, setPickingFolder] = useState<null | "clips" | "cards">(null);
   const [busy, setBusy] = useState(true);
   // Pesan hasil per komponen (selesai / gagal), hilang saat dicoba lagi.
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -69,6 +79,8 @@ export default function RequirementsPage() {
       if (!res.ok) throw new Error(data.error || "failed");
       setReq(data);
       setError("");
+      const fs = await fetch(eng(`/api/settings`)).then((r) => r.json());
+      setFolders(fs);
     } catch {
       setError(t("engineUnreachable", { url: engineURL() }));
     } finally {
@@ -162,6 +174,26 @@ export default function RequirementsPage() {
     [load, t]
   );
 
+  // Menyimpan tempat klip / kartu. Folder kosong = kembali ke folder data.
+  const saveFolder = useCallback(
+    async (which: "clips" | "cards", dir: string) => {
+      setPickingFolder(null);
+      try {
+        const res = await fetch(eng(`/api/settings/folders`), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ [which]: dir }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        setFolders(data);
+      } catch (e: any) {
+        setError(e.message);
+      }
+    },
+    []
+  );
+
   const groups: { title: string; kind: Component["kind"] }[] = [
     { title: t("reqGroupTools"), kind: "tool" },
     { title: t("reqGroupModels"), kind: "model" },
@@ -170,6 +202,15 @@ export default function RequirementsPage() {
 
   return (
     <main className="wrap">
+      {pickingFolder && (
+        <Picker
+          mode="folder"
+          start={pickingFolder === "clips" ? folders?.clips_dir_used : folders?.cards_dir_used}
+          onPick={(p) => saveFolder(pickingFolder, p)}
+          onClose={() => setPickingFolder(null)}
+        />
+      )}
+
       {picking && (
         <Picker
           mode="file"
@@ -260,10 +301,43 @@ export default function RequirementsPage() {
 
       {req && (
         <div className="panel">
-          <div className="meta" style={{ marginBottom: 10 }}>{t("reqWhereTitle")}</div>
-          <div className="req-path">{t("reqWhereModels")}: {req.models_dir}</div>
-          <div className="req-path">{t("reqWhereTools")}: {req.tools_dir}</div>
-          <div className="req-path">{t("reqWhereData")}: {req.data_dir}</div>
+          <div className="meta" style={{ marginBottom: 12 }}>{t("reqWhereTitle")}</div>
+
+          {/* Milik pengguna — bisa dipindah. Ditaruh di atas karena inilah yang
+              orang cari saat membuka bagian ini. */}
+          {(
+            [
+              ["clips", t("reqFolderClips"), folders?.clips_dir_used, folders?.clips_dir],
+              ["cards", t("reqFolderCards"), folders?.cards_dir_used, folders?.cards_dir],
+            ] as const
+          ).map(([key, label, used, custom]) => (
+            <div className="req-row" key={key}>
+              <div className="req-dot idle" />
+              <div className="req-main">
+                <div className="req-name">{label}</div>
+                <div className="req-path">{used || "—"}</div>
+                {!custom && <div className="meta">{t("reqFolderDefault")}</div>}
+              </div>
+              <div className="req-actions">
+                <button className="ghost" onClick={() => setPickingFolder(key)}>
+                  {t("reqFolderChange")}
+                </button>
+                {custom && (
+                  <button className="ghost" onClick={() => saveFolder(key, "")}>
+                    {t("reqFolderReset")}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Milik aplikasi — ditampilkan supaya bisa ditemukan, tidak untuk
+              dipindah lewat sini. */}
+          <div style={{ marginTop: 14 }}>
+            <div className="req-path">{t("reqWhereModels")}: {req.models_dir}</div>
+            <div className="req-path">{t("reqWhereTools")}: {req.tools_dir}</div>
+            <div className="req-path">{t("reqWhereData")}: {req.data_dir}</div>
+          </div>
           {req.dev && <div className="meta" style={{ marginTop: 8 }}>{t("reqDevNote")}</div>}
         </div>
       )}

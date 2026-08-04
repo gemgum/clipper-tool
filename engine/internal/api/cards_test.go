@@ -11,8 +11,11 @@ import (
 )
 
 // server membuat Server yang hanya tahu folder datanya — cukup untuk sweep.
+//
+// Lewat layout, bukan paths: sejak kartu bisa diarahkan ke folder pilihan
+// pengguna, letaknya ditentukan Layout.CardsRoot().
 func server(dataRoot string) *Server {
-	return &Server{paths: config.Paths{DataDir: filepath.Join(dataRoot, "data")}}
+	return &Server{layout: config.Layout{DataDir: filepath.Join(dataRoot, "data")}}
 }
 
 // makeCards menyiapkan folder kartu palsu dengan waktu ubah berurutan: indeks
@@ -129,4 +132,30 @@ func TestSweepDoesNothingBelowTheLimit(t *testing.T) {
 func TestSweepSurvivesAMissingFolder(t *testing.T) {
 	s := server(t.TempDir())
 	s.sweepCards() // tidak boleh panik
+}
+
+// Folder kartu pilihan pengguna dipakai apa adanya — tanpa menyelipkan
+// subfolder "cards" di dalamnya. Pengguna yang memilih D:\Kartu berharap
+// kartunya ada di D:\Kartu, bukan di D:\Kartu\cards.
+func TestChosenCardFolderIsUsedAsIs(t *testing.T) {
+	pilihan := t.TempDir()
+	s := &Server{layout: config.Layout{DataDir: t.TempDir(), CardsDir: pilihan}}
+
+	got := s.cardDir("card-123")
+
+	if want := filepath.Join(pilihan, "card-123"); got != want {
+		t.Errorf("cardDir = %q, mau %q", got, want)
+	}
+}
+
+// Tanpa pilihan, kartu tetap di dalam folder data seperti sebelumnya.
+func TestCardFolderFallsBackToDataDir(t *testing.T) {
+	data := t.TempDir()
+	s := &Server{layout: config.Layout{DataDir: data}}
+
+	got := s.cardDir("card-9")
+
+	if want := filepath.Join(data, "cards", "card-9"); got != want {
+		t.Errorf("cardDir = %q, mau %q", got, want)
+	}
 }

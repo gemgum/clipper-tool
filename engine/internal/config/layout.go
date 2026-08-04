@@ -33,7 +33,17 @@ type Layout struct {
 	FontsDir  string // font bawaan — cukup dibaca
 	GUIDir    string // halaman GUI hasil ekspor statis — cukup dibaca
 	EnvFile   string // tempat menyimpan ANTHROPIC_API_KEY
-	Dev       bool   // true bila jalan dari checkout sumber
+
+	// Tempat hasil kerja pengguna disimpan. KOSONG = di dalam DataDir.
+	//
+	// Dipisah dari DataDir karena isinya berbeda sifat: DataDir milik aplikasi
+	// (cache, berkas sementara, unggahan) dan boleh dihapus kapan saja,
+	// sedangkan klip dan kartu adalah milik pengguna. Ia wajar ingin
+	// menaruhnya di Videos, di Drive yang tersinkron, atau di disk lain yang
+	// muat — bukan terkubur di dalam AppData.
+	ClipsDir string // klip hasil render; kosong = <DataDir>/<job>
+	CardsDir string // kartu berita; kosong = <DataDir>/cards
+	Dev      bool   // true bila jalan dari checkout sumber
 }
 
 // Locate menentukan layout untuk root yang diberikan.
@@ -72,6 +82,10 @@ func Locate(root string) Layout {
 	l.FontsDir = env("CLIPPER_FONTS_DIR", l.FontsDir)
 	l.GUIDir = env("CLIPPER_GUI_DIR", l.GUIDir)
 	l.EnvFile = env("CLIPPER_ENV_FILE", l.EnvFile)
+	// Tanpa nilai bawaan: kosong berarti "ikut DataDir", dan itu memang
+	// keadaan awal yang benar sampai pengguna memilih sendiri.
+	l.ClipsDir = os.Getenv("CLIPPER_CLIPS_DIR")
+	l.CardsDir = os.Getenv("CLIPPER_CARDS_DIR")
 	return l
 }
 
@@ -81,7 +95,7 @@ func Locate(root string) Layout {
 // folder data harus muncul sebagai pesan saat start, bukan sebagai job yang
 // gagal di tengah setelah pengguna menunggu setengah jam.
 func (l Layout) Ensure() error {
-	for _, d := range []string{l.DataDir, l.ModelsDir, l.ToolsDir} {
+	for _, d := range []string{l.DataDir, l.ModelsDir, l.ToolsDir, l.ClipsDir, l.CardsDir} {
 		if d == "" {
 			continue
 		}
@@ -90,6 +104,22 @@ func (l Layout) Ensure() error {
 		}
 	}
 	return nil
+}
+
+// ClipsRoot mengembalikan tempat klip disimpan.
+func (l Layout) ClipsRoot() string {
+	if l.ClipsDir != "" {
+		return l.ClipsDir
+	}
+	return l.DataDir
+}
+
+// CardsRoot mengembalikan tempat kartu disimpan.
+func (l Layout) CardsRoot() string {
+	if l.CardsDir != "" {
+		return l.CardsDir
+	}
+	return filepath.Join(l.DataDir, "cards")
 }
 
 // isSourceCheckout melaporkan apakah root adalah pohon sumber clipper.
