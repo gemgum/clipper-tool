@@ -61,17 +61,20 @@ memeriksa keadaan dengan tangan.
 
 ## Isi bundel
 
-`tauri.conf.json` menyalin tiga hal ke folder resource:
+Tiga hal disalin ke folder resource:
 
 | Sumber | Tujuan |
 | --- | --- |
-| `bin/clipper` | `engine/clipper` |
+| `bin/clipper` (`clipper.exe` di Windows) | `engine/` |
 | `gui/out/` | `gui/` |
 | `assets/fonts/` | `assets/fonts/` |
 
-Di Windows nama binernya `clipper.exe`, jadi pemetaannya ditimpa
-`tauri.windows.conf.json` — Tauri menggabungkan berkas per-OS itu di atas
-`tauri.conf.json`.
+Daftarnya ada di **`tauri.<os>.conf.json`, bukan di `tauri.conf.json`** — dan itu
+bukan pilihan gaya. Tauri MENGGABUNGKAN config per-OS dengan config utama, tidak
+menimpanya: selama daftar resource ada di config utama, entri `bin/clipper`
+milik Linux ikut terbawa saat build Windows dan build gagal dengan
+"resource path `..\..\bin\clipper` doesn't exist". Jadi config utama tidak
+memuat daftar resource sama sekali; tiap sistem menyebut binernya sendiri.
 
 Susunan itu bukan kebetulan: engine mencari GUI dan font **di sebelah binernya**
 (`<exe>/../gui`, `<exe>/../assets/fonts`), dan itu persis yang dihasilkan
