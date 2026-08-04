@@ -31,6 +31,7 @@ type Layout struct {
 	ModelsDir string // model whisper (diunduh, ratusan MB)
 	ToolsDir  string // biner yang disediakan aplikasi: whisper-cli, ffmpeg
 	FontsDir  string // font bawaan — cukup dibaca
+	GUIDir    string // halaman GUI hasil ekspor statis — cukup dibaca
 	EnvFile   string // tempat menyimpan ANTHROPIC_API_KEY
 	Dev       bool   // true bila jalan dari checkout sumber
 }
@@ -61,6 +62,7 @@ func Locate(root string) Layout {
 		l.EnvFile = filepath.Join(base, ".env")
 	}
 	l.FontsDir = fontsDir(root)
+	l.GUIDir = guiDir(root)
 
 	// Env menimpa apa pun: dipakai uji, dan jalan keluar bila pengguna ingin
 	// menaruh model di disk lain.
@@ -68,6 +70,7 @@ func Locate(root string) Layout {
 	l.ModelsDir = env("CLIPPER_MODELS_DIR", l.ModelsDir)
 	l.ToolsDir = env("CLIPPER_TOOLS_DIR", l.ToolsDir)
 	l.FontsDir = env("CLIPPER_FONTS_DIR", l.FontsDir)
+	l.GUIDir = env("CLIPPER_GUI_DIR", l.GUIDir)
 	l.EnvFile = env("CLIPPER_ENV_FILE", l.EnvFile)
 	return l
 }
@@ -147,6 +150,36 @@ func fontsDir(root string) string {
 	}
 	cands = append(cands, filepath.Join(root, "assets", "fonts"))
 	return firstExisting(cands...)
+}
+
+// guiDir mencari halaman GUI hasil ekspor statis (gui/out).
+//
+// Aplikasi desktop menyajikan GUI-nya sendiri: menuntut Node.js dan
+// "npm run dev" di komputer pengguna jelas tidak masuk akal, dan seluruh GUI
+// ini memang berjalan di browser. Dicari di sebelah biner lebih dulu (di situ
+// letaknya setelah dikemas), lalu di gui/out untuk checkout sumber.
+func guiDir(root string) string {
+	var cands []string
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			exe = resolved
+		}
+		dir := filepath.Dir(exe)
+		cands = append(cands,
+			filepath.Join(dir, "gui"),
+			filepath.Join(dir, "..", "gui"),
+			filepath.Join(dir, "..", "Resources", "gui"),
+		)
+	}
+	cands = append(cands, filepath.Join(root, "gui", "out"))
+	for _, c := range cands {
+		// index.html, bukan sekadar foldernya: di checkout, "gui" adalah kode
+		// sumber GUI, dan itu bukan yang boleh disajikan.
+		if _, err := os.Stat(filepath.Join(c, "index.html")); err == nil {
+			return c
+		}
+	}
+	return ""
 }
 
 // exeName menambahkan akhiran .exe di Windows.

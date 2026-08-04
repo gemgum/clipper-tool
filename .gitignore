@@ -60,3 +60,11 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Bangunan Tauri (gui/out sudah diabaikan di atas)
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/node_modules/
+
+# Folder siap-kirim (dibangun ./build-windows.sh)
+/dist/

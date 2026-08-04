@@ -231,6 +231,12 @@ func cmdServe(layout config.Layout, args []string) {
 	jobsN := fs.Int("jobs", 1, "")
 	// Kunci sesi: "auto" (menyala saat terpasang), "on", atau "off".
 	tokenMode := fs.String("token", "auto", "")
+	// -shell dipakai jendela aplikasi: satu baris yang bisa dibaca mesin,
+	// dicetak SEBELUM banner, berisi alamat lengkap + kunci. Jendela membacanya
+	// dari stdout lalu membuka alamat itu. Sengaja bukan berkas: shell adalah
+	// induk proses engine, jadi pipa stdout satu-satunya jalur yang pasti sudah
+	// siap dan tidak bisa tertukar dengan engine lain yang kebetulan jalan.
+	shell := fs.Bool("shell", false, "")
 	_ = fs.Parse(args)
 
 	opts := config.DefaultOptions()
@@ -272,19 +278,21 @@ func cmdServe(layout config.Layout, args []string) {
 		os.Exit(1)
 	}
 
+	if *shell {
+		fmt.Printf("%s%s\n", api.ShellURLPrefix, api.AppURL(url, token))
+	}
+
 	fmt.Printf("clipper engine %s\n", version)
 	fmt.Printf("  whisper : %s\n", paths.Whisper)
 	fmt.Printf("  model   : %s\n", paths.Model)
 	fmt.Printf("  data    : %s%s\n", paths.DataDir, devNote(layout))
 	fmt.Printf("  API key : %s\n", maskKey(paths.APIKey))
-	fmt.Printf("  listen  : %s\n", url)
+	fmt.Printf("  gui     : %s\n", api.GUIStatus(layout.GUIDir))
 	fmt.Printf("  key     : %s\n", keyNote(token))
 	fmt.Printf("  address : %s\n", handshake)
-	if token != "" {
-		// Jendela aplikasi membuka alamat ini; kuncinya ikut di URL sebab
-		// halaman tidak punya cara lain menerimanya saat pertama dibuka.
-		fmt.Printf("  open    : %s/?token=%s\n", "<gui>", token)
-	}
+	// Satu alamat yang tinggal dibuka — inilah yang dipakai jendela aplikasi,
+	// dan yang bisa ditempel sendiri ke browser saat mengembangkan.
+	fmt.Printf("\n  open    : %s\n\n", api.AppURL(url, token))
 
 	if err := http.Serve(ln, srv.Handler()); err != nil {
 		fmt.Fprintln(os.Stderr, "server:", err)

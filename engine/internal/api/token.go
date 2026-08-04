@@ -99,7 +99,11 @@ func requestToken(r *http.Request) string {
 // withToken menolak permintaan tanpa kunci yang benar.
 func (s *Server) withToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.token == "" || openPaths[r.URL.Path] || r.Method == http.MethodOptions {
+		// Hanya /api/ yang dijaga. Berkas GUI-nya sendiri tidak rahasia, dan
+		// halaman itu harus bisa dimuat LEBIH DULU — kuncinya baru dibaca oleh
+		// JavaScript di dalamnya, dari "?token=" pada alamat yang dibuka shell.
+		if s.token == "" || !strings.HasPrefix(r.URL.Path, "/api/") ||
+			openPaths[r.URL.Path] || r.Method == http.MethodOptions {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -132,7 +136,11 @@ func localOrigin(origin string) bool {
 	switch u.Scheme {
 	case "http", "https":
 		host := u.Hostname()
-		return host == "127.0.0.1" || host == "localhost" || host == "::1"
+		// Jendela Tauri di Windows memakai asal http://tauri.localhost, jadi
+		// seluruh keluarga *.localhost ikut diterima — nama itu memang dijamin
+		// menunjuk ke mesin sendiri.
+		return host == "127.0.0.1" || host == "localhost" || host == "::1" ||
+			strings.HasSuffix(host, ".localhost")
 	default:
 		// Skema milik shell desktop (tauri://, app://, file://).
 		return true

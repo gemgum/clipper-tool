@@ -3,37 +3,44 @@
 Proyek **Clipper**: memotong video panjang (1–4 jam) jadi klip pendek 9:16
 bersubtitle otomatis + skor "berpotensi viral". Konten target: **bahasa Indonesia**.
 
-## Arsitektur (2 lapis, terpisah)
+## Arsitektur (3 lapis)
 
-gui/ (Next.js) --HTTP+SSE--> engine/ (Go)
+```
+desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp, ffmpeg
+                                              ^     |
+                            gui/ (Next.js) ---+     +-- menyajikan gui/out (statis)
+                            HTTP + SSE
+```
 
-`````````````````````````````|
-````````````````````````````+-- exec --> whisper.cpp, ffmpeg
-
-````
-
-- **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, panggil
-  whisper.cpp/ffmpeg. Standard library saja. (tanpa dependency eksternal).
-- **worker/** (C++) — native: `features` (RMS energi audio). `reframe`/face-follow
-  (OpenCV) = milestone berikut. Kontrak: stdin JSON → stdout NDJSON.
-- **gui/** (Next.js) — dua tab: `/` klip video (form → progress SSE → daftar klip)
-  dan `/news` kartu berita (tempel link / jelajah RSS → kartu PNG). Ada pemilih
-  bahasa antarmuka EN/ID di bilah navigasi (default EN, disimpan di localStorage).
+- **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, pemasangan
+  komponen, dan penyaji antarmuka. Standard library saja (tanpa dependency
+  eksternal).
+- **gui/** (Next.js) — tiga tab: `/` klip video (form → progress SSE → daftar
+  klip), `/news` kartu berita (tempel link / jelajah RSS → kartu PNG), dan
+  `/requirements` status & pemasangan komponen. Ada pemilih bahasa antarmuka
+  EN/ID di bilah navigasi (default EN, disimpan di localStorage). Dibangun jadi
+  berkas statis (`gui/out`) yang disajikan engine.
+- **desktop/** (Tauri) — jendela aplikasi. Setipis mungkin: menjalankan engine,
+  membaca alamat yang dicetaknya, membuka alamat itu. Lihat `notes/27`.
+- **worker/** (C++) — sudah dibuang (lihat `notes/20`); RMS energi audio kini di
+  paket Go `audio`.
 - **notes/** — diskusi & keputusan desain (baca 01–07 untuk konteks).
 
 ## Perintah penting
 
 ```bash
 ./setup.sh [base|small|medium|large-v3|large-v3-turbo]   # build whisper.cpp + unduh model
-./build.sh                       # build engine (Go)
+./build.sh                       # build engine (Go) + gui statis (gui/out)
 ./bin/clipper run <video> [-mode -model -duration -max -min-score \
                            -reframe center|fit -background blur|black -zoom 5..200 \
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
                            -transcript-fix on|off -terms "Londo Ireng,Mahfud MD" \
                            -save burn|clean|both]                # CLI
-./bin/clipper serve              # HTTP API di 127.0.0.1:8787 (port acak bila terpasang)
-./bin/clipper serve -token on    # + kunci sesi; buka GUI dengan ?token=<kunci>
-cd gui && npm run dev            # GUI di 3000 — tiga tab: klip, kartu, Requirements
+./bin/clipper serve              # API + GUI di 127.0.0.1:8787 (port acak bila terpasang)
+                                 # banner mencetak satu alamat "open:" — tinggal dibuka
+./bin/clipper serve -token on    # + kunci sesi (otomatis menyala saat terpasang)
+cd gui && npm run dev            # GUI mode pengembangan di 3000 (hot reload)
+cd desktop && npm run dev        # jendela aplikasi (Tauri) — butuh Rust
 ````
 
 Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
@@ -112,6 +119,11 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
   dan model ke `ToolsDir`/`ModelsDir`; halaman Requirements memanggilnya. Kalau
   menambah komponen, tambahkan resepnya di sana — bukan instruksi di README
   (notes/25).
+- **GUI disajikan engine.** `next build` menghasilkan `gui/out` (ekspor statis),
+  dan engine menyajikannya di akar alamatnya. `npm run dev` tetap ada untuk
+  mengembangkan, tapi aplikasi jadi tidak memakainya. Jendela Tauri di
+  `desktop/` cuma membuka satu alamat yang dicetak `clipper serve -shell`
+  (notes/27).
 - **Kunci sesi.** Saat terpasang, engine memakai port acak + kunci yang wajib
   ada di setiap permintaan, ditulis ke `<DataDir>/engine.json`. Di GUI, SEMUA
   URL engine dibentuk lewat `eng()` di `gui/app/engine.ts` — jangan menyusun

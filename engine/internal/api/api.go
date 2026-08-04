@@ -92,6 +92,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
+	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
+	// tidak cocok dengan rute di atasnya.
+	if ui := webUI(s.layout.GUIDir); ui != nil {
+		mux.Handle("/", ui)
+	} else {
+		mux.HandleFunc("/", guiMissingPage)
+	}
 	return withCORS(s.withToken(mux))
 }
 

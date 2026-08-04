@@ -272,6 +272,26 @@ func places() []place {
 			}
 		}
 	}
+	out = append(out, drives()...)
+	return out
+}
+
+// drives menambahkan huruf drive di Windows.
+//
+// Tanpa ini, pengguna Windows yang menyimpan videonya di D: harus mengetik
+// path-nya sendiri — folder rumah saja tidak cukup di sistem yang memang
+// membagi disknya per huruf.
+func drives() []place {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	var out []place
+	for c := 'C'; c <= 'Z'; c++ {
+		root := string(c) + `:\`
+		if _, err := os.Stat(root); err == nil {
+			out = append(out, place{Name: string(c) + ":", Path: root})
+		}
+	}
 	return out
 }
 
