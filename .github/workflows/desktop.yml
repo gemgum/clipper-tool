@@ -12,9 +12,16 @@
 name: desktop
 
 on:
+  # Dipertahankan: memeriksa pengemasan masih jalan tidak sama dengan merilis,
+  # dan yang pertama jauh lebih sering dibutuhkan.
   workflow_dispatch:
   push:
     tags: ["v*"]
+
+# Wajib untuk `gh release create`; tanpa ini ditolak 403. Hanya contents,
+# tidak lebih — alur ini tidak menyentuh apa pun selain rilis.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -61,9 +68,32 @@ jobs:
 
       # Engine + antarmuka statis harus jadi LEBIH DULU: keduanya ikut dikemas
       # sebagai resource oleh Tauri (lihat desktop/src-tauri/tauri.conf.json).
+      # Nomor versi ada di dua tempat yang tidak saling tahu: nama tag, dan
+      # tauri.conf.json (yang menentukan nama .msi serta entri di Add/Remove
+      # Programs). Kalau berbeda, pemasang bernama versi lama — dan itu baru
+      # ketahuan setelah dibagikan.
+      - name: Versi tag cocok dengan tauri.conf.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+          if [ "$tag" != "$conf" ]; then
+            echo "::error::tag $GITHUB_REF_NAME tidak cocok dengan tauri.conf.json ($conf) — samakan dulu, lalu tandai ulang"
+            exit 1
+          fi
+          echo "versi $conf"
+
       - name: Engine (Go)
         working-directory: engine
-        run: go build -o ../bin/clipper${{ matrix.name == 'windows' && '.exe' || '' }} ./cmd/clipper
+        shell: bash
+        run: |
+          # Versi engine mengikuti tag saat merilis, supaya banner `clipper
+          # serve` menyebut versi yang sama dengan yang tertulis di pemasang.
+          v="${GITHUB_REF_NAME}"
+          case "$v" in v*) v="${v#v}" ;; *) v="dev-${GITHUB_SHA::7}" ;; esac
+          out="../bin/clipper${{ matrix.name == 'windows' && '.exe' || '' }}"
+          go build -ldflags "-X main.version=$v" -o "$out" ./cmd/clipper
 
       # Font subtitle tidak ikut di-commit (lihat .gitignore), padahal ia
       # dibundel ke dalam pemasang. Tanpa langkah ini pengemasan berhenti
@@ -97,3 +127,53 @@ jobs:
           # build menyimpan pemasang untuk dua sistem. Pemasang lama tidak ada
           # gunanya disimpan — yang dipakai selalu yang terbaru.
           retention-days: 7
+
+  # Menempelkan pemasang ke halaman Releases, dengan NAMA TETAP.
+  #
+  # Nama tetap itu syarat mati untuk tautan
+  # /releases/latest/download/<nama> yang dipakai situs: Tauri menamai
+  # keluarannya dengan versi di dalamnya (Clipper_0.1.0_x64-setup.exe), jadi
+  # kalau diunggah apa adanya, tautan situs harus disunting tiap rilis — dan
+  # akan mati diam-diam kalau lupa.
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest # rilisnya cuma menyalin berkas; mesin Windows 2x lebih mahal
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Beri nama tetap
+        run: |
+          mkdir -p dist
+          pick() { # pick <pola> <nama tetap>
+            f=$(find artifacts -type f -name "$1" | head -1)
+            if [ -z "$f" ]; then
+              echo "::warning::tidak ada berkas yang cocok dengan $1"
+              return
+            fi
+            cp "$f" "dist/$2"
+            echo "  $(basename "$f")  ->  $2"
+          }
+          pick '*-setup.exe' Clipper-setup.exe
+          pick '*.msi' Clipper.msi
+          pick '*.AppImage' Clipper.AppImage
+          pick '*.deb' Clipper.deb
+          echo
+          ls -lh dist
+          # Pemasang Windows itu yang ditautkan situs. Rilis tanpa dia bukan
+          # rilis yang setengah jadi — ia rilis yang membuat tombol unduh mati.
+          [ -f dist/Clipper-setup.exe ] || {
+            echo "::error::pemasang Windows tidak ikut terbangun — rilis dibatalkan"
+            exit 1
+          }
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Clipper $GITHUB_REF_NAME" \
+            --generate-notes

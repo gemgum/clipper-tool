@@ -21,7 +21,10 @@ import (
 	"github.com/gemgum/clipper/engine/internal/pipeline"
 )
 
-const version = "0.1.0-mvp"
+// version diisi saat rilis lewat -ldflags "-X main.version=…" dari nomor tag,
+// jadi banner engine dan nama pemasang selalu menyebut versi yang sama. Nilai
+// di bawah ini yang terpakai saat dibangun sendiri.
+var version = "0.1.0-dev"
 
 func main() {
 	if len(os.Args) < 2 {
