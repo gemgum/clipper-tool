@@ -28,7 +28,7 @@
 *.srt
 *.ass
 # tapi jangan ignore dokumentasi
-!catatan/**
+!notes/**
 
 # --- Sampah WSL/Windows (mark-of-the-web) ---
 *:Zone.Identifier
@@ -40,8 +40,6 @@
 /go.work
 /go.work.sum
 
-# --- C++ worker build ---
-/worker/build/
 
 # --- Node / Next.js (GUI) ---
 /gui/node_modules/
@@ -62,3 +60,11 @@ Thumbs.db
 .idea/
 *.swp
 *~
+
+# Bangunan Tauri (gui/out sudah diabaikan di atas)
+/desktop/src-tauri/target/
+/desktop/src-tauri/gen/
+/desktop/node_modules/
+
+# Folder siap-kirim (dibangun ./build-windows.sh)
+/dist/

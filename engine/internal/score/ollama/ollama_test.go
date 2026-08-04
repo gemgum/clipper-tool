@@ -1,0 +1,55 @@
+package ollama
+
+import "testing"
+
+func TestBaseName(t *testing.T) {
+	cases := map[string]string{
+		"qwen2.5:latest":            "qwen2.5",
+		"qwen2.5":                   "qwen2.5",
+		"llama3.1:8b-instruct-q4_0": "llama3.1",
+	}
+	for in, want := range cases {
+		if got := BaseName(in); got != want {
+			t.Errorf("BaseName(%q) = %q, mau %q", in, got, want)
+		}
+	}
+}
+
+func TestParseParams(t *testing.T) {
+	cases := map[string]float64{
+		"7.6B": 7.6,
+		"4B":   4,
+		"270M": 0.27,
+		"8x7B": 7, // MoE: yang aktif per token
+		"":     0,
+		"abc":  0,
+	}
+	for in, want := range cases {
+		if got := parseParams(in); got != want {
+			t.Errorf("parseParams(%q) = %v, mau %v", in, got, want)
+		}
+	}
+}
+
+func TestJudge(t *testing.T) {
+	// Model 7B berkonteks panjang: siap.
+	if ok, note := judge("7.6B", 32768, []string{"completion", "tools"}); !ok {
+		t.Errorf("qwen2.5 seharusnya siap, malah ditolak: %s", note)
+	}
+	// Model 4B: kasus di notes/12 — balasannya isian kosong.
+	if ok, _ := judge("4B", 32768, []string{"completion"}); ok {
+		t.Error("model 4B seharusnya ditandai kurang memadai")
+	}
+	// Konteks lebih kecil dari yang diminta engine.
+	if ok, _ := judge("7B", 4096, []string{"completion"}); ok {
+		t.Error("konteks 4096 < 8192 seharusnya ditolak")
+	}
+	// Model embedding tak bisa membuat teks.
+	if ok, _ := judge("335M", 8192, []string{"embedding"}); ok {
+		t.Error("model embedding seharusnya ditolak")
+	}
+	// Metadata kosong (Ollama lama): jangan menuduh, anggap siap.
+	if ok, note := judge("", 0, nil); !ok {
+		t.Errorf("metadata kosong seharusnya lolos, malah: %s", note)
+	}
+}

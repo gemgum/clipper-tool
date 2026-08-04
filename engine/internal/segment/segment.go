@@ -7,14 +7,34 @@ import (
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
+// gapStrong: jeda diam (detik) antar segmen yang dianggap pergantian topik —
+// titik potong yang lebih enak daripada sekadar tanda titik.
+const gapStrong = 1.5
+
+// idealDuration mengembalikan durasi incaran di dalam rentang. Kandidat tidak
+// dipotong sebelum mencapai durasi ini, supaya klip tidak selalu menempel di
+// batas bawah (dulu semua klip jadi ~30 detik).
+func idealDuration(targetMin, targetMax float64) float64 {
+	if targetMax <= targetMin {
+		return targetMin
+	}
+	return targetMin + 0.4*(targetMax-targetMin)
+}
+
 // BuildCandidates mengelompokkan segmen transkrip menjadi kandidat klip dengan
 // durasi antara targetMin dan targetMax, sedapat mungkin memotong DI BATAS
-// KALIMAT. Bila melewati targetMax tanpa akhir kalimat, ia mundur ke batas
-// kalimat terakhir dan membawa sisa kalimat ke kandidat berikutnya (agar tidak
-// terpotong di tengah ucapan).
+// KALIMAT dan mengincar durasi ideal (tengah rentang), bukan batas bawah.
+//
+// Urutan aturan potong:
+//  1. sudah >= targetMin DAN diikuti jeda diam panjang DAN akhir kalimat → potong
+//     (pergantian topik yang jelas, walau belum mencapai ideal);
+//  2. sudah >= ideal DAN akhir kalimat → potong;
+//  3. melewati targetMax → mundur ke akhir kalimat terakhir, sisanya dibawa ke
+//     kandidat berikutnya agar tidak terpotong di tengah ucapan.
 func BuildCandidates(tr types.Transcript, targetMin, targetMax float64) []types.Candidate {
 	var cands []types.Candidate
 	var cur []types.TranscriptSegment
+	ideal := idealDuration(targetMin, targetMax)
 
 	dur := func(segs []types.TranscriptSegment) float64 {
 		if len(segs) == 0 {
@@ -23,18 +43,31 @@ func BuildCandidates(tr types.Transcript, targetMin, targetMax float64) []types.
 		return segs[len(segs)-1].End - segs[0].Start
 	}
 
-	for _, s := range tr.Segments {
+	for i, s := range tr.Segments {
 		cur = append(cur, s)
 		d := dur(cur)
 
-		// Cukup panjang & berakhir di kalimat → potong bersih.
-		if d >= targetMin && endsSentence(s.Text) {
+		// Jeda ke segmen berikutnya (0 bila ini segmen terakhir).
+		gap := 0.0
+		if i+1 < len(tr.Segments) {
+			gap = tr.Segments[i+1].Start - s.End
+		}
+
+		// (1) Pergantian topik: jeda panjang di akhir kalimat, durasi sudah cukup.
+		if d >= targetMin && gap >= gapStrong && endsSentence(s.Text) {
 			cands = append(cands, makeCandidate(cur))
 			cur = nil
 			continue
 		}
 
-		// Melewati batas atas → cari akhir kalimat terakhir & bawa sisa.
+		// (2) Sudah mencapai durasi ideal & berakhir di kalimat → potong bersih.
+		if d >= ideal && endsSentence(s.Text) {
+			cands = append(cands, makeCandidate(cur))
+			cur = nil
+			continue
+		}
+
+		// (3) Melewati batas atas → cari akhir kalimat terakhir & bawa sisa.
 		if d >= targetMax {
 			idx := lastSentenceEnd(cur)
 			if idx >= 0 && dur(cur[:idx+1]) >= targetMin*0.6 {

@@ -1,4 +1,4 @@
-// Package llm memanggil Claude API untuk menilai & memberi judul klip.
+// Package llm memanggil Claude API untuk memilih & menilai momen klip.
 package llm
 
 import (
@@ -21,6 +21,9 @@ type Client struct {
 	APIKey string
 	Model  string
 	HTTP   *http.Client
+	// Temperature dikirim hanya bila > 0; selain itu dipakai bawaan API.
+	// Tugas menyalin-ulang seperti koreksi transkrip butuh angka rendah.
+	Temperature float64
 }
 
 func New(apiKey, model string) *Client {
@@ -30,24 +33,17 @@ func New(apiKey, model string) *Client {
 	return &Client{
 		APIKey: apiKey,
 		Model:  model,
-		HTTP:   &http.Client{Timeout: 90 * time.Second},
+		HTTP:   &http.Client{Timeout: 120 * time.Second},
 	}
-}
-
-// Judgment hasil penilaian LLM untuk satu klip.
-type Judgment struct {
-	Score    int           `json:"score"`
-	Reasons  types.Reasons `json:"reasons"`
-	Title    string        `json:"title"`
-	Hashtags []string      `json:"hashtags"`
 }
 
 // anthropic request/response shapes.
 type msgReq struct {
-	Model     string       `json:"model"`
-	MaxTokens int          `json:"max_tokens"`
-	System    string       `json:"system"`
-	Messages  []anthMsg    `json:"messages"`
+	Model       string    `json:"model"`
+	MaxTokens   int       `json:"max_tokens"`
+	System      string    `json:"system"`
+	Messages    []anthMsg `json:"messages"`
+	Temperature *float64  `json:"temperature,omitempty"`
 }
 type anthMsg struct {
 	Role    string `json:"role"`
@@ -63,28 +59,41 @@ type msgResp struct {
 	} `json:"error"`
 }
 
-const systemPrompt = `Kamu adalah kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).
-Nilai satu segmen transkrip. Balas HANYA JSON valid tanpa penjelasan, dengan bentuk persis:
-{"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<judul catchy bahasa Indonesia, maks 60 karakter>","hashtags":["#..","#.."]}
-Kriteria: hook (3 detik pertama menarik?), emotion (muatan emosi), clarity (mudah dipahami), shareability (layak dibagikan), standalone (bisa dimengerti tanpa konteks).`
+// MomentReasons rincian skor (float agar toleran output model lokal).
+type MomentReasons struct {
+	Hook         float64 `json:"hook"`
+	Emotion      float64 `json:"emotion"`
+	Clarity      float64 `json:"clarity"`
+	Shareability float64 `json:"shareability"`
+	Standalone   float64 `json:"standalone"`
+}
 
-// Judge menilai satu kandidat via Claude.
-func (c *Client) Judge(ctx context.Context, cand types.Candidate) (Judgment, error) {
+// Complete mengirim satu pasang prompt dan mengembalikan teks balasan apa
+// adanya. Ini lapisan HTTP telanjang yang dipakai bersama oleh pemilihan momen
+// klip dan pemilihan paragraf berita — keduanya cuma berbeda prompt.
+//
+// Seperti SelectMoments: setiap kegagalan dikembalikan apa adanya, TIDAK ada
+// perpindahan diam-diam ke mesin lain (lihat notes/12).
+func (c *Client) Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	if c.APIKey == "" {
-		return Judgment{}, fmt.Errorf("ANTHROPIC_API_KEY kosong")
+		return "", fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
 	}
-	user := fmt.Sprintf("Durasi: %.0f detik.\nTranskrip:\n%s", cand.Duration(), cand.Text)
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
 	reqBody := msgReq{
 		Model:     c.Model,
-		MaxTokens: 400,
-		System:    systemPrompt,
+		MaxTokens: maxTokens,
+		System:    system,
 		Messages:  []anthMsg{{Role: "user", Content: user}},
 	}
+	if c.Temperature > 0 {
+		reqBody.Temperature = &c.Temperature
+	}
 	buf, _ := json.Marshal(reqBody)
-
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
 	if err != nil {
-		return Judgment{}, err
+		return "", err
 	}
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("x-api-key", c.APIKey)
@@ -92,125 +101,72 @@ func (c *Client) Judge(ctx context.Context, cand types.Candidate) (Judgment, err
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return Judgment{}, fmt.Errorf("panggil Claude: %w", err)
+		return "", fmt.Errorf("Claude is unreachable (check your internet connection): %w", err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
 
 	var parsed msgResp
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return Judgment{}, fmt.Errorf("parse respons Claude: %w", err)
+		return "", fmt.Errorf("the Claude response could not be read (status %d): %s", resp.StatusCode, truncate(string(raw), 200))
 	}
 	if parsed.Error != nil {
-		return Judgment{}, fmt.Errorf("Claude error: %s", parsed.Error.Message)
+		return "", claudeError(resp.StatusCode, parsed.Error.Message)
 	}
 	if len(parsed.Content) == 0 {
-		return Judgment{}, fmt.Errorf("respons Claude kosong (status %d)", resp.StatusCode)
+		return "", fmt.Errorf("Claude returned an empty reply (status %d)", resp.StatusCode)
 	}
-
-	text := parsed.Content[0].Text
-	jsonStr := extractJSON(text)
-	var j Judgment
-	if err := json.Unmarshal([]byte(jsonStr), &j); err != nil {
-		return Judgment{}, fmt.Errorf("parse JSON penilaian: %w (teks: %s)", err, truncate(text, 200))
-	}
-	return j, nil
+	return parsed.Content[0].Text, nil
 }
 
-// Moment adalah momen menarik yang dipilih LLM dari transkrip (batas ditentukan LLM).
-type Moment struct {
-	Start    float64       `json:"start"`
-	End      float64       `json:"end"`
-	Score    int           `json:"score"`
-	Reasons  types.Reasons `json:"reasons"`
-	Title    string        `json:"title"`
-	Hashtags []string      `json:"hashtags"`
+// claudeError menerjemahkan pesan API jadi petunjuk yang bisa ditindaklanjuti.
+func claudeError(status int, msg string) error {
+	low := strings.ToLower(msg)
+	switch {
+	case strings.Contains(low, "x-api-key") || status == 401:
+		return fmt.Errorf("the Claude API key was rejected — update it in the AI engine panel (%s)", msg)
+	case status == 429:
+		return fmt.Errorf("Claude quota/rate limit exceeded — wait a moment and try again (%s)", msg)
+	case strings.Contains(low, "model"):
+		return fmt.Errorf("unknown Claude model — pick a different model in the GUI (%s)", msg)
+	case status == 400 && strings.Contains(low, "credit"):
+		return fmt.Errorf("the Claude API balance is exhausted (%s)", msg)
+	}
+	return fmt.Errorf("Claude rejected the request (status %d): %s", status, msg)
 }
 
-const selectSystem = `Kamu kurator klip video viral untuk konten berbahasa Indonesia (TikTok, Reels, Shorts).
-Kamu diberi transkrip video LENGKAP dengan timestamp (detik). Tugasmu MEMILIH momen-momen terbaik untuk dijadikan klip pendek vertikal.
-Aturan:
-- Tiap momen harus BERDIRI SENDIRI: ada hook menarik di awal, isi yang jelas, dan penutup yang memuaskan. BUKAN potongan acak di tengah kalimat.
-- Tentukan sendiri 'start' dan 'end' (detik) tiap momen dari timestamp transkrip — panjang boleh BERVARIASI sesuai isi.
-- Incar durasi sekitar %.0f-%.0f detik, TAPI boleh menyimpang demi momen yang utuh & kuat.
-- Pilih momen dengan potensi viral tertinggi (hook kuat, emosi, kejutan, nilai, layak dibagikan).
-Balas HANYA JSON array valid tanpa penjelasan, bentuk persis:
-[{"start":<detik>,"end":<detik>,"score":<0-100>,"reasons":{"hook":<0-100>,"emotion":<0-100>,"clarity":<0-100>,"shareability":<0-100>,"standalone":<0-100>},"title":"<judul catchy Indonesia, maks 60 karakter>","hashtags":["#..","#.."]}]`
-
-// SelectMoments mengirim transkrip bertimestamp & meminta LLM memilih momen terbaik.
-func (c *Client) SelectMoments(ctx context.Context, tr types.Transcript, maxClips int, targetMin, targetMax float64) ([]Moment, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("ANTHROPIC_API_KEY kosong")
-	}
-	var b strings.Builder
-	for _, s := range tr.Segments {
-		fmt.Fprintf(&b, "[%.1f-%.1f] %s\n", s.Start, s.End, s.Text)
-	}
-	user := fmt.Sprintf("Transkrip:\n%s\nPilih maksimal %d momen terbaik. Balas JSON array.", b.String(), maxClips)
-
-	reqBody := msgReq{
-		Model:     c.Model,
-		MaxTokens: 4096,
-		System:    fmt.Sprintf(selectSystem, targetMin, targetMax),
-		Messages:  []anthMsg{{Role: "user", Content: user}},
-	}
-	buf, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("content-type", "application/json")
-	req.Header.Set("x-api-key", c.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("panggil Claude: %w", err)
-	}
-	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-
-	var parsed msgResp
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("parse respons Claude: %w", err)
-	}
-	if parsed.Error != nil {
-		return nil, fmt.Errorf("Claude error: %s", parsed.Error.Message)
-	}
-	if len(parsed.Content) == 0 {
-		return nil, fmt.Errorf("respons Claude kosong (status %d)", resp.StatusCode)
-	}
-	jsonStr := extractArray(parsed.Content[0].Text)
-	var moments []Moment
-	if err := json.Unmarshal([]byte(jsonStr), &moments); err != nil {
-		return nil, fmt.Errorf("parse JSON momen: %w", err)
-	}
-	return moments, nil
-}
-
-// extractArray mengambil blok [...] pertama dari teks.
-func extractArray(s string) string {
-	i := strings.Index(s, "[")
-	j := strings.LastIndex(s, "]")
+// extractBlock mengambil blok pertama..terakhir di antara pembuka & penutup.
+func extractBlock(s string, open, close byte) string {
+	i := strings.IndexByte(s, open)
+	j := strings.LastIndexByte(s, close)
 	if i >= 0 && j > i {
 		return s[i : j+1]
 	}
-	return s
-}
-
-// extractJSON mengambil blok {...} pertama dari teks.
-func extractJSON(s string) string {
-	i := strings.Index(s, "{")
-	j := strings.LastIndex(s, "}")
-	if i >= 0 && j > i {
-		return s[i : j+1]
-	}
-	return s
+	return ""
 }
 
 func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if len(s) <= n {
+		return s
 	}
-	return s
+	return s[:n] + "…"
+}
+
+// PickMoments meminta Claude MEMILIH dari kandidat bernomor, bukan mengarang
+// batas waktu. Lihat pick.go untuk alasannya.
+func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]Pick, error) {
+	if c.APIKey == "" {
+		return nil, fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+	}
+	text, err := c.Complete(ctx, PickSystemPrompt(maxClips, contentLang), PickUserPrompt(cands, offset), 4096)
+	if err != nil {
+		return nil, err
+	}
+	var wrap PickResponse
+	if err := json.Unmarshal([]byte(extractBlock(text, '{', '}')), &wrap); err != nil {
+		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w — reply: %s",
+			c.Model, err, truncate(text, 300))
+	}
+	return wrap.Picks, nil
 }

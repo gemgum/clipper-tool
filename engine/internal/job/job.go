@@ -30,17 +30,17 @@ type Event struct {
 
 // Job satu pekerjaan clipping.
 type Job struct {
-	ID        string          `json:"id"`
-	Dir       string          `json:"dir"` // nama folder unik: <id>_<tanggal_jam>
-	Status    string          `json:"status"`
-	Stage     string          `json:"stage"`
-	Progress  float64         `json:"progress"`
-	Error     string          `json:"error,omitempty"`
-	Input     string          `json:"input"`
-	Options   config.Options  `json:"options"`
-	Clips     []types.Clip    `json:"clips"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID        string         `json:"id"`
+	Dir       string         `json:"dir"` // nama folder unik: <id>_<tanggal_jam>
+	Status    string         `json:"status"`
+	Stage     string         `json:"stage"`
+	Progress  float64        `json:"progress"`
+	Error     string         `json:"error,omitempty"`
+	Input     string         `json:"input"`
+	Options   config.Options `json:"options"`
+	Clips     []types.Clip   `json:"clips"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 
 	cancel context.CancelFunc
 	subs   map[chan Event]struct{}
@@ -49,24 +49,53 @@ type Job struct {
 
 // Manager menyimpan seluruh job & mengatur antrian eksekusi.
 type Manager struct {
-	paths config.Paths
-	root  string
-	mu    sync.RWMutex
-	jobs  map[string]*Job
-	seq   int
-	queue chan *Job
+	paths  config.Paths
+	layout config.Layout
+	mu     sync.RWMutex
+	jobs   map[string]*Job
+	seq    int
+	queue  chan *Job
+	apiKey string // API key Claude yang diset dari GUI (menimpa env bila ada)
+}
+
+// SetAPIKey menyimpan API key Claude (dari GUI) di memori.
+func (m *Manager) SetAPIKey(key string) {
+	m.mu.Lock()
+	m.apiKey = key
+	m.mu.Unlock()
+}
+
+// HasAPIKey melaporkan apakah key tersedia (dari GUI atau env).
+func (m *Manager) HasAPIKey() bool {
+	m.mu.RLock()
+	k := m.apiKey
+	m.mu.RUnlock()
+	return k != "" || m.paths.APIKey != ""
+}
+
+// APIKey mengembalikan key Claude yang berlaku (dari GUI, atau dari .env).
+// Dipakai fitur di luar pipeline klip — mis. analisis artikel di tab news.
+func (m *Manager) APIKey() string { return m.getAPIKey() }
+
+func (m *Manager) getAPIKey() string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.apiKey != "" {
+		return m.apiKey
+	}
+	return m.paths.APIKey
 }
 
 // NewManager membuat manager dengan batas konkurensi (default 1 = antrian).
-func NewManager(root string, paths config.Paths, concurrency int) *Manager {
+func NewManager(l config.Layout, paths config.Paths, concurrency int) *Manager {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	m := &Manager{
-		root:  root,
-		paths: paths,
-		jobs:  map[string]*Job{},
-		queue: make(chan *Job, 256),
+		layout: l,
+		paths:  paths,
+		jobs:   map[string]*Job{},
+		queue:  make(chan *Job, 256),
 	}
 	for i := 0; i < concurrency; i++ {
 		go m.worker()
@@ -82,7 +111,7 @@ func (m *Manager) worker() {
 		j.mu.Unlock()
 		if canceled {
 			// Dibatalkan selagi mengantri.
-			j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Dibatalkan oleh pengguna"}})
+			j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 			j.closeSubs()
 			continue
 		}
@@ -122,7 +151,10 @@ func (m *Manager) run(j *Job) {
 	j.mu.Unlock()
 
 	// Resolve path per-job agar model whisper sesuai opsi job (mis. base vs small).
-	paths := config.ResolvePaths(m.root, j.Options)
+	paths := config.ResolvePaths(m.layout, j.Options)
+	if k := m.getAPIKey(); k != "" {
+		paths.APIKey = k // key dari GUI menimpa env
+	}
 	workDir := filepath.Join(paths.DataDir, j.Dir)
 	outDir := workDir
 	if j.Options.OutputDir != "" {
@@ -169,7 +201,7 @@ func (m *Manager) run(j *Job) {
 	case StatusError:
 		j.broadcast(Event{Type: "error", Data: map[string]string{"message": errMsg}})
 	case StatusCanceled:
-		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Dibatalkan oleh pengguna"}})
+		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 	default:
 		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": len(clips)}})
 	}
