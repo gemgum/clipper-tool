@@ -31,7 +31,7 @@ const en = {
   download: "download",
   downloading: "downloading…",
   loading: "Loading…",
-  engineUnreachable: "Engine unreachable — run ./bin/clipper serve",
+  engineUnreachable: "Cannot reach the engine at {url}. If you started the app from a terminal, check that window for an error.",
 
   // --- source panel ---
   dropTitle: "Drag & drop a video here",
@@ -436,7 +436,7 @@ const id: Record<MessageKey, string> = {
   download: "unduh",
   downloading: "mengunduh…",
   loading: "Memuat…",
-  engineUnreachable: "Engine tidak terjangkau — jalankan ./bin/clipper serve",
+  engineUnreachable: "Tidak bisa menghubungi engine di {url}. Kalau aplikasi dijalankan dari terminal, lihat jendela itu — pesannya ada di sana.",
 
   dropTitle: "Seret & lepas video ke sini",
   dropOr: "atau",
