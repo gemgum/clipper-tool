@@ -25,15 +25,19 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi", "appimage", "deb", "dmg"],
-    "icon": ["icons/icon.png", "icons/icon.ico"],
+    "targets": [
+      "nsis",
+      "msi",
+      "appimage",
+      "deb",
+      "dmg"
+    ],
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "category": "Video",
     "shortDescription": "Long videos into 9:16 clips",
-    "longDescription": "Cuts long videos into short 9:16 clips with subtitles and a viral score.",
-    "resources": {
-      "../../bin/clipper": "engine/",
-      "../../gui/out/": "gui/",
-      "../../assets/fonts/": "assets/fonts/"
-    }
+    "longDescription": "Cuts long videos into short 9:16 clips with subtitles and a viral score."
   }
 }

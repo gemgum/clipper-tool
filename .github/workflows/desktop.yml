@@ -43,17 +43,19 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-          cache-dependency-path: engine/go.sum
+          # Engine ini standard library saja — tidak ada go.sum, jadi tidak ada
+          # yang bisa (atau perlu) di-cache.
+          cache: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - uses: dtolnay/rust-toolchain@stable
 
       # Cache Rust: kompilasi pertama ~400 paket dan itu bagian terlama di
       # seluruh alur ini.
-      - uses: swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
 
@@ -62,6 +64,13 @@ jobs:
       - name: Engine (Go)
         working-directory: engine
         run: go build -o ../bin/clipper${{ matrix.name == 'windows' && '.exe' || '' }} ./cmd/clipper
+
+      # Font subtitle tidak ikut di-commit (lihat .gitignore), padahal ia
+      # dibundel ke dalam pemasang. Tanpa langkah ini pengemasan berhenti
+      # dengan "resource path assets\fonts doesn't exist".
+      - name: Font subtitle
+        shell: bash
+        run: ./fetch-fonts.sh
 
       - name: Antarmuka (statis)
         working-directory: gui
@@ -84,3 +93,7 @@ jobs:
             desktop/src-tauri/target/release/bundle/appimage/*.AppImage
             desktop/src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: warn
+          # Repo private hanya dapat 500 MB penyimpanan artifact, sedangkan tiap
+          # build menyimpan pemasang untuk dua sistem. Pemasang lama tidak ada
+          # gunanya disimpan — yang dipakai selalu yang terbaru.
+          retention-days: 7

@@ -43,12 +43,7 @@ fi
 echo "    model -> $MODEL_PATH"
 
 echo "==> 3/3 subtitle fonts"
-mkdir -p "$ROOT/assets/fonts"
-gf="https://github.com/google/fonts/raw/main/ofl"
-dl() { [ -f "$2" ] || curl -sL --fail "$1" -o "$2" || echo "    (skipped $2)"; }
-dl "$gf/montserrat/Montserrat%5Bwght%5D.ttf" "$ROOT/assets/fonts/Montserrat.ttf"
-dl "$gf/anton/Anton-Regular.ttf"             "$ROOT/assets/fonts/Anton.ttf"
-dl "$gf/bebasneue/BebasNeue-Regular.ttf"     "$ROOT/assets/fonts/BebasNeue.ttf"
-echo "    fonts -> assets/fonts/"
+# Alamatnya ada di fetch-fonts.sh, dipakai bersama alur GitHub Actions.
+"$ROOT/fetch-fonts.sh"
 
 echo "Done. Next: ./build.sh && ./bin/clipper run <video>"
