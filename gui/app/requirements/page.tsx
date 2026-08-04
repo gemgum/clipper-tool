@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import { eng } from "../engine";
+import { eng, engineURL } from "../engine";
 
 type Component = {
   id: string;
@@ -56,7 +56,7 @@ export default function RequirementsPage() {
       setReq(data);
       setError("");
     } catch {
-      setError(t("engineUnreachable"));
+      setError(t("engineUnreachable", { url: engineURL() }));
     } finally {
       setBusy(false);
     }

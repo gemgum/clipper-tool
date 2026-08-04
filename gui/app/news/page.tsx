@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import { eng } from "../engine";
+import { eng, engineURL } from "../engine";
 
 
 // Ruang koordinat kartu — sama dengan yang dipakai engine saat merender.
@@ -171,7 +171,7 @@ export default function News() {
         // tidak ada warna yang muncul di kotak tapi tidak ada di contekannya.
         setCustomColor((v) => v || colourRows(d.card_colours)[0]?.[0] || "");
       })
-      .catch(() => setError(t("engineUnreachable")));
+      .catch(() => setError(t("engineUnreachable", { url: engineURL() })));
   }, [t]);
 
   // Ganti artikel = buang seluruh hasil analisis artikel sebelumnya, supaya

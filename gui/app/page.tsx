@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
-import { eng } from "./engine";
+import { eng, engineURL } from "./engine";
 import Picker from "./picker";
 
 const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
@@ -159,7 +159,7 @@ export default function Home() {
       setModels(m);
       const downloaded = m.find((x) => x.downloaded);
       if (downloaded) setModel(downloaded.name);
-    }).catch(() => addLog(`⚠ ${t("engineUnreachable")}`));
+    }).catch(() => addLog(`⚠ ${t("engineUnreachable", { url: engineURL() })}`));
     fetch(eng(`/api/fonts`)).then((r) => r.json()).then((f: Font[]) => {
       setFonts(f);
       // Jangan menimpa font dari preset — daftar font datang belakangan, dulu

@@ -69,6 +69,10 @@ memeriksa keadaan dengan tangan.
 | `gui/out/` | `gui/` |
 | `assets/fonts/` | `assets/fonts/` |
 
+Di Windows nama binernya `clipper.exe`, jadi pemetaannya ditimpa
+`tauri.windows.conf.json` — Tauri menggabungkan berkas per-OS itu di atas
+`tauri.conf.json`.
+
 Susunan itu bukan kebetulan: engine mencari GUI dan font **di sebelah binernya**
 (`<exe>/../gui`, `<exe>/../assets/fonts`), dan itu persis yang dihasilkan
 susunan di atas. Tidak ada kode yang perlu tahu ia sedang di dalam bundel Tauri.
