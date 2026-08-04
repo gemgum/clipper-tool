@@ -129,10 +129,10 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		}
 		rec.since("Extract audio", t0, "ffmpeg")
 		if p.Opts.Provider == "heuristic" {
-			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy (C++ worker)"})
+			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy"})
 			t0 := time.Now()
 			r, err := audio.Features(wav, 100)
-			if err == nil {
+			if err != nil {
 				return nil, fmt.Errorf("audio features: %w", err)
 			}
 			rms = r

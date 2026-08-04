@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
+import { eng } from "../engine";
 
-const ENGINE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://127.0.0.1:8787";
 
 // Ruang koordinat kartu — sama dengan yang dipakai engine saat merender.
 // Pratinjau memakai CSS transform yang identik, jadi menyeret sejauh N piksel
@@ -163,7 +163,7 @@ export default function News() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`${ENGINE}/api/news/feeds`)
+    fetch(eng(`/api/news/feeds`))
       .then((r) => r.json())
       .then((d: Config) => {
         setConfig(d);
@@ -197,7 +197,7 @@ export default function News() {
       const param = search
         ? `q=${encodeURIComponent(search)}`
         : `feed=${encodeURIComponent(feedId)}`;
-      const res = await fetch(`${ENGINE}/api/news/list?${param}&max=24&lang=${lang}`);
+      const res = await fetch(eng(`/api/news/list?${param}&max=24&lang=${lang}`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errLoadNews"));
       setItems(data);
@@ -232,7 +232,7 @@ export default function News() {
       // Perlu satu peluncuran browser (~2-3 detik), tapi hasilnya di-cache.
       if (url.includes("news.google.com/")) {
         setCopyBusy(url);
-        const res = await fetch(`${ENGINE}/api/news/resolve`, {
+        const res = await fetch(eng(`/api/news/resolve`), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url }),
@@ -270,7 +270,7 @@ export default function News() {
     setFetching(true);
     setError("");
     try {
-      const res = await fetch(`${ENGINE}/api/news/article`, {
+      const res = await fetch(eng(`/api/news/article`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: link.trim(), lang }),
@@ -306,7 +306,7 @@ export default function News() {
     setAnalyzeBusy(true);
     setError("");
     try {
-      const res = await fetch(`${ENGINE}/api/news/analyze`, {
+      const res = await fetch(eng(`/api/news/analyze`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -369,7 +369,7 @@ export default function News() {
     if (preview) setPreviewBusy(true); else setBuildBusy(true);
     setError("");
     try {
-      const res = await fetch(`${ENGINE}/api/card`, {
+      const res = await fetch(eng(`/api/card`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -398,8 +398,8 @@ export default function News() {
       // waktu — tanpa itu browser menampilkan gambar lama dari cache dan
       // penyetelanmu terlihat tidak berpengaruh.
       setResult({
-        file: `${ENGINE}${data.file}?v=${Date.now()}`,
-        zip: `${ENGINE}${data.zip}`,
+        file: eng(`${data.file}?v=${Date.now()}`),
+        zip: eng(`${data.zip}`),
         preview,
       });
     } catch (e: any) {

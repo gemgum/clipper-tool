@@ -50,7 +50,7 @@ type Job struct {
 // Manager menyimpan seluruh job & mengatur antrian eksekusi.
 type Manager struct {
 	paths  config.Paths
-	root   string
+	layout config.Layout
 	mu     sync.RWMutex
 	jobs   map[string]*Job
 	seq    int
@@ -87,15 +87,15 @@ func (m *Manager) getAPIKey() string {
 }
 
 // NewManager membuat manager dengan batas konkurensi (default 1 = antrian).
-func NewManager(root string, paths config.Paths, concurrency int) *Manager {
+func NewManager(l config.Layout, paths config.Paths, concurrency int) *Manager {
 	if concurrency < 1 {
 		concurrency = 1
 	}
 	m := &Manager{
-		root:  root,
-		paths: paths,
-		jobs:  map[string]*Job{},
-		queue: make(chan *Job, 256),
+		layout: l,
+		paths:  paths,
+		jobs:   map[string]*Job{},
+		queue:  make(chan *Job, 256),
 	}
 	for i := 0; i < concurrency; i++ {
 		go m.worker()
@@ -151,7 +151,7 @@ func (m *Manager) run(j *Job) {
 	j.mu.Unlock()
 
 	// Resolve path per-job agar model whisper sesuai opsi job (mis. base vs small).
-	paths := config.ResolvePaths(m.root, j.Options)
+	paths := config.ResolvePaths(m.layout, j.Options)
 	if k := m.getAPIKey(); k != "" {
 		paths.APIKey = k // key dari GUI menimpa env
 	}

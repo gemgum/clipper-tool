@@ -7,6 +7,7 @@ import { LANGUAGES, useI18n, type MessageKey } from "./i18n";
 const TABS: { href: string; label: MessageKey }[] = [
   { href: "/", label: "tabClips" },
   { href: "/news", label: "tabNews" },
+  { href: "/requirements", label: "tabRequirements" },
 ];
 
 export default function Nav() {

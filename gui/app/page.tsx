@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
+import { eng } from "./engine";
+import Picker from "./picker";
 
-const ENGINE = process.env.NEXT_PUBLIC_ENGINE_URL || "http://127.0.0.1:8787";
 const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
 
 type Reasons = { hook: number; emotion: number; clarity: number; shareability: number; standalone: number };
@@ -132,6 +133,9 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
+  // Pemilih berkas milik sendiri: "video" untuk sumber, "out" untuk folder
+  // keluaran, null = tertutup.
+  const [picker, setPicker] = useState<null | "video" | "out">(null);
 
   // Job
   const [jobId, setJobId] = useState<string | null>(null);
@@ -151,12 +155,12 @@ export default function Home() {
   }, [locale]);
 
   useEffect(() => {
-    fetch(`${ENGINE}/api/models`).then((r) => r.json()).then((m: WhisperModel[]) => {
+    fetch(eng(`/api/models`)).then((r) => r.json()).then((m: WhisperModel[]) => {
       setModels(m);
       const downloaded = m.find((x) => x.downloaded);
       if (downloaded) setModel(downloaded.name);
     }).catch(() => addLog(`⚠ ${t("engineUnreachable")}`));
-    fetch(`${ENGINE}/api/fonts`).then((r) => r.json()).then((f: Font[]) => {
+    fetch(eng(`/api/fonts`)).then((r) => r.json()).then((f: Font[]) => {
       setFonts(f);
       // Jangan menimpa font dari preset — daftar font datang belakangan, dulu
       // pilihan tersimpan selalu tergantikan font pertama tiap halaman dimuat.
@@ -176,7 +180,7 @@ export default function Home() {
     if (!name) { setFontCheck(null); return; }
     setFontChecking(true);
     const timer = setTimeout(() => {
-      fetch(`${ENGINE}/api/font-check?name=${encodeURIComponent(name)}`)
+      fetch(eng(`/api/font-check?name=${encodeURIComponent(name)}`))
         .then((r) => r.json()).then(setFontCheck)
         .catch(() => setFontCheck({ valid: false, name, family: "", source: "", error: "engine unreachable" }))
         .finally(() => setFontChecking(false));
@@ -230,7 +234,7 @@ export default function Home() {
 
   // Sambung ulang ke job yang sedang berjalan (mis. setelah tab di-reload/tab baru).
   useEffect(() => {
-    fetch(`${ENGINE}/api/jobs`).then((r) => r.json()).then((jobs: any[]) => {
+    fetch(eng(`/api/jobs`)).then((r) => r.json()).then((jobs: any[]) => {
       if (!Array.isArray(jobs)) return;
       const active = jobs
         .filter((j) => j.status === "running" || j.status === "queued")
@@ -249,14 +253,14 @@ export default function Home() {
 
   // Status API key.
   useEffect(() => {
-    fetch(`${ENGINE}/api/settings`).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
+    fetch(eng(`/api/settings`)).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
   }, []);
 
 
   // silent = pengecekan berkala; jangan kosongkan status agar UI tak berkedip.
   const checkOllama = useCallback((silent = false) => {
     if (!silent) setOllamaStatus(null);
-    fetch(`${ENGINE}/api/ollama/status`).then((r) => r.json()).then(setOllamaStatus)
+    fetch(eng(`/api/ollama/status`)).then((r) => r.json()).then(setOllamaStatus)
       .catch(() => setOllamaStatus({ running: false }));
   }, []);
 
@@ -302,7 +306,7 @@ export default function Home() {
 
   const saveKey = useCallback(async () => {
     try {
-      const res = await fetch(`${ENGINE}/api/settings`, {
+      const res = await fetch(eng(`/api/settings`), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ anthropic_api_key: apiKey }),
       });
@@ -317,7 +321,7 @@ export default function Home() {
     setPulling(true);
     addLog(t("logPullStart", { model: ollamaModel }));
     try {
-      const res = await fetch(`${ENGINE}/api/ollama/pull`, {
+      const res = await fetch(eng(`/api/ollama/pull`), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: ollamaModel }),
       });
@@ -336,7 +340,7 @@ export default function Home() {
   // koordinat subtitle diatur di atas geometri yang benar (di mode "muat utuh"
   // videonya cuma mengisi pita tengah, bukan seluruh kanvas).
   const frameUrl = useMemo(
-    () => `${ENGINE}/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`
+    () => eng(`/api/frame?path=${encodeURIComponent(path)}&t=${previewTime.toFixed(2)}`)
       + `&reframe=${encodeURIComponent(reframe)}&background=${encodeURIComponent(background)}`
       + `&zoom=${zoom}`
       + `&n=${previewNonce}`,
@@ -349,7 +353,7 @@ export default function Home() {
     if (!path) return;
     setPreviewBusy(true);
     try {
-      const res = await fetch(`${ENGINE}/api/probe?path=${encodeURIComponent(path)}`);
+      const res = await fetch(eng(`/api/probe?path=${encodeURIComponent(path)}`));
       const text = await res.text();
       let data: any;
       try { data = JSON.parse(text); }
@@ -446,7 +450,7 @@ export default function Home() {
     addLog(t("logUploadStart", { name: file.name, size: (file.size / 1e6).toFixed(0) }));
     const form = new FormData(); form.append("file", file);
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${ENGINE}/api/upload`);
+    xhr.open("POST", eng(`/api/upload`));
     xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadPct(e.loaded / e.total); };
     xhr.onload = () => {
       setUploading(false);
@@ -460,6 +464,32 @@ export default function Home() {
     xhr.send(form);
   }, [addLog, t]);
 
+  // useFile menerima berkas dari seret & lepas atau dari pemilih browser.
+  //
+  // Browser tidak memberi tahu di mana berkas itu berada — hanya nama dan
+  // ukurannya. Padahal berkasnya ada di mesin yang sama dengan engine, jadi
+  // engine ditanya dulu: kalau ia menemukannya, path itu langsung dipakai dan
+  // tidak ada satu byte pun yang disalin. Unggahan hanya cadangan.
+  const useFile = useCallback(async (file: File) => {
+    addLog(t("logLocating", { name: file.name }));
+    try {
+      const res = await fetch(eng(`/api/locate`), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: file.name, size: file.size }),
+      });
+      const data = await res.json();
+      if (res.ok && data.path) {
+        setPath(data.path);
+        addLog(t("logLocated", { path: data.path }));
+        return;
+      }
+    } catch {
+      // Engine mati atau versinya lama: unggahan di bawah tetap jalan.
+    }
+    addLog(t("logLocateMiss", { name: file.name }));
+    uploadFile(file);
+  }, [addLog, t, uploadFile]);
+
   const start = useCallback(async () => {
     // Font manual yang belum lolos pengecekan ditolak di sini — kalau diteruskan,
     // libass diam-diam mengganti fontnya dan hasil render tidak sesuai preview.
@@ -471,7 +501,7 @@ export default function Home() {
     setBusy(true); setStatus("queued"); setJobId(null);
     addLog(t("logJobStart", { resolution, quality, duration: durationPreset, font: subFont }));
     try {
-      const res = await fetch(`${ENGINE}/api/jobs`, {
+      const res = await fetch(eng(`/api/jobs`), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           source: { type: "path", value: path },
@@ -501,12 +531,12 @@ export default function Home() {
   const cancel = useCallback(async () => {
     if (!jobId) return;
     addLog(t("logCancelling"));
-    await fetch(`${ENGINE}/api/jobs/${jobId}/cancel`, { method: "POST" }).catch(() => {});
+    await fetch(eng(`/api/jobs/${jobId}/cancel`), { method: "POST" }).catch(() => {});
   }, [jobId, addLog, t]);
 
   useEffect(() => {
     if (!jobId) return;
-    const events = new EventSource(`${ENGINE}/api/jobs/${jobId}/events`);
+    const events = new EventSource(eng(`/api/jobs/${jobId}/events`));
     events.addEventListener("progress", (e: MessageEvent) => {
       const d = JSON.parse(e.data);
       if (d.status) setStatus(d.status);
@@ -586,17 +616,26 @@ export default function Home() {
     <div className="wrap">
       {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek */}
       <style dangerouslySetInnerHTML={{ __html: previewFonts.map((n) =>
-        `@font-face{font-family:"${n}";src:url("${ENGINE}/api/font-file?name=${encodeURIComponent(n)}");font-display:swap;}`
+        `@font-face{font-family:"${n}";src:url("${eng(`/api/font-file?name=${encodeURIComponent(n)}`)}");font-display:swap;}`
       ).join("") }} />
       <h1>✂️ Clipper</h1>
       <p className="sub">{t("brandTagline")}</p>
 
       {/* 1. Sumber */}
+      {picker && (
+        <Picker
+          mode={picker === "out" ? "folder" : "file"}
+          start={picker === "out" ? outputDir : path}
+          onPick={(p) => { picker === "out" ? setOutputDir(p) : setPath(p); setPicker(null); }}
+          onClose={() => setPicker(null)}
+        />
+      )}
+
       <div className="panel">
         <div className={`dropzone ${dragOver ? "over" : ""}`}
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) uploadFile(f); }}>
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) useFile(f); }}>
           {uploading ? (
             <>
               <div>{t("uploadingPct", { pct: Math.round(uploadPct * 100) })}</div>
@@ -606,18 +645,28 @@ export default function Home() {
             <>
               <div><strong>{t("dropTitle")}</strong></div>
               <div className="meta">{t("dropOr")} <label className="linklike">{t("dropPick")}
-                <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && uploadFile(e.target.files[0])} />
+                <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && useFile(e.target.files[0])} />
               </label> {t("dropOrPaste")}</div>
+              <div className="meta" style={{ marginTop: 6 }}>{t("dropNoCopy")}</div>
             </>
           )}
         </div>
+        <div className="source-actions">
+          <button className="ghost" onClick={() => setPicker("video")}>{t("browseButton")}</button>
+        </div>
         <div className="field">
           <label>{t("videoPath")}</label>
-          <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
+          <div className="path-row">
+            <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
+            <button className="ghost" onClick={() => setPicker("video")}>{t("pickerGo")}…</button>
+          </div>
         </div>
         <div className="field">
           <label>{t("outputDir")}</label>
-          <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
+          <div className="path-row">
+            <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
+            <button className="ghost" onClick={() => setPicker("out")}>{t("pickerGo")}…</button>
+          </div>
         </div>
       </div>
 
@@ -1080,7 +1129,7 @@ export default function Home() {
           <div className="clips">
             {clips.slice().sort((a, b) => b.score - a.score).map((c) => (
               <div className="clip" key={c.id}>
-                <video src={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file`} controls preload="metadata" />
+                <video src={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file`)} controls preload="metadata" />
                 <div className="body">
                   <span className={`score ${scoreClass(c.score)}`}>{c.score}</span><span className="meta"> /100</span>
                   <div className="title">{c.title || t("noTitle")}</div>
@@ -1090,18 +1139,18 @@ export default function Home() {
                   </div>
                   {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file`} download>
+                    <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file`)} download>
                       ⬇ {c.video_path_raw && c.video_path_raw !== c.video_path ? t("downloadWithSubs") : t("downloadPlain")}
                     </a>
                     {c.video_path_raw && c.video_path_raw !== c.video_path && (
-                      <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`} download>⬇ {t("downloadClean")}</a>
+                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`)} download>⬇ {t("downloadClean")}</a>
                     )}
                     {c.transcript_txt && (
-                      <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=txt`}
+                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=txt`)}
                          download title={t("downloadTxtTip")}>⬇ .txt</a>
                     )}
                     {c.subtitle_srt && (
-                      <a className="dl" href={`${ENGINE}/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`} download>⬇ .srt</a>
+                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`)} download>⬇ .srt</a>
                     )}
                   </div>
                 </div>

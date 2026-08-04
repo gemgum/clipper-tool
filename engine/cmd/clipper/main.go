@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,14 +28,14 @@ func main() {
 		usage()
 		os.Exit(1)
 	}
-	root := projectRoot()
-	loadDotEnv(filepath.Join(root, ".env"))
+	layout := config.Locate(projectRoot())
+	loadDotEnv(layout.EnvFile)
 
 	switch os.Args[1] {
 	case "run":
-		cmdRun(root, os.Args[2:])
+		cmdRun(layout, os.Args[2:])
 	case "serve":
-		cmdServe(root, os.Args[2:])
+		cmdServe(layout, os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("clipper", version)
 	default:
@@ -91,11 +92,16 @@ Usage:
   -out         clip output folder (default data/cli)
 
 'serve' flags:
-  -addr        listen address (default 127.0.0.1:8787)
+  -addr        listen address. Default: 127.0.0.1:8787 from a source checkout,
+               a random free port when installed (the port and the session key
+               are written to engine.json in the data folder).
+  -token       auto|on|off — require a session key on every request. "auto"
+               turns it on for an installed app and off in a source checkout,
+               where the GUI dev server has no way to receive the key.
 `)
 }
 
-func cmdRun(root string, args []string) {
+func cmdRun(layout config.Layout, args []string) {
 	// Pisahkan path video (positional) dari flag agar urutan argumen bebas
 	// (paket flag standar berhenti di positional pertama).
 	input, flagArgs := splitInput(args)
@@ -170,7 +176,11 @@ func cmdRun(root string, args []string) {
 		os.Exit(1)
 	}
 
-	paths := config.ResolvePaths(root, opts)
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	paths := config.ResolvePaths(layout, opts)
 	if opts.Mode != config.ModeOffline && paths.APIKey == "" {
 		fmt.Fprintln(os.Stderr, "warning: mode", opts.Mode, "but ANTHROPIC_API_KEY is empty — the job will stop when the selected engine is called")
 	}
@@ -212,31 +222,82 @@ func cmdRun(root string, args []string) {
 	_ = enc.Encode(clips)
 }
 
-func cmdServe(root string, args []string) {
+func cmdServe(layout config.Layout, args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", "127.0.0.1:8787", "")
+	// Kosong = pilih sendiri: 8787 di checkout (GUI pengembangan menunjuk ke
+	// sana), port acak saat terpasang. Port tetap di mesin pengguna berarti
+	// program lain tahu persis ke mana harus mengetuk.
+	addr := fs.String("addr", "", "")
 	jobsN := fs.Int("jobs", 1, "")
+	// Kunci sesi: "auto" (menyala saat terpasang), "on", atau "off".
+	tokenMode := fs.String("token", "auto", "")
 	_ = fs.Parse(args)
 
 	opts := config.DefaultOptions()
-	paths := config.ResolvePaths(root, opts)
-	if err := os.MkdirAll(paths.DataDir, 0o755); err != nil {
+	if err := layout.Ensure(); err != nil {
 		fmt.Fprintln(os.Stderr, "data dir error:", err)
 		os.Exit(1)
 	}
-	mgr := job.NewManager(root, paths, *jobsN)
-	srv := api.NewServer(mgr, root)
+	paths := config.ResolvePaths(layout, opts)
+	mgr := job.NewManager(layout, paths, *jobsN)
+	srv := api.NewServer(mgr, layout)
+
+	listenAddr := *addr
+	if listenAddr == "" {
+		listenAddr = "127.0.0.1:8787"
+		if !layout.Dev {
+			listenAddr = "127.0.0.1:0"
+		}
+	}
+	// Didengarkan lebih dulu, baru dilaporkan: dengan port 0, nomor portnya
+	// baru ada setelah sistem operasi memberikannya.
+	ln, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cannot listen on", listenAddr+":", err)
+		os.Exit(1)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	token := ""
+	if *tokenMode == "on" || (*tokenMode == "auto" && !layout.Dev) {
+		token = api.NewToken()
+		srv.SetToken(token)
+	}
+	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	handshake, err := api.WriteHandshake(paths.DataDir, api.Handshake{
+		URL: url, Port: port, Token: token, PID: os.Getpid(), Version: version,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cannot write the handshake file:", err)
+		os.Exit(1)
+	}
 
 	fmt.Printf("clipper engine %s\n", version)
 	fmt.Printf("  whisper : %s\n", paths.Whisper)
 	fmt.Printf("  model   : %s\n", paths.Model)
+	fmt.Printf("  data    : %s%s\n", paths.DataDir, devNote(layout))
 	fmt.Printf("  API key : %s\n", maskKey(paths.APIKey))
-	fmt.Printf("  listen  : http://%s\n", *addr)
+	fmt.Printf("  listen  : %s\n", url)
+	fmt.Printf("  key     : %s\n", keyNote(token))
+	fmt.Printf("  address : %s\n", handshake)
+	if token != "" {
+		// Jendela aplikasi membuka alamat ini; kuncinya ikut di URL sebab
+		// halaman tidak punya cara lain menerimanya saat pertama dibuka.
+		fmt.Printf("  open    : %s/?token=%s\n", "<gui>", token)
+	}
 
-	if err := http.ListenAndServe(*addr, srv.Handler()); err != nil {
+	if err := http.Serve(ln, srv.Handler()); err != nil {
 		fmt.Fprintln(os.Stderr, "server:", err)
 		os.Exit(1)
 	}
+}
+
+// keyNote menerangkan keadaan kunci sesi dalam satu baris.
+func keyNote(token string) string {
+	if token == "" {
+		return "(off — anything on this computer can talk to the engine)"
+	}
+	return "on (a new key for every run, written to the address file)"
 }
 
 // splitInput memisahkan argumen positional (path video) dari flag, sehingga
@@ -311,6 +372,16 @@ func loadDotEnv(path string) {
 			_ = os.Setenv(k, v)
 		}
 	}
+}
+
+// devNote menandai bahwa folder datanya ada di dalam checkout, bukan di folder
+// data pengguna. Sengaja dicetak: dua bentuk itu tidak dipilih dengan flag, jadi
+// baris inilah satu-satunya cara mengetahui yang mana yang sedang berlaku.
+func devNote(l config.Layout) string {
+	if l.Dev {
+		return "  (source checkout)"
+	}
+	return ""
 }
 
 func maskKey(k string) string {

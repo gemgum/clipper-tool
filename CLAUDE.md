@@ -31,8 +31,9 @@ gui/ (Next.js) --HTTP+SSE--> engine/ (Go)
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
                            -transcript-fix on|off -terms "Londo Ireng,Mahfud MD" \
                            -save burn|clean|both]                # CLI
-./bin/clipper serve              # HTTP API di 127.0.0.1:8787
-cd gui && npm run dev            # GUI di 3000
+./bin/clipper serve              # HTTP API di 127.0.0.1:8787 (port acak bila terpasang)
+./bin/clipper serve -token on    # + kunci sesi; buka GUI dengan ?token=<kunci>
+cd gui && npm run dev            # GUI di 3000 — tiga tab: klip, kartu, Requirements
 ````
 
 Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
@@ -61,7 +62,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 
 | Paket           | Isi                                                                           |
 | --------------- | ----------------------------------------------------------------------------- |
-| config          | Options, mode, ResolvePaths                                                   |
+| config          | Options, mode, Layout (folder), ResolvePaths                                  |
 | ffmpeg          | ekstrak audio, clip + zoom/reframe, burn subtitle                             |
 | transcribe      | wrapper whisper-cli (-ojf), parse segmen + kata bertimestamp                  |
 | audio           | baca WAV (PCM 16-bit) + hitung RMS energi per hop                             |
@@ -73,10 +74,48 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | correct         | koreksi transkrip via LLM + penyejajaran ulang timestamp per kata             |
 | pipeline        | orkestrasi + progress callback                                                |
 | job             | store job in-memory + SSE broadcast                                           |
-| api             | HTTP handlers + SSE                                                           |
+| api             | HTTP handlers + SSE, pemilih berkas, kunci sesi                               |
+| setup           | status komponen + unduh/pasang whisper.cpp, ffmpeg, model                     |
 | capture         | foto layar halaman web via Chrome headless (exec, + terjemah path WSL)        |
 | news            | RSS + metadata artikel (Open Graph) + ekstraksi paragraf + pemilih hook (LLM) |
 | card            | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber   |
+
+## Folder data: dua bentuk, dipilih sendiri
+
+`config.Locate` menentukan di mana engine menulis, dan tidak ada flag untuk
+memilihnya — penandanya keberadaan `engine/go.mod`:
+
+- **checkout sumber** → `<repo>/data`, `<repo>/models`, `<repo>/bin`,
+  `<repo>/.env`. Persis seperti sebelumnya, jadi model & cache yang sudah ada
+  tetap terpakai.
+- **terpasang** → folder data per pengguna (`%LOCALAPPDATA%\Clipper` ·
+  `~/Library/Application Support/Clipper` · `$XDG_DATA_HOME/clipper`). Wajib,
+  sebab `Program Files` dan `/Applications` hanya-baca.
+
+Font selalu dicari di `assets/fonts` **di sebelah biner** (ia dibundel, tidak
+pernah berubah). Jangan menulis apa pun ke sana.
+
+Akibatnya untuk kode baru: **jangan pernah menyusun path dari root proyek.**
+Pakai `Paths.DataDir` / `ModelsDir` / `ToolsDir` / `EnvFile`. Timpaan env
+(`CLIPPER_DATA_DIR`, `CLIPPER_MODELS_DIR`, `CLIPPER_TOOLS_DIR`,
+`CLIPPER_FONTS_DIR`, `CLIPPER_ENV_FILE`) menang atas keduanya. Lihat
+`notes/23-aplikasi-desktop.md`.
+
+## Desktop: tiga hal yang sudah berlaku
+
+Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
+
+- **Berkas lokal tidak diunggah.** GUI punya pemilih berkas sendiri lewat
+  `/api/browse`, dan berkas yang di-drop dicari di tempatnya lewat `/api/locate`.
+  Jangan menambah alur yang menyalin video ke `data/uploads` (notes/24).
+- **Komponen dipasang engine.** `internal/setup` mengunduh whisper.cpp, ffmpeg,
+  dan model ke `ToolsDir`/`ModelsDir`; halaman Requirements memanggilnya. Kalau
+  menambah komponen, tambahkan resepnya di sana — bukan instruksi di README
+  (notes/25).
+- **Kunci sesi.** Saat terpasang, engine memakai port acak + kunci yang wajib
+  ada di setiap permintaan, ditulis ke `<DataDir>/engine.json`. Di GUI, SEMUA
+  URL engine dibentuk lewat `eng()` di `gui/app/engine.ts` — jangan menyusun
+  `${ENGINE}/api/...` sendiri, kuncinya tidak akan ikut (notes/26).
 
 ## Mode & mesin skor
 

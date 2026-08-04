@@ -6,7 +6,14 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gemgum/clipper/engine/internal/config"
 )
+
+// server membuat Server yang hanya tahu folder datanya — cukup untuk sweep.
+func server(dataRoot string) *Server {
+	return &Server{paths: config.Paths{DataDir: filepath.Join(dataRoot, "data")}}
+}
 
 // makeCards menyiapkan folder kartu palsu dengan waktu ubah berurutan: indeks
 // kecil = paling lama.
@@ -45,7 +52,7 @@ func TestSweepKeepsTheNewestCards(t *testing.T) {
 	}
 	makeCards(t, root, names)
 
-	s := &Server{root: root}
+	s := server(root)
 	s.sweepCards()
 
 	// 12 terlama harus hilang, 50 terbaru harus tetap ada.
@@ -69,7 +76,7 @@ func TestSweepNeverTouchesThePreview(t *testing.T) {
 	}
 	makeCards(t, root, names)
 
-	s := &Server{root: root}
+	s := server(root)
 	s.sweepCards()
 
 	if !exists(t, root, previewID) {
@@ -88,7 +95,7 @@ func TestSweepIgnoresAnythingThatIsNotACard(t *testing.T) {
 	strangers := []string{"notes", "card-", "kartu-1", "card-abc", ".keep"}
 	makeCards(t, root, append(strangers, names...))
 
-	s := &Server{root: root}
+	s := server(root)
 	s.sweepCards()
 
 	for _, name := range strangers {
@@ -107,7 +114,7 @@ func TestSweepDoesNothingBelowTheLimit(t *testing.T) {
 	}
 	makeCards(t, root, names)
 
-	s := &Server{root: root}
+	s := server(root)
 	s.sweepCards()
 
 	for _, name := range names {
@@ -120,6 +127,6 @@ func TestSweepDoesNothingBelowTheLimit(t *testing.T) {
 // Folder yang belum ada bukan error: engine yang baru pertama kali dijalankan
 // belum punya data/cards sama sekali.
 func TestSweepSurvivesAMissingFolder(t *testing.T) {
-	s := &Server{root: t.TempDir()}
+	s := server(t.TempDir())
 	s.sweepCards() // tidak boleh panik
 }

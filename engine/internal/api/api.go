@@ -30,21 +30,25 @@ import (
 
 // Server membungkus manager job.
 type Server struct {
-	mgr   *job.Manager
-	root  string
-	paths config.Paths
-	ff    *ffmpeg.Client
-	cards *card.Builder
+	mgr    *job.Manager
+	layout config.Layout
+	paths  config.Paths
+	ff     *ffmpeg.Client
+	cards  *card.Builder
+	// installs menjaga satu komponen tidak dipasang dua kali sekaligus.
+	installs installing
+	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
+	token string
 }
 
-func NewServer(mgr *job.Manager, root string) *Server {
-	paths := config.ResolvePaths(root, config.DefaultOptions())
+func NewServer(mgr *job.Manager, l config.Layout) *Server {
+	paths := config.ResolvePaths(l, config.DefaultOptions())
 	return &Server{
-		mgr:   mgr,
-		root:  root,
-		paths: paths,
-		ff:    ffmpeg.New(paths.FFmpeg, paths.FFprobe),
-		cards: card.New(capture.New(paths.Chrome), paths.FontsDir),
+		mgr:    mgr,
+		layout: l,
+		paths:  paths,
+		ff:     ffmpeg.New(paths.FFmpeg, paths.FFprobe),
+		cards:  card.New(capture.New(paths.Chrome), paths.FontsDir),
 	}
 }
 
@@ -54,6 +58,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("GET /api/config", s.config)
 	mux.HandleFunc("GET /api/models", s.listModels)
+	// Halaman Requirements: status komponen + pemasangannya.
+	mux.HandleFunc("GET /api/requirements", s.requirements)
+	mux.HandleFunc("POST /api/requirements/install", s.installComponent)
+	mux.HandleFunc("POST /api/requirements/remove", s.removeComponent)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.postSettings)
 	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)
@@ -64,6 +72,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/probe", s.probe)
 	mux.HandleFunc("GET /api/frame", s.frame)
 	mux.HandleFunc("POST /api/upload", s.upload)
+	// Dua ini yang membuat unggahan tidak perlu: berkasnya sudah ada di mesin
+	// yang sama, engine tinggal diberi tahu di mana.
+	mux.HandleFunc("GET /api/browse", s.browse)
+	mux.HandleFunc("POST /api/locate", s.locate)
 	mux.HandleFunc("POST /api/jobs", s.createJob)
 	mux.HandleFunc("GET /api/jobs", s.listJobs)
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
@@ -80,7 +92,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
-	return withCORS(mux)
+	return withCORS(s.withToken(mux))
 }
 
 // --- kartu berita ---
@@ -319,7 +331,7 @@ func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) cardDir(id string) string {
-	return filepath.Join(s.root, "data", "cards", id)
+	return filepath.Join(s.paths.DataDir, "cards", id)
 }
 
 // cardFile menyajikan PNG kartu. Id dibatasi pola yang kita buat sendiri
@@ -398,7 +410,7 @@ const keepCards = 50
 // Kegagalannya sengaja diabaikan: gagal membersihkan bukan alasan untuk
 // menggagalkan kartu yang barusan berhasil dibuat.
 func (s *Server) sweepCards() {
-	dir := filepath.Join(s.root, "data", "cards")
+	dir := filepath.Join(s.paths.DataDir, "cards")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -459,29 +471,6 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-// listModels melaporkan model whisper yang tersedia/terunduh.
-func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
-	known := []struct {
-		name string
-		size string
-	}{
-		{"tiny", "~75 MB"}, {"base", "~142 MB"}, {"small", "~466 MB"},
-		{"medium", "~1.5 GB"}, {"large-v3", "~2.9 GB"}, {"large-v3-turbo", "~1.5 GB"},
-	}
-	type modelInfo struct {
-		Name       string `json:"name"`
-		Size       string `json:"size"`
-		Downloaded bool   `json:"downloaded"`
-	}
-	out := make([]modelInfo, 0, len(known))
-	for _, m := range known {
-		p := filepath.Join(s.root, "models", "ggml-"+m.name+".bin")
-		_, err := os.Stat(p)
-		out = append(out, modelInfo{Name: m.name, Size: m.size, Downloaded: err == nil})
-	}
-	writeJSON(w, 200, out)
-}
-
 // upload menerima berkas video (multipart, streaming) → simpan → balas path.
 // Untuk drag/drop di GUI. File di-stream ke disk (tidak dimuat ke RAM).
 func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
@@ -490,7 +479,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bukan multipart: "+err.Error())
 		return
 	}
-	uploadDir := filepath.Join(s.root, "data", "uploads")
+	uploadDir := filepath.Join(s.paths.DataDir, "uploads")
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		writeErr(w, 500, err.Error())
 		return
@@ -573,7 +562,7 @@ func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimSpace(req.AnthropicAPIKey)
 	s.mgr.SetAPIKey(key)
 	if key != "" {
-		_ = writeEnvKey(filepath.Join(s.root, ".env"), "ANTHROPIC_API_KEY", key)
+		_ = writeEnvKey(s.paths.EnvFile, "ANTHROPIC_API_KEY", key)
 	}
 	writeJSON(w, 200, map[string]any{"ok": true, "has_key": s.mgr.HasAPIKey()})
 }
@@ -834,6 +823,27 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "source.value (video path) is required")
 		return
 	}
+	// Path diperiksa di sini, bukan dibiarkan gagal di ffmpeg belasan detik
+	// kemudian: sejak GUI mengirim path alih-alih mengunggah salinan, salah
+	// ketik satu huruf adalah kekeliruan yang paling mungkin terjadi.
+	if req.Source.Type == "" || req.Source.Type == "path" {
+		st, err := os.Stat(req.Source.Value)
+		if err != nil {
+			writeErr(w, 400, "the video was not found on this computer: "+req.Source.Value)
+			return
+		}
+		if st.IsDir() {
+			writeErr(w, 400, "that path is a folder, not a video: "+req.Source.Value)
+			return
+		}
+	}
+	// Komponen wajib diperiksa sebelum job dibuat: kalau ffmpeg atau whisper
+	// belum ada, pesannya harus menyebut namanya dan ke mana pengguna pergi —
+	// bukan galat exec dari dalam pipeline belasan detik kemudian.
+	if err := s.missingRequirement(); err != nil {
+		writeErr(w, 424, err.Error())
+		return
+	}
 	opts := req.Options
 	// Daftar istilah dibersihkan di sini, bukan di klien, supaya GUI dan CLI
 	// memperlakukan masukan yang sama persis: klien boleh mengirim satu string
@@ -997,20 +1007,17 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }
 
+// readJSON mendekode body permintaan. Batas ukurannya sengaja kecil: badan
+// permintaan API ini selalu berupa beberapa field pendek, jadi apa pun yang
+// lebih besar adalah kesalahan atau penyalahgunaan.
+func readJSON(r *http.Request, v any) error {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(v); err != nil {
+		return fmt.Errorf("invalid JSON body: %w", err)
+	}
+	return nil
+}
+
 func writeSSE(w http.ResponseWriter, event string, data any) {
 	b, _ := json.Marshal(data)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
-}
-
-func withCORS(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(204)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }

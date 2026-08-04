@@ -125,16 +125,20 @@ const (
 	ScoreLLM          ScoreEngine = "llm"
 )
 
-// Paths ke binary & folder yang dipakai engine.
+// Paths ke binary & folder yang dipakai engine. Folder-foldernya berasal dari
+// Layout — lihat layout.go untuk alasan pemisahannya.
 type Paths struct {
-	FFmpeg   string
-	FFprobe  string
-	Whisper  string
-	Model    string
-	Chrome   string // browser untuk merender kartu berita (boleh kosong)
-	DataDir  string
-	FontsDir string
-	APIKey   string
+	FFmpeg    string
+	FFprobe   string
+	Whisper   string
+	Model     string
+	Chrome    string // browser untuk merender kartu berita (boleh kosong)
+	DataDir   string
+	ModelsDir string
+	ToolsDir  string
+	FontsDir  string
+	EnvFile   string
+	APIKey    string
 }
 
 // Subtitle mengatur tampilan subtitle. Koordinat memakai ruang PlayRes
@@ -503,27 +507,34 @@ func env(key, fallback string) string {
 	return fallback
 }
 
-// ResolvePaths menemukan binary & folder relatif terhadap root proyek.
-func ResolvePaths(root string, o Options) Paths {
-	dataDir := env("CLIPPER_DATA_DIR", filepath.Join(root, "data"))
+// ResolvePaths menemukan binary & model di dalam sebuah Layout.
+func ResolvePaths(l Layout, o Options) Paths {
 	model := env("CLIPPER_WHISPER_MODEL",
-		filepath.Join(root, "models", fmt.Sprintf("ggml-%s.bin", o.WhisperModel)))
+		filepath.Join(l.ModelsDir, fmt.Sprintf("ggml-%s.bin", o.WhisperModel)))
 	whisper := env("CLIPPER_WHISPER_BIN",
 		firstExisting(
-			filepath.Join(root, "bin", "whisper-cli"),
-			filepath.Join(root, "bin", "main"),
-			"whisper-cli",
+			filepath.Join(l.ToolsDir, exeName("whisper-cli")),
+			filepath.Join(l.ToolsDir, exeName("main")),
+			exeName("whisper-cli"),
 		))
 	return Paths{
-		FFmpeg:  env("CLIPPER_FFMPEG_BIN", "ffmpeg"),
-		FFprobe: env("CLIPPER_FFPROBE_BIN", "ffprobe"),
+		// Biner yang dipasang aplikasi didahulukan atas yang ada di PATH: di
+		// mesin pengguna desktop, PATH biasanya kosong dari keduanya, dan yang
+		// sudah diunduh aplikasilah satu-satunya yang pasti versinya.
+		FFmpeg: env("CLIPPER_FFMPEG_BIN",
+			firstExisting(filepath.Join(l.ToolsDir, exeName("ffmpeg")), exeName("ffmpeg"))),
+		FFprobe: env("CLIPPER_FFPROBE_BIN",
+			firstExisting(filepath.Join(l.ToolsDir, exeName("ffprobe")), exeName("ffprobe"))),
 		Whisper: whisper,
 		Model:   model,
 		// Browser dicari oleh paket capture (termasuk chrome.exe lewat WSL).
 		// Boleh kosong: hanya fitur kartu berita yang membutuhkannya.
-		Chrome:   capture.Find(),
-		DataDir:  dataDir,
-		FontsDir: env("CLIPPER_FONTS_DIR", filepath.Join(root, "assets", "fonts")),
-		APIKey:   os.Getenv("ANTHROPIC_API_KEY"),
+		Chrome:    capture.Find(),
+		DataDir:   l.DataDir,
+		ModelsDir: l.ModelsDir,
+		ToolsDir:  l.ToolsDir,
+		FontsDir:  l.FontsDir,
+		EnvFile:   l.EnvFile,
+		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 	}
 }
