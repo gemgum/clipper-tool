@@ -711,10 +711,19 @@ func writeEnvKey(path, key, val string) error {
 
 // fontCatalog = font bawaan proyek. Nama harus cocok dengan family internal
 // font, sebab nama itulah yang ditulis ke .ass dan dicari libass.
-var fontCatalog = []struct{ file, name string }{
-	{"Montserrat.ttf", "Montserrat"},
-	{"Anton.ttf", "Anton"},
-	{"BebasNeue.ttf", "Bebas Neue"},
+//
+// file menunjuk face TEGAK. Untuk Montserrat itu berkas statis, bukan berkas
+// variabel yang juga ada di folder yang sama: yang variabel menyebut dirinya
+// family "Montserrat Thin", jadi libass tidak pernah mengenalinya sebagai
+// "Montserrat" (lihat fetch-fonts.sh). Yang variabel tetap dipakai kartu berita,
+// yang dirender Chrome dan memang memahami sumbu variabel.
+//
+// bold kosong = font itu hanya punya satu bobot. Anton dan Bebas Neue memang
+// begitu — keduanya huruf display yang tidak diterbitkan dalam versi tebal.
+var fontCatalog = []struct{ file, bold, name string }{
+	{"Montserrat-Regular.ttf", "Montserrat-Bold.ttf", "Montserrat"},
+	{"Anton.ttf", "", "Anton"},
+	{"BebasNeue.ttf", "", "Bebas Neue"},
 }
 
 // fontNameOK = format nama font yang diterima: diawali huruf/angka, lalu
@@ -729,18 +738,32 @@ type fontResult struct {
 	Family string `json:"family"` // family yang benar-benar akan dipakai libass
 	Source string `json:"source"` // "bundled" | "system"
 	Error  string `json:"error"`  // alasan bila tidak valid
-	file   string // lokasi berkas (tidak dikirim ke GUI)
+	// Bold melaporkan apakah font ini punya face tebal SUNGGUHAN. GUI memakainya
+	// untuk tahu apakah pratinjau boleh meminta bobot 700 — kalau tidak ada,
+	// browser menebalkan sendiri, persis seperti yang dilakukan libass.
+	Bold bool `json:"bold"`
+	// Scale = piksel CSS per satuan Fontsize .ass. Pratinjau WAJIB memakainya,
+	// kalau tidak teksnya tampil jauh lebih besar daripada hasil render — dan
+	// selisihnya berbeda tiap font (lihat fontmetrics.go). 0 = tidak diketahui.
+	Scale float64 `json:"scale"`
+
+	file     string // lokasi berkas tegak (tidak dikirim ke GUI)
+	boldFile string // lokasi face tebal; kosong = font satu bobot
 }
 
 // listFonts melaporkan font yang tersedia di folder assets/fonts.
 func (s *Server) listFonts(w http.ResponseWriter, r *http.Request) {
 	type fontInfo struct {
 		Name string `json:"name"`
+		// Scale dikirim bersama namanya supaya GUI tidak perlu bertanya sekali
+		// lagi per font hanya untuk bisa menggambar pratinjau dengan benar.
+		Scale float64 `json:"scale"`
 	}
 	out := []fontInfo{}
 	for _, f := range fontCatalog {
-		if _, err := os.Stat(filepath.Join(s.paths.FontsDir, f.file)); err == nil {
-			out = append(out, fontInfo{Name: f.name})
+		p := filepath.Join(s.paths.FontsDir, f.file)
+		if _, err := os.Stat(p); err == nil {
+			out = append(out, fontInfo{Name: f.name, Scale: fontScale(p)})
 		}
 	}
 	if len(out) == 0 {
@@ -777,7 +800,14 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 		if strings.EqualFold(f.name, name) {
 			p := filepath.Join(s.paths.FontsDir, f.file)
 			if _, err := os.Stat(p); err == nil {
-				return fontResult{Valid: true, Name: name, Family: f.name, Source: "bundled", file: p}
+				r := fontResult{Valid: true, Name: name, Family: f.name, Source: "bundled", file: p, Scale: fontScale(p)}
+				if f.bold != "" {
+					b := filepath.Join(s.paths.FontsDir, f.bold)
+					if _, err := os.Stat(b); err == nil {
+						r.boldFile, r.Bold = b, true
+					}
+				}
+				return r
 			}
 		}
 	}
@@ -797,7 +827,7 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 	// %{family} bisa berisi beberapa alias yang dipisah koma.
 	for _, fam := range strings.Split(parts[0], ",") {
 		if strings.EqualFold(strings.TrimSpace(fam), name) {
-			return fontResult{Valid: true, Name: name, Family: strings.TrimSpace(fam), Source: "system", file: parts[1]}
+			return fontResult{Valid: true, Name: name, Family: strings.TrimSpace(fam), Source: "system", file: parts[1], Scale: fontScale(parts[1])}
 		}
 	}
 	res.Family = strings.TrimSpace(strings.Split(parts[0], ",")[0])
@@ -807,11 +837,19 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 
 // fontFile menyajikan berkas font agar GUI bisa memuat font asli untuk preview.
 // Melayani font bawaan maupun font sistem yang lolos pengecekan.
+//
+// ?weight=700 meminta face TEBAL. Tanpa itu pratinjau memuat face tegak lalu
+// menyuruh browser menebalkannya sendiri — dan penebalan buatan browser tidak
+// sama dengan face tebal sungguhan yang dipakai libass saat merender. Selisih
+// itu persis yang membuat subtitle hasil render tidak sama dengan pratinjau.
 func (s *Server) fontFile(w http.ResponseWriter, r *http.Request) {
 	res := s.resolveFont(r.Context(), r.URL.Query().Get("name"))
 	if !res.Valid {
 		writeErr(w, 404, res.Error)
 		return
+	}
+	if wantsBold(r.URL.Query().Get("weight")) && res.boldFile != "" {
+		res.file = res.boldFile
 	}
 	if ext := strings.ToLower(filepath.Ext(res.file)); ext == ".otf" {
 		w.Header().Set("Content-Type", "font/otf")
@@ -820,6 +858,15 @@ func (s *Server) fontFile(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeFile(w, r, res.file)
+}
+
+// wantsBold membaca parameter ?weight= sebagai "minta face tebal".
+//
+// Ambangnya 600 mengikuti CSS: di sana 600 (semibold) ke atas sudah dianggap
+// tebal, dan GUI memang mengirim angka CSS.
+func wantsBold(weight string) bool {
+	n, err := strconv.Atoi(strings.TrimSpace(weight))
+	return err == nil && n >= 600
 }
 
 // probe mengembalikan durasi & dimensi video.

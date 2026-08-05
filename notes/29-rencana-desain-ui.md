@@ -198,63 +198,222 @@ lama.
 ## Bug yang ditemukan, dikerjakan bersama pembaruan tampilan
 
 Dilaporkan 5 Agustus 2026 dari hasil render sungguhan di Windows.
+**Nomor 1, 2, dan 3 sudah SELESAI hari yang sama.**
 
-### 1. Subtitle hasil render lebih kurus daripada pratinjau — SEBAB SUDAH PASTI
+Cara mengukurnya, supaya bisa diulang: `.ass` dibuat lewat penulis engine
+sendiri, dirender `ffmpeg -f lavfi -i color=black:s=1080x1920 -vf
+subtitles=…:fontsdir=…`, dan pratinjaunya direproduksi 1:1 di Chrome headless
+pada kanvas 1080×1920 yang sama. Keduanya lalu dibandingkan per piksel. Tanpa
+mengukur di ruang yang SAMA, semua selisih di bawah ini tidak akan terlihat.
 
-`assets/fonts/Montserrat.ttf` adalah **font variabel**:
+### 1. Subtitle hasil render tidak memakai Montserrat SAMA SEKALI — SELESAI
+
+Dugaan awal di catatan ini ("libass merender instance bawaan Thin") **meleset,
+dan yang sebenarnya lebih buruk.** Diukur 5 Agustus 2026:
+
+`assets/fonts/Montserrat.ttf` memang font variabel (wght 100…900, bawaan 100),
+tapi masalahnya bukan bobot melainkan **nama**: berkas itu menyebut dirinya
+family **"Montserrat Thin"**, sedangkan engine menulis `Fontname: Montserrat` ke
+`.ass`. libass karena itu tidak pernah mengenalinya.
+
+Buktinya tidak bisa dibantah: render dengan berkas itu di `fontsdir` **identik
+byte demi byte** dengan render tanpa font sama sekali.
 
 ```
-sumbu wght: 100 … 900,  BAWAAN 100
+fontsdir berisi Montserrat[wght].ttf → sha256 1ff7985c…
+fontsdir kosong                      → sha256 1ff7985c…
+tanpa fontsdir                       → sha256 1ff7985c…
 ```
 
-libass tidak menerapkan sumbu font variabel, jadi ia merender **instance bawaan,
-yaitu Thin (100)**. Pratinjau di browser menerapkan bold (700) karena browser
-memahami font variabel. Itulah selisihnya.
+Jadi setiap subtitle yang pernah dirender proyek ini memakai **font cadangan
+sistem**, bukan Montserrat — dan di mesin pengguna yang font sistemnya berbeda,
+hasilnya berbeda pula.
 
-Perbaikan: unduh berkas **statis** (`Montserrat-Bold.ttf` / `SemiBold`) di
-`fetch-fonts.sh`, jangan yang `Montserrat[wght].ttf`. Periksa juga dua font
-lain — Anton dan Bebas Neue — apakah statis atau variabel.
+**Perbaikan yang dikerjakan:** `fetch-fonts.sh` kini mengunduh **dua face
+statis** (`Montserrat-Regular.ttf` + `Montserrat-Bold.ttf`, dipaku ke tag
+`v7.222` repo hulu) di samping yang variabel. Yang variabel TETAP ada dan tetap
+dipakai kartu berita — kartu dirender Chrome, yang memang memahami sumbu
+variabel. Ketiganya hidup berdampingan di satu folder tanpa saling ganggu
+(diuji).
 
-### 2. Subtitle hasil render sedikit lebih naik daripada pratinjau
+**Kenapa dua face, bukan satu** — diukur pada teks yang sama:
 
-Engine menjangkarkan dengan `\an8` — tepi ATAS blok teks — di titik (x, y),
-sedangkan pratinjau menghitung tinggi baris dengan angka tetap
-`subSize × 1.17 × jumlahBaris`.
+| Isi `assets/fonts` | Bold=1 | Bold=0 |
+| --- | --- | --- |
+| Regular saja | 3.755 tinta (penebalan buatan, terlalu tipis) | — |
+| Bold saja | 6.056 | 6.056 (togglenya mati) |
+| **Regular + Bold** | **6.056** | **3.097** |
 
-Kemungkinan besar ini **akibat lanjutan dari nomor 1**: Thin dan Bold punya
-metrik vertikal berbeda, jadi tinggi baris sebenarnya tidak sama dengan yang
-diperkirakan pratinjau. **Perbaiki font dulu, baru ukur ulang selisihnya** —
-jangan menambal angka 1.17 sebelum penyebab pertama hilang, nanti tambalannya
-justru jadi salah.
+**Jangan memakai `Montserrat-SemiBold`**: family di dalamnya "Montserrat
+SemiBold", jadi ia tidak akan pernah cocok dengan "Montserrat" — persoalan yang
+sama dengan yang variabel.
 
-### 3. Grid untuk menggeser subtitle
+Anton dan Bebas Neue sudah statis, dan keduanya memang hanya terbit satu bobot.
+
+### 2. Pratinjau menggambar subtitle 38% TERLALU BESAR — SELESAI
+
+Urutan "perbaiki font dulu, baru ukur" ternyata benar dan menyelamatkan: setelah
+nomor 1 beres, selisihnya bukan "sedikit lebih naik" melainkan **selisih
+UKURAN**, dan besarnya berbeda tiap font.
+
+Sebabnya satu kalimat: **`.ass` mengartikan ukuran font sebagai tinggi KOTAK
+font (`winAscent + winDescent`), CSS mengartikannya sebagai ukuran em.**
+
+Diukur, bukan diturunkan dari teori — `Fontsize` di `.ass` disapu sampai lebar
+tintanya sama dengan `font-size: 72px` di Chrome:
+
+```
+Fontsize 72 →  lebar 352      Fontsize 96 →  lebar 470
+Fontsize 92 →  lebar 450      Fontsize 99 →  lebar 484   ← 72px Chrome = 485
+```
+
+72/99 = 0,727, dan `upem/(winAscent+winDescent)` Montserrat = 1000/1379 = 0,725.
+Cocok. Angka itu berbeda tiap font: **Montserrat 0,725 · Bebas Neue 0,769 ·
+Anton 0,577 · DejaVu Sans 0,859** — jadi ia tidak bisa jadi satu tetapan di GUI.
+
+Akibat kedua dari definisi yang sama: **jarak antarbaris libass persis sebesar
+`Fontsize`**, berapa pun fontnya (diukur: dua baris ukuran 72 berjarak 72 px).
+Faktor `1.17` yang dulu ada di GUI diukur ketika font bawaan tidak pernah
+benar-benar dipakai — jadi ia mengukur font cadangan sistem.
+
+**Perbaikan yang dikerjakan:** engine membaca `head.unitsPerEm` dan
+`OS/2.usWinAscent/Descent` dari berkas fontnya sendiri
+(`engine/internal/api/fontmetrics.go`, tanpa pustaka luar) dan melaporkannya
+sebagai `scale` di `/api/fonts` dan `/api/font-check` — untuk font bawaan MAUPUN
+font sistem. GUI memakainya: `font-size = size × scale`,
+`line-height = 1/scale`, `blockH = size × barisan` (bukan `× 1.17`).
+
+Hasilnya, diukur dengan render libass dan render Chrome berdampingan di ruang
+1080×1920 yang sama:
+
+| | sebelum | sesudah |
+| --- | --- | --- |
+| selisih lebar tinta | +133 px | **0 px** |
+| selisih tepi kiri/kanan | −65 / +68 px | **0 / 0 px** |
+| selisih tepi atas | — | −4 px |
+
+**Sisa −4 px belum ditutup**, dan sengaja tidak ditambal: itu selisih cara
+browser dan libass menaruh garis dasar di dalam kotak baris. Pada pratinjau
+setinggi 480 px, 4 px di ruang 1920 = **1 piksel layar**. Kalau nanti mau
+dihabiskan, jalannya menjangkarkan teks pratinjau pada garis dasar (butuh
+`winAscent` dikirim juga), bukan menambah offset karangan.
+
+### 2b. Pratinjau memuat face tebal yang sama dengan render
+
+Bagian dari nomor 2 dan ikut selesai: GUI dulu memasang SATU `@font-face` tanpa
+penyebut bobot, lalu memakai `font-weight: 800`. Browser karena itu menebalkan
+sendiri face tegaknya — penebalan buatan yang tidak sama dengan face Bold
+sungguhan yang dipakai libass.
+
+Sekarang `/api/font-file` menerima `?weight=`, GUI memasang dua `@font-face`
+(400 dan 700), dan `.suboverlay` memakai `font-weight: 700` — sama dengan arti
+`Bold=1` di `.ass`.
+
+### 3. Grid untuk menggeser subtitle — SELESAI
 
 Permintaan: menggeser subtitle terasa tidak pasti. Tambahkan grid supaya
 penempatannya bisa diulang, **tetap dengan sumbu X dan Y yang terlihat**.
 
-Yang perlu dicoba dulu ukurannya (ruang 1080×1920):
+Ukurannya tidak diputuskan di sini melainkan **dijadikan pilihan**, sebab "rasa"
+grid cuma bisa dinilai dengan mencoba: `mati · 10 · 20 · 24 · 40`, bawaan **20**
+(54×96 kotak). Pilihannya ada di bilah tombol pratinjau, sebelah "garis tengah
+terus".
 
-| Grid | Kolom × baris | Rasa |
-| --- | --- | --- |
-| 10 px | 108 × 192 | halus, nyaris seperti sekarang |
-| 20 px | 54 × 96 | kandidat awal |
-| 24 px | 45 × 80 | pas untuk kelipatan 8 |
-| 40 px | 27 × 48 | kasar, penempatan sangat pasti |
+Yang berlaku sekarang:
 
-Catatan rancangan:
+- **magnet ke garis tengah MENANG atas grid.** Ini bukan selera: titik tengahnya
+  sering bukan kelipatan grid — pada grid 24, X tengah 540 tidak terjangkau sama
+  sekali (540/24 = 22,5), dan pada grid 20 jangkar tengah Y 888 juga tidak. Kalau
+  grid dipasang lebih dulu, "tepat di tengah" jadi mustahil dicapai — persis
+  kemampuan yang catatan ini minta jangan dibuang;
+- **Alt = abaikan grid**, dan **tombol panah menggeser 1 px** (Shift = 10).
+  Overlay subtitle karena itu `tabIndex={0}` — panahnya butuh fokus;
+- **sumbu X/Y digambar pada posisi subtitle sekarang**, warna aksen supaya
+  berbeda dari garis tengah yang putih, **berikut angkanya** (`540 · 888`) selama
+  diseret. Tanpa angka, "pasti" hanya terasa dan tidak bisa diulang di klip
+  berikutnya.
 
-- **magnet ke garis tengah yang sudah ada jangan dibuang** — itu yang membuat
-  "tepat di tengah" bisa dicapai tanpa membidik;
-- sediakan jalan keluar untuk penempatan halus: tahan Alt = abaikan grid, atau
-  tombol panah menggeser 1 px. Grid harus jadi bawaan, bukan pagar;
-- sumbu X/Y ditampilkan sebagai garis, dan sebaiknya angkanya ikut terlihat saat
-  diseret — tanpa angka, "pasti" hanya terasa, tidak bisa diulang.
+Dua keputusan kecil yang diambil saat mengerjakan:
+
+- **Mesh grid tidak digambar di bawah 20.** Pratinjau selebar 270 px berarti
+  kotak grid 10 hanya 2,5 px di layar — yang terlihat bukan grid melainkan kabut
+  kelabu di atas frame videonya. Menempelnya tetap jalan; cuma gambarnya yang
+  tidak menolong.
+- **Mesh-nya satu elemen berlatar berulang**, bukan puluhan `<div>`: pada grid 10
+  itu 108×192 kotak, dan menggambarnya satu per satu berarti ratusan elemen yang
+  dihitung ulang tiap gerakan seretan.
 
 ## Yang bisa dikerjakan tanpa menunggu desain
 
 Tiga hal ini tidak menuntut keputusan desain, dan nilainya tidak hangus walau
 rancangannya berubah:
 
-1. pasang Tailwind + pindahkan 10 warna jadi token `@theme` (nilai sekarang);
-2. ganti emoji dengan ikon sungguhan — ini perbaikan bug, bukan penataan;
-3. buat `gui/public/` beserta aturan "nol alamat luar".
+1. ~~pasang Tailwind + pindahkan 10 warna jadi token `@theme`~~ — **SELESAI**;
+2. ~~ganti emoji dengan ikon sungguhan~~ — **SELESAI**;
+3. buat `gui/public/` beserta aturan "nol alamat luar" — **ditunda, lihat bawah**.
+
+### 1. Tailwind + token warna — selesai
+
+Tailwind v4 lewat `@tailwindcss/postcss`; tidak ada `tailwind.config.js`,
+seluruh setelannya di CSS. Sepuluh warna jadi token `@theme`
+(`--color-bg`, `--color-panel`, …) dan nama pendek lama (`--bg`, `--panel`, …)
+dipetakan ke token itu — satu tempat, satu kebenaran, dan CSS tulisan tangan di
+bawahnya tidak disentuh sama sekali. Itu memang maksudnya: perombakan akan
+menulis ulang markupnya, jadi menerjemahkan gaya lama sekarang adalah pekerjaan
+yang hangus dua kali.
+
+**Tailwind diimpor TANPA preflight**, dan ini ditemukan lewat pengukuran, bukan
+kehati-hatian: `@import "tailwindcss"` yang biasa menggeser **12,38% piksel**
+halaman (tombol kehilangan tebalnya, seluruh kolom turun ~12 px). Dengan
+mengimpor `theme.css` + `utilities.css` saja, selisihnya **0,00% — nol piksel**.
+Preflight dinyalakan nanti bersama perombakan, ketika markupnya memang ditulis
+ulang dan pergeseran itu tidak jadi kejutan.
+
+### 2. Emoji → ikon — selesai
+
+`lucide-react` (ISC, 1 dependensi) seperti yang direncanakan. Yang berubah:
+`gui/app` kini memuat **nol** lambang yang butuh font emoji.
+
+Yang penting diketahui sebelum menambah lambang baru: **tidak semua emoji
+bermasalah.** Yang butuh font emoji adalah lambang dengan `Emoji_Presentation=Yes`
+— ✅ ⛔ ⬇ ⬆ 🔄 👁 🔎 📋 📁 🎬 🔗 ✏️ ✂️. Sedangkan **⚠ ✓ ✕ → ↗ ↓ ↑ ✗ adalah simbol
+teks biasa** yang ada di font mana pun, dan semuanya DIBIARKAN. Mengganti yang
+tidak perlu hanya menambah komponen tanpa memperbaiki apa pun.
+
+Karena itu pekerjaannya terbelah dua, dan pembelahan itu bukan pilihan
+melainkan keharusan:
+
+- **Label** (tombol, status) → komponen ikon di JSX, lambangnya dibuang dari
+  kamus i18n;
+- **Baris log** → tetap teks, sebab log adalah `string[]` yang dirender sebagai
+  `<div>{teks}</div>` dan tidak bisa memuat komponen. Lambangnya diganti yang
+  aman: ✅→✓, ⬇→↓, ⬆→↑, 🔄→↻, dan 🔎/📋/🎬 dibuang begitu saja;
+- **Isi `<option>`** tidak bisa memuat komponen sama sekali (`fontOther`,
+  daftar model) — di situ lambangnya dibuang atau memakai ✓/✗ yang aman.
+
+Biayanya 2 kB pada bundel halaman utama.
+
+Cara memeriksa aturannya masih dipegang — hasil kosong berarti aman:
+
+```bash
+grep -rnP '[\x{1F300}-\x{1FAFF}\x{2705}\x{26D4}\x{2B06}\x{2B07}\x{270F}\x{2702}]' \
+  gui/app --include=*.tsx --include=*.css
+```
+
+### 3. `gui/public/` — ditunda, dan alasannya
+
+Belum dibuat, sebab **tidak ada yang perlu ditaruh di sana**: ikon sekarang
+datang dari lucide (komponen JS, bukan berkas), dan tidak ada gambar. Folder
+kosong tidak bisa dilacak git, jadi membuatnya sekarang berarti menambah nol.
+
+Aturan "nol alamat luar" sendiri **sudah dijaga mesin** sejak `notes/30`: header
+`Content-Security-Policy` yang disajikan engine menolak skrip, gaya, dan font
+dari host luar, jadi satu tautan CDN yang tak sengaja ikut akan gagal memuat
+alih-alih diam-diam bekerja di mesin yang punya internet lalu putus di mesin
+yang tidak.
+
+Yang membuat folder ini benar-benar diperlukan adalah **font antarmuka**, dan
+itu belum bisa diputuskan agen: antarmuka masih memakai `system-ui`, yang
+persis penyakit yang sama dengan emoji — tampilannya berbeda di tiap komputer.
+Begitu fontnya dipilih (dari Figma atau sekarang), `gui/public/` dibuat bersama
+berkas `.woff2`-nya, tidak sebelum itu.
