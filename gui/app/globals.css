@@ -87,6 +87,40 @@
   --bad-text: var(--color-bad-text);
 }
 
+/* Tema gelap.
+ *
+ * Hanya menimpa NILAI tokennya; tidak ada satu pun aturan di bawah yang perlu
+ * tahu tema mana yang berlaku. Itu memang gunanya struktur token yang disiapkan
+ * sejak awal (notes/29) — pindah tema tanpa menyisir ulang semua halaman.
+ *
+ * Yang berbeda dari tema terang, dan alasannya: hijau/oranye/merah cerah TIDAK
+ * lolos ambang kontras 4,5:1 di atas putih, jadi di tema terang teksnya memakai
+ * varian -text yang digelapkan. Di atas dasar gelap masalahnya terbalik —
+ * warna cerah itu justru yang terbaca — jadi -text dikembalikan ke nilai
+ * cerahnya. */
+:root[data-theme="dark"] {
+  --color-bg: #0f1115;
+  --color-panel: #171a21;
+  --color-panel2: #1e222b;
+  --color-border: #2a2f3a;
+  --color-text: #e6e9ef;
+  --color-muted: #9aa4b2;
+  --color-accent: #4f8cff;
+  --color-good: #3ecf8e;
+  --color-warn: #f5a623;
+  --color-bad: #ff6b6b;
+  --color-good-text: #3ecf8e;
+  --color-warn-text: #f5a623;
+  --color-bad-text: #ff6b6b;
+}
+/* Panggung pratinjau memang sudah gelap di kedua tema — di tema gelap ia
+   dinaikkan sedikit dari hitam pekat supaya tepinya masih terbaca sebagai
+   bidang, bukan lubang. */
+:root[data-theme="dark"] { --stage: #0a0c0f; --stage-2: #1a1d23; }
+/* Kotak log memakai token panggung, bukan hex sendiri — kalau tidak, ia jadi
+   satu-satunya kotak yang tidak ikut berganti tema. */
+.logbox { background: var(--stage); color: var(--stage-text); }
+
 * { box-sizing: border-box; }
 
 /* Kerangka aplikasi desktop.
@@ -196,6 +230,7 @@ body:has(.screen) {
    berhenti di garis yang sama dengan tombol Mulai di kolom kanan. Itu juga yang
    membuat kotak log sepanjang mungkin tanpa satu angka tinggi pun dipaku. */
 .screen-main:has(> .log-panel) > .panel:first-of-type { flex: none; }
+
 .screen-main > .log-panel {
   flex: 1;
   min-height: 150px;
@@ -643,8 +678,28 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   line-height: 1.25;
   text-align: center;
 }
+.rail-item { position: relative; transition: background .12s, color .12s; }
 .rail-item:hover { color: var(--text); background: var(--panel2); }
-.rail-item.active { color: var(--accent); background: var(--panel2); }
+/* Keadaan terpilih dulu memakai --panel2 di atas --panel: selisihnya 1% dan
+   praktis tidak terlihat, jadi pengguna tidak tahu ia sedang di halaman mana.
+   Sekarang latar beraksen + garis tebal yang MENEMPEL ke tepi rail — penanda
+   posisi yang lazim dipakai aplikasi desktop, dan terbaca tanpa dibandingkan
+   dengan tetangganya. */
+.rail-item.active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
+.rail-item.active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
 .rail-ico { width: 20px; height: 20px; }
 
 .topbar {
@@ -708,7 +763,13 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 .topbar-item.active { color: var(--accent); background: var(--panel2); }
 
 /* ---------- Tab kartu berita ---------- */
-.tabs { display: flex; gap: 8px; margin-bottom: 18px; }
+/* Satu baris: [Paste link] [Browse] [pencarian]. Pencarian ikut sejajar sebab
+   ia pintu masuk ketiga, bukan setelan milik salah satu tombol — dan ia yang
+   memakai sisa lebarnya. */
+.tabs { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.tabs > button, .tabs .browse-anchor > button { flex: none; white-space: nowrap; }
+.tabs .search { flex: 1; min-width: 0; margin: 0; }
+.browse-anchor { position: relative; flex: none; }
 .tabs button.active { border-color: var(--accent); color: var(--accent); }
 
 textarea {
@@ -723,17 +784,43 @@ textarea {
   resize: vertical;
 }
 textarea:focus { outline: 2px solid var(--accent); }
-label.blok { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
 label em { font-style: normal; opacity: 0.7; }
+
+/* Popup bersama (lihat popover.tsx) — position:fixed, bukan absolute.
+ *
+ * Kolom setelan memakai overflow-y:auto, dan itu MEMOTONG anak yang diposisikan
+ * absolut begitu ia lebih lebar daripada kolomnya. Isi popup di sini hampir
+ * selalu lebih lebar. Letaknya dihitung dari getBoundingClientRect() tombolnya
+ * dan dipasang sebagai koordinat layar. */
+.popover-anchor { position: relative; display: inline-flex; }
+.field > .popover-anchor { display: flex; }
+.field > .popover-anchor > button { width: 100%; }
+.popover {
+  position: fixed;
+  z-index: 60;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.popover-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.popover-head select { flex: 1; min-width: 0; }
+.popover-head button.tiny { margin-left: 0; flex: none; }
 
 .news-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-  max-height: 460px;
+  /* Tiga ke samping. Kartu berita perlu ±190 px agar judulnya terbaca; di bawah
+     itu daftarnya turun jadi dua kolom sendiri. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 46dvh;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+@media (max-width: 760px) { .news-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .news-item {
   cursor: pointer;
   background: var(--panel2);
@@ -761,18 +848,10 @@ label em { font-style: normal; opacity: 0.7; }
 .news-item:not(:has(img)) .news-text { padding: 14px 12px; }
 .news-title { font-size: 13px; font-weight: 600; line-height: 1.35; margin-bottom: 6px; }
 
-.card-result { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
-.card-result img {
-  width: 270px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  display: block;
-}
-
 .warnbox.err { border-color: var(--bad); color: var(--bad-text); }
 
 /* ---------- Daftar paragraf berperingkat ---------- */
-.par-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
+.par-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-height: 260px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .par {
   display: flex;
   gap: 12px;
@@ -804,60 +883,10 @@ label em { font-style: normal; opacity: 0.7; }
 .par-score.auto { color: var(--muted); }
 .par-auto { display: block; font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
 
-/* ---------- Bingkai foto: geser & zoom ---------- */
-.photo-tools { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-.photo-box {
-  position: relative;
-  flex: 1;
-  min-width: 220px;
-  max-width: 380px;
-  overflow: hidden;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  background: #000;
-  cursor: grab;
-  touch-action: none;          /* wajib agar pointer drag tidak diambil alih scroll */
-  container-type: inline-size; /* memberi arti pada satuan cqw di transform */
-}
-.photo-box:active { cursor: grabbing; }
-/* Cerminan .photo .fill di engine/internal/card/card.go — isian ruang yang tidak
-   terjangkau gambar pada mode "foto utuh".
-   Radius blur-nya SEBANDING, bukan sama: kartu dirender selebar 1080 px dengan
-   blur 48 px, kotak ini lebarnya ±380 px, jadi 48 x 380/1080 ≈ 16. Menyalin 48
-   apa adanya akan membuat pratinjau jauh lebih buram dari hasilnya. */
-.photo-box img.photo-fill {
-  object-fit: cover;
-  transform: translate(-50%, -50%) scale(1.1);
-  filter: blur(16px) saturate(1.25) brightness(0.8);
-}
-/* Harus sama persis dengan .foto img di engine/internal/card/card.go.
-   object-fit:cover dipakai supaya penskalaan tidak bergantung ukuran asli
-   gambar — itulah yang dulu membuat pratinjau tidak cocok dengan hasil render. */
-.photo-box img {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transform-origin: center;
-  user-select: none;
-  -webkit-user-drag: none;
-}
-/* Meniru gradien bawah kartu: memperlihatkan bagian foto yang nanti tertutup
-   teks, supaya wajah orang tidak sengaja ditaruh di area gelap itu. */
-.photo-fade {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: linear-gradient(180deg, rgba(0,0,0,.35) 0%, rgba(0,0,0,0) 30%,
-    rgba(13,17,23,0) 55%, rgba(13,17,23,.85) 82%, #0d1117 100%);
-}
-.photo-knobs { flex: none; width: 190px; }
-.photo-knobs label { display: block; margin-bottom: 4px; }
-.photo-knobs input[type=range] { margin-bottom: 6px; }
-.photo-knobs button.tiny { margin-left: 0; margin-top: 6px; }
+/* Bingkai foto (.photo-tools/.photo-box/.photo-knobs) DIBUANG 6 Agustus 2026
+   bersama kotak seretnya: ia pratinjau kedua di halaman yang sudah punya
+   pratinjau kartu sungguhan. Dua pratinjau berdampingan yang tidak pernah sama
+   persis lebih membingungkan daripada menolong (notes/29). */
 
 /* ---------- Setelan subtitle: preview kiri, setelan kanan ---------- */
 /* Bingkai 9:16 dan kendalinya BERDAMPINGAN — bukan bertumpuk.
@@ -961,7 +990,70 @@ label em { font-style: normal; opacity: 0.7; }
 }
 @container (max-width: 460px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: 300px) { .grid3 { grid-template-columns: minmax(0, 1fr); } }
-.grid3 > .field { margin-bottom: 0; min-width: 0; }
+/* Empat kolom — dipakai kelompok yang isinya empat angka pendek. */
+.grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+@container (max-width: 560px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.grid3 > .field, .grid4 > .field { margin-bottom: 0; min-width: 0; }
+/* Judul kelompok yang membawa satu tombol di ujung kanannya. */
+.group-title.with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.group-title.with-action button.tiny { margin-left: 0; letter-spacing: 0; text-transform: none; }
+/* Judul kelompok yang bisa diciutkan. <button> penuh selebar kelompoknya, jadi
+   seluruh barisnya bisa diklik — bukan cuma panah kecil di ujungnya. */
+.group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 0 4px;
+  cursor: pointer;
+  /* Mewarisi rupa .group-title — ia memang judul yang sama, cuma bisa ditekan. */
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.group-toggle:hover { color: var(--text); }
+.chev { width: 14px; height: 14px; flex: none; transition: transform .15s; }
+.chev.open { transform: rotate(180deg); }
+/* Pemicu palet warna: titik warna + namanya, selebar kotak isian di sebelahnya. */
+.swatch-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  padding: 9px 10px;
+  font-weight: 400;
+  font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.swatch-dot {
+  width: 16px; height: 16px; flex: none;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--panel2);
+}
+/* Titik untuk "ambil dari foto": belum ada satu warna pun, jadi digambar
+   sebagai gradien — bukan kotak abu yang terbaca seperti pilihan kosong. */
+.swatch-dot[data-auto] { background: linear-gradient(135deg, #ff9d43, #577cff); }
 /* Sel berisi centang atau tombol: didorong ke DASAR selnya supaya sejajar
    dengan kotak isian di kiri-kanannya, bukan melayang di ketinggian labelnya. */
 /* align-self:stretch WAJIB: .grid3 memakai align-items:start supaya satu sel
@@ -1181,37 +1273,74 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Panggung kartu: pratinjau di kiri, kendali ukuran huruf di kanan, tombol di
    bawah keduanya. Keduanya saling menjawab — menyetel dan melihat hasilnya
    tidak perlu berpindah tempat. */
-.card-stage {
-  display: flex;
-  gap: 18px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-  margin: 6px 0 14px;
-}
-.card-stage-view {
-  flex: 1;
-  min-width: 200px;
-  max-width: 300px;
+/* Pratinjau kartu — SATU-SATUNYA pratinjau di halaman berita, dan ia mengisi
+   kolom kirinya seperti bingkai 9:16 mengisi kolom kiri halaman klip.
+   min-height:0 wajib: tanpa itu kotak menolak menyusut lebih kecil dari
+   gambarnya dan gulirnya bocor ke halaman. */
+/* Kotak pratinjau TIDAK berlatar dan tidak berbingkai.
+ *
+ * Dulu ia hitam pekat setinggi kolomnya, sedangkan kartunya berbentuk 9:16 —
+ * jadi sisa ruang di atas dan bawah muncul sebagai dua pita hitam besar yang
+ * terbaca sebagai "ada yang kosong di sini". Sekarang bingkai dan bayangan
+ * menempel pada GAMBARNYA, jadi yang terlihat cuma kartunya; ruang sisanya
+ * menyatu dengan panel. Berlaku sama untuk 4:5 dan 1:1 tanpa perhitungan
+ * tambahan. */
+.card-view {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Bingkainya selalu 9:16 walau belum ada gambar, supaya panel tidak melompat
-     tingginya begitu pratinjau pertama muncul. */
-  aspect-ratio: 9 / 16;
-  padding: 12px;
-  text-align: center;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #000;
+  position: relative;
 }
-.card-stage-view img {
+.card-view img {
   max-width: 100%;
   max-height: 100%;
   display: block;
-  border-radius: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
 }
-.card-stage-tools { flex: 2; min-width: 220px; }
-.card-stage-tools > label { display: block; margin-bottom: 10px; }
+/* Bingkai kosong tetap perlu bentuk, kalau tidak panelnya terlihat rusak. */
+.card-view .preview-empty {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  width: 100%;
+  height: 100%;
+}
+/* Penanda "sedang dirender" melayang di atas gambar lama, bukan menggantikannya:
+   kartu dirender ulang tiap setelan disentuh, dan mengosongkan kotaknya tiap
+   kali membuat panel berkedip-kedip. */
+.card-view-busy {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: color-mix(in srgb, var(--stage) 80%, transparent);
+  color: var(--stage-muted);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+/* Pratinjau kartu memakai SELURUH tinggi kolomnya, bukan angka tetap.
+ *
+ * Dengan tinggi 400 px, panel kirinya menyisakan ±500 px kosong di bawah
+ * setelan — dan kotak putih sebesar itu terbaca sebagai halaman yang belum
+ * selesai. Pratinjau adalah isi utama halaman ini; ia yang berhak atas ruang
+ * lebihnya.
+ *
+ * Kolomnya ikut dilebarkan jadi pecahan: kartu 9:16 setinggi 700 px butuh
+ * ±394 px lebar, dan kolom 240 px tetap akan menyia-nyiakan tinggi itu. */
+.screen-main > .panel:has(.card-view) { display: flex; flex-direction: column; }
+.screen-main > .panel:has(.card-view) > .sub-layout { flex: 1; min-height: 0; }
+@container (min-width: 520px) {
+  .sub-layout:has(.card-view) {
+    grid-template-columns: minmax(240px, 0.62fr) minmax(0, 1fr);
+    align-items: stretch;
+  }
+}
+.sub-preview:has(.card-view) { display: flex; flex-direction: column; min-height: 0; }
+.sub-preview .card-view { flex: 1; min-height: 240px; }
+/* Tautan unduh berjajar, bukan satu per baris. */
+.dl-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; }
+/* Contekan warna dibungkus supaya tidak menempel ke kisi di atasnya. */
+.swatch-wrap { margin-top: 10px; }
 
 /* Contekan warna kartu. Daftar tertutup — lihat card.Swatches() di engine:
    yang boleh dipilih hanya warna yang benar-benar berpengaruh. */

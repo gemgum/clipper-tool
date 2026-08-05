@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Scissors, Newspaper, Clapperboard, History } from "lucide-react";
 import { useI18n, type MessageKey } from "./i18n";
 import SettingsMenu from "./settings-menu";
+import ThemeToggle from "./theme-toggle";
 
 // Navigasi rail kiri + bilah atas.
 //
@@ -47,6 +48,7 @@ export default function Nav() {
           panel itu: ia setelan, dan tempatnya bersama setelan lain — bukan
           berjajar dengan navigasi seolah sama pentingnya. */}
       <div className="topbar">
+        <ThemeToggle />
         <SettingsMenu />
       </div>
     </>

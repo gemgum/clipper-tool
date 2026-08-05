@@ -7,16 +7,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import { useKeep, useRestore } from "../persist";
+import Stepper from "../stepper";
+import Popover from "../popover";
+import Section from "../section";
 
 
-// Ruang koordinat kartu — sama dengan yang dipakai engine saat merender.
-// Pratinjau memakai CSS transform yang identik, jadi menyeret sejauh N piksel
-// di sini menggeser foto sejauh N piksel juga di PNG hasil.
-const CARD_W = 1080;
-const CARD_HEIGHT: Record<string, number> = { "9:16": 1920, "4:5": 1350, "1:1": 1080 };
-// Harus sama dengan photoHeight di engine/internal/card/card.go — kalau berbeda,
-// kotak pratinjau tidak lagi sebangun dengan bingkai foto pada hasil render.
-const PHOTO_PERCENT: Record<string, number> = { "9:16": 50, "4:5": 50, "1:1": 48 };
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
 // tiap arah dari ukuran standar.
 const FONT_STEPS = 10;
@@ -25,15 +20,6 @@ const HEADER_MAX = 400;
 // Harus sama dengan card.CardTopMax di engine: setinggi apa pita kosong di atas
 // kartu boleh dibuat.
 const CARD_TOP_MAX = 400;
-// photoFrameHeight = tinggi bingkai foto dalam piksel kartu — cerminan rumus di
-// engine/internal/card/card.go. Kalau rumusnya berbeda, menyeret foto sejauh N
-// piksel di sini tidak lagi berarti N piksel di PNG hasil.
-function photoFrameHeight(ratio: string): number {
-  const h = CARD_HEIGHT[ratio] ?? 1920;
-  const pct = PHOTO_PERCENT[ratio] ?? 50;
-  return Math.floor((h * pct) / 100);
-}
-
 type Article = {
   title: string;
   summary: string;
@@ -95,6 +81,9 @@ export default function News() {
 
   const [config, setConfig] = useState<Config | null>(null);
   const [entry, setEntry] = useState<"link" | "browse">("link");
+  // Daftar berita hidup di dalam <Popover>; halaman ini cuma perlu tahu kapan
+  // isinya harus ditarik.
+  const [browseOpen, setBrowseOpen] = useState(false);
 
   // Pintu 1: tempel link.
   const [link, setLink] = useState("");
@@ -131,9 +120,14 @@ export default function News() {
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
 
-  // Bingkai foto: geser & zoom.
-  const [photoX, setPhotoX] = useState(0);
-  const [photoY, setPhotoY] = useState(0);
+  // Bingkai foto: hanya cara pas & zoom.
+  //
+  // Geseran manual (offset_x/offset_y) DIBUANG 6 Agustus 2026 bersama kotak
+  // seretnya: ia pratinjau KEDUA di halaman yang sudah punya pratinjau kartu
+  // sungguhan, dan dua pratinjau berdampingan yang tidak sama persis lebih
+  // membingungkan daripada menolong. Engine tetap menerima medannya — kalau
+  // suatu saat geseran diperlukan lagi, kembalikan bersama kendalinya, bukan
+  // sebagai state yang selalu nol.
   const [zoom, setZoom] = useState(1);
   // Zoom dibaca RELATIF terhadap titik awal modenya — sumbu yang sama dengan tab
   // klip (notes/15-sumbu-zoom.md). cover: 1 = memenuhi bingkai. whole: 1 =
@@ -155,8 +149,6 @@ export default function News() {
   const [customColor, setCustomColor] = useState("");
   const [boxMode, setBoxMode] = useState("auto"); // auto | none | custom
   const [boxColor, setBoxColor] = useState("#EFEBE1");
-  const drag = useRef<{ x: number; y: number; ax: number; ay: number } | null>(null);
-  const boxRef = useRef<HTMLDivElement>(null);
 
   // Tautan yang baru saja disalin — dipakai untuk mengubah warna tombolnya
   // sebentar, sebagai tanda bahwa klik tadi benar-benar berhasil.
@@ -193,8 +185,6 @@ export default function News() {
     setCaption("");
     setHashtags("");
     setResult(null);
-    setPhotoX(0);
-    setPhotoY(0);
     setZoom(1);
   }, []);
 
@@ -218,13 +208,14 @@ export default function News() {
   }, [lang, t]);
 
   useEffect(() => {
-    if (entry === "browse") loadList(feed, query);
-  }, [entry, feed, query, loadList]);
+    if (browseOpen) loadList(feed, query);
+  }, [browseOpen, feed, query, loadList]);
 
-  // Mencari selalu memindahkan tampilan ke daftar — hasilnya muncul di bawah.
+  // Mencari cukup menyetel kuncinya; daftarnya sendiri ditarik oleh efek di
+  // atas begitu popupnya terbuka.
   const runSearch = useCallback(() => {
     setQuery(typed.trim());
-    setEntry("browse");
+    setBrowseOpen(true);
   }, [typed]);
 
   // Menyalin tautan artikel supaya bisa dicek silang di tab lain.
@@ -405,7 +396,7 @@ export default function News() {
   const cardFingerprint = JSON.stringify([
     article.title, article.url, article.image, article.summary, article.source, article.date,
     style, ratio, align, lang, caption, hashtags,
-    photoX, photoY, zoom, photoFit, photoFill,
+    zoom, photoFit, photoFill,
     titleStep, paragraphStep, header, cardTop,
     colorSource, customColor, boxMode, boxColor,
   ]);
@@ -426,7 +417,7 @@ export default function News() {
           preview,
           caption,
           hashtags: hashtags.split(/\s+/).filter(Boolean),
-          photo: { offset_x: photoX, offset_y: photoY, zoom, fit: photoFit, fill: photoFill },
+          photo: { offset_x: 0, offset_y: 0, zoom, fit: photoFit, fill: photoFill },
           fonts: { title: titleStep, paragraph: paragraphStep },
           header,
           card_top: cardTop,
@@ -453,7 +444,7 @@ export default function News() {
       setPreviewBusy(false);
       setBuildBusy(false);
     }
-  }, [article, style, ratio, align, lang, caption, hashtags, photoX, photoY, zoom,
+  }, [article, style, ratio, align, lang, caption, hashtags, zoom,
       photoFit, photoFill, titleStep, paragraphStep, header, cardTop,
       colorSource, customColor, boxMode, boxColor, t]);
 
@@ -466,7 +457,7 @@ export default function News() {
   // penyimpanan, dan pratinjau dibuat ulang sendiri.
   useKeep("news", {
     article, caption, hashtags, paragraphs, engine, ollamaModel, claudeModel,
-    style, ratio, align, photoX, photoY, zoom, photoFit, photoFill,
+    style, ratio, align, zoom, photoFit, photoFill,
     titleStep, paragraphStep, header, cardTop, colorSource, customColor,
     boxMode, boxColor,
   });
@@ -484,8 +475,6 @@ export default function News() {
     set(setStyle, v.style);
     set(setRatio, v.ratio);
     set(setAlign, v.align);
-    set(setPhotoX, v.photoX);
-    set(setPhotoY, v.photoY);
     set(setZoom, v.zoom);
     set(setPhotoFit, v.photoFit);
     set(setPhotoFill, v.photoFill);
@@ -515,38 +504,6 @@ export default function News() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardFingerprint, config?.has_browser]);
 
-  // Seret di pratinjau → geser foto. Perpindahan piksel layar dikembalikan ke
-  // ruang koordinat kartu memakai skala kotak, supaya nilai yang dikirim ke
-  // engine tidak bergantung pada seberapa besar pratinjaunya ditampilkan.
-  const boxScale = useCallback(() => {
-    const el = boxRef.current;
-    return el ? el.clientWidth / CARD_W : 1;
-  }, []);
-
-  // Batas geser memakai rumus yang sama dengan engine (offsetLimit di card.go):
-  // pada zoom Z foto jadi Z kali bingkai, jadi sisa ruangnya (Z-1)/2 tiap sisi.
-  // Menyeret lebih jauh hanya akan memunculkan celah kosong di tepi kartu.
-  const frameHeight = photoFrameHeight(ratio);
-  const limitX = Math.floor((CARD_W * (zoom - 1)) / 2);
-  const limitY = Math.floor((frameHeight * (zoom - 1)) / 2);
-  const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
-
-  const startDrag = useCallback((e: React.PointerEvent) => {
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY, ax: photoX, ay: photoY };
-  }, [photoX, photoY]);
-
-  const moveDrag = useCallback((e: React.PointerEvent) => {
-    const d = drag.current;
-    if (!d) return;
-    const scale = boxScale();
-    setPhotoX(clamp(Math.round(d.ax + (e.clientX - d.x) / scale), limitX));
-    setPhotoY(clamp(Math.round(d.ay + (e.clientY - d.y) / scale), limitY));
-  }, [boxScale, limitX, limitY]);
-
-  const endDrag = useCallback(() => { drag.current = null; }, []);
-
   const edit = (key: keyof Article) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
       setArticle((a) => ({ ...a, [key]: e.target.value }));
@@ -563,564 +520,455 @@ export default function News() {
 
   return (
     <div className="screen">
-      {/* Kepala tetap: judul dan peringatan tidak ikut bergulir, jadi "browser
-          belum ada" tidak pernah hilang dari layar saat menyetel kartu. */}
-      <div className="screen-head">
-        <h1>{t("newsTitle")}</h1>
-        <p className="sub">
-          {t("newsIntro")} <b>{t("newsIntroBold")}</b> {t("newsIntroTail")}
-        </p>
-        {config && !config.has_browser && (
-          <div className="warnbox">
-            {t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}
-          </div>
-        )}
-        {error && <div className="warnbox err">{error}</div>}
-      </div>
-
-      {/* Satu kolom, BUKAN dua. Alurnya di sini berurutan — tempel tautan,
-          pilih paragraf, setel kartu, unduh — dan memecahnya jadi dua kolom
-          hanya memutus urutan itu tanpa menghemat satu piksel pun. Kolom kedua
-          menyusul kalau desainnya nanti memang memintanya. */}
-      <div className="screen-body one">
-      <div className="screen-main">
-
-      {/* --- Pintu masuk --- */}
-      <div className="panel">
-        <div className="tabs">
-          <button className={"ghost" + (entry === "link" ? " active" : "")} onClick={() => setEntry("link")}>
-            {t("tabPasteLink")}
-          </button>
-          <button className={"ghost" + (entry === "browse" ? " active" : "")} onClick={() => setEntry("browse")}>
-            {t("tabBrowse")}
-          </button>
-          <div className="search">
-            <input
-              value={typed}
-              onChange={(e) => setTyped(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runSearch()}
-              placeholder={t("searchPlaceholder")}
-              aria-label={t("search")}
-            />
-            <button onClick={runSearch} disabled={!typed.trim() || listBusy}>
-              {listBusy && query ? t("searching") : t("search")}
-            </button>
-          </div>
-        </div>
-
-        {entry === "link" ? (
-          <div className="row" style={{ alignItems: "flex-end" }}>
-            <div className="field" style={{ flex: 3 }}>
-              <label>{t("articleLink")}</label>
-              <input
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && fetchLink()}
-                placeholder="https://www.antaranews.com/berita/..."
-              />
+      {/* Kepala HANYA untuk peringatan. Tidak ada judul halaman — nama halaman
+          sudah ada di rail kiri dalam keadaan terpilih (CLAUDE.md). */}
+      {(error || (config && !config.has_browser)) && (
+        <div className="screen-head">
+          {config && !config.has_browser && (
+            <div className="warnbox">
+              {t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}
             </div>
-            <div className="field" style={{ flex: "none", minWidth: 0 }}>
-              <button onClick={fetchLink} disabled={fetching || !link.trim()}>
-                {fetching ? t("fetching") : t("fetch")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {query ? (
-              <div className="search-result">
-                <span>{t("searchResultsFor")} <b>{query}</b></span>
-                <button className="ghost tiny" onClick={() => { setQuery(""); setTyped(""); }}>
-                  {t("backToSources")}
-                </button>
-              </div>
-            ) : (
-            <div className="field">
-              <label>{t("newsSource")}</label>
-              <select value={feed} onChange={(e) => setFeed(e.target.value)}>
-                {config?.feeds.map((f) => (
-                  <option key={f.id} value={f.id}>{f.name} — {f.topic}</option>
-                ))}
-              </select>
-            </div>
-            )}
-            {listBusy ? (
-              <p className="stage">{t("loadingNews")}</p>
-            ) : (
-              <div className="news-list">
-                {items.map((a) => (
-                  <div
-                    key={a.url}
-                    className={"news-item" + (article.url === a.url ? " active" : "")}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => useArticle(a)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); useArticle(a); }
-                    }}
-                  >
-                    {/* Hasil pencarian Google News tidak membawa gambar — gambarnya
-                        baru ada setelah artikelnya dibuka. Kotak kosong dihilangkan
-                        saja daripada menyisakan bidang abu yang terlihat rusak. */}
-                    {a.image && <img src={a.image} alt="" loading="lazy" />}
-                    <div className="news-text">
-                      <div className="news-title">{a.title}</div>
-                      <div className="news-foot">
-                        <span className="meta">{a.date || a.domain}</span>
-                        <button
-                          className={"copy-btn" + (copied === a.url ? " ok" : "")}
-                          title={t("copyLinkTitle")}
-                          aria-label={t("copyLinkTitle")}
-                          disabled={copyBusy === a.url}
-                          onClick={(e) => { e.stopPropagation(); copyLink(a.url); }}
-                        >
-                          {copyBusy === a.url ? t("copyOpening")
-                            : copied === a.url ? t("copied")
-                            : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* --- Analisis AI --- */}
-      {ready && (
-        <div className="panel">
-          <label className="blok">{t("analyzeHeading")}</label>
-          <div className="row" style={{ alignItems: "flex-end" }}>
-            <div className="field">
-              <label>{t("engine")}</label>
-              <select value={engine} onChange={(e) => setEngine(e.target.value)}>
-                <option value="ollama">{t("engineOllama")}</option>
-                <option value="claude">{t("engineClaude")}</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>{t("model")}</label>
-              {engine === "ollama" ? (
-                // Daftar dipakai bila Ollama menjawab; kalau tidak, kolom ketik
-                // tetap ada supaya pengguna tidak terkunci saat Ollama sedang
-                // mati atau berjalan di mesin lain.
-                ollamaInstalled.length > 0 ? (
-                  <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
-                    {ollamaInstalled.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}
-                    placeholder="qwen2.5" />
-                )
-              ) : (
-                <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
-                  <option value="claude-haiku-4-5">claude-haiku-4-5</option>
-                  <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
-                  <option value="claude-opus-4-1">claude-opus-4-1</option>
-                </select>
-              )}
-            </div>
-            <div className="field" style={{ flex: "none", minWidth: 0 }}>
-              <button onClick={analyze} disabled={analyzeBusy}>
-                {analyzeBusy ? t("analyzing") : t("analyze")}
-              </button>
-            </div>
-          </div>
-          {analyzeBusy && engine === "ollama" && (
-            <p className="stage">{t("analyzingLocal")}</p>
           )}
-
-          {selection && (
-            <>
-              <p className="stage">{t("rankingIntro", { n: selection.rankings.length })}</p>
-              {selection.note && <div className="warnbox">{selection.note}</div>}
-              <div className="par-list">
-                {selection.rankings.map((r) => (
-                  <div
-                    key={r.index}
-                    className={
-                      "par" +
-                      (cardIndex === r.index ? " pick-card" : "") +
-                      (captionIndex === r.index ? " pick-caption" : "")
-                    }
-                  >
-                    <div
-                      className={"par-score" + (r.source === "heuristic" ? " auto" : "")}
-                      title={r.source === "heuristic" ? t("scoredAuto") : t("scoredByEngine", { engine: selection.engine })}
-                    >
-                      {r.score.toFixed(1)}
-                      {r.source === "heuristic" && <span className="par-auto">{t("auto")}</span>}
-                    </div>
-                    <div className="par-body">
-                      <div className="par-text">{r.text}</div>
-                      {r.reason && <div className="par-reason">{r.reason}</div>}
-                      <div className="par-actions">
-                        <button className="tiny ghost" onClick={() => applyToCard(paragraphs, r.index)}>
-                          {cardIndex === r.index ? t("onCard") : t("useOnCard")}
-                        </button>
-                        <button className="tiny ghost" onClick={() => applyToCaption(paragraphs, r.index)}>
-                          {captionIndex === r.index ? t("asCaption") : t("useAsCaption")}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          {error && <div className="warnbox err">{error}</div>}
         </div>
       )}
 
-      {/* --- Bahan kartu --- */}
-      {ready && (
-        <div className="panel">
-          <label className="blok">{t("cardContent")}</label>
-          <div className="field">
-            <label>{t("articleTitle")}</label>
-            <textarea rows={2} value={article.title} onChange={edit("title")} />
-          </div>
-          <div className="field">
-            <label>{t("cardText")} {cardIndex !== null && <em>{t("fromParagraph", { n: cardIndex })}</em>}</label>
-            <textarea rows={4} value={article.summary} onChange={edit("summary")} />
-          </div>
-          <div className="row">
-            <div className="field">
-              <label>{t("sourceBadge")}</label>
-              <input value={article.source} onChange={edit("source")} />
-            </div>
-            <div className="field">
-              <label>{t("date")}</label>
-              <input value={article.date} onChange={edit("date")} />
-            </div>
-          </div>
-          <div className="field">
-            <label>{t("imageURL")} {style === "quote" && <em>{t("imageUnusedInQuote")}</em>}</label>
-            <input value={article.image} onChange={edit("image")} />
-          </div>
+      {/* Kerangka baku halaman klip, disalin apa adanya (CLAUDE.md):
+          KIRI  = pratinjau + apa pun yang mengubah rupanya
+          KANAN = masukan, pilihan, dan tombol jalan
+          Setelan rupa TIDAK pernah di kolom kanan, dan isian sumber TIDAK
+          pernah ditempel ke panel pratinjau. */}
+      <div className="screen-body two">
+        {/* --- KIRI: pratinjau kartu + rupa kartu --- */}
+        <div className="screen-main">
+          <div className="panel">
+            <div className="sub-layout">
+              <div className="sub-preview">
+                {/* Satu-satunya pratinjau di halaman ini. Dibuat ulang sendiri
+                    700 ms sesudah setelan terakhir disentuh. */}
+                <div className="card-view">
+                  {result ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={result.file} alt="" />
+                  ) : (
+                    <div className="preview-empty">
+                      <div className="pe-icon" aria-hidden="true" />
+                      <div className="pe-title">{t("previewEmpty")}</div>
+                    </div>
+                  )}
+                  {(previewBusy || buildBusy) && <div className="card-view-busy">{t("rendering")}</div>}
+                </div>
 
-          {article.url && (
-            <div className="field">
-              <label>{t("articleLink")} <em>{t("articleLinkCheck")}</em></label>
-              <div className="link-row">
-                <a href={article.url} target="_blank" rel="noreferrer" title={article.url}>{article.url}</a>
-                <button
-                  className={"copy-btn" + (copied === article.url ? " ok" : "")}
-                  title={t("copyLinkTitle")}
-                  aria-label={t("copyLinkTitle")}
-                  onClick={() => copyLink(article.url)}
-                >
-                  {copied === article.url ? t("copied") : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
-                </button>
+                {result && !result.preview && (
+                  <div className="dl-row">
+                    <a className="dl" href={result.zip}><Download className="ico" aria-hidden="true" /> {t("downloadZip")}</a>
+                    <a className="dl" href={result.file} download="card.png"><Download className="ico" aria-hidden="true" /> {t("downloadImage")}</a>
+                  </div>
+                )}
+              </div>
+
+              {/* Rupa kartu duduk di SEBELAH pratinjaunya, bukan di kolom kanan:
+                  tiap kendali di sini langsung mengubah gambar di sebelah kiri,
+                  dan itu bukan fitur artikel. */}
+              <div className="sub-settings">
+                <div className="group">
+                  <div className="group-title">{t("groupDesign")}</div>
+                  <div className="grid3">
+                    <div className="field">
+                      <label>{t("style")}</label>
+                      <select value={style} onChange={(e) => setStyle(e.target.value)}>
+                        {config?.styles.map((s) => <option key={s} value={s}>{styleLabels[s] || s}</option>)}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>{t("ratio")}</label>
+                      <select value={ratio} onChange={(e) => setRatio(e.target.value)}>
+                        {config?.ratios.map((r) => (
+                          <option key={r} value={r}>
+                            {r} {r === "9:16" ? t("ratioStory") : r === "4:5" ? t("ratioFeed") : t("ratioSquare")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>{t("textAlign")}</label>
+                      <select value={align} onChange={(e) => setAlign(e.target.value)}>
+                        {(config?.aligns ?? ["left", "center", "right", "justify"]).map((a) => (
+                          <option key={a} value={a}>{alignLabels[a] || a}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {/* Warna kartu: satu tombol yang membuka palet, bukan
+                        dropdown + deretan contekan yang tumbuh di bawahnya.
+                        Contekan inline menggeser seluruh kisi tiap kali mode
+                        warna diganti. */}
+                    <div className="field">
+                      <label>{t("cardColour")}</label>
+                      <Popover width={300} buttonClass="ghost swatch-trigger"
+                        label={
+                          <>
+                            <span className="swatch-dot" style={{
+                              background: colorSource === "photo" ? undefined : customColor,
+                            }} data-auto={colorSource === "photo" ? "" : undefined} />
+                            {colorSource === "photo" ? t("colourFromPhoto") : (customColor || t("colourCustom"))}
+                          </>
+                        }>
+                        {(close) => (
+                          <>
+                            <div className="popover-head">
+                              <select value={colorSource} onChange={(e) => setColorSource(e.target.value)}>
+                                <option value="photo">{t("colourFromPhoto")}</option>
+                                <option value="custom">{t("colourCustom")}</option>
+                              </select>
+                            </div>
+                            {/* Daftar tertutup, bukan pemilih spektrum: engine hanya
+                                memakai RONA warna pilihan — terangnya dikunci palet —
+                                jadi pemilih spektrum menjanjikan yang tidak dikerjakan. */}
+                            {colorSource === "custom" && colourRows(config?.card_colours).map((row, i) => (
+                              <div className="swatches" key={i}>
+                                {row.map((c) => (
+                                  <button
+                                    key={c}
+                                    type="button"
+                                    className={"swatch" + (c === customColor ? " on" : "")}
+                                    style={{ background: c }}
+                                    title={c}
+                                    aria-label={c}
+                                    onClick={() => { setCustomColor(c); close(); }}
+                                  />
+                                ))}
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </Popover>
+                    </div>
+                    <div className="field">
+                      <label>{t("cardBoxBackground")}</label>
+                      <select value={boxMode} onChange={(e) => setBoxMode(e.target.value)}>
+                        <option value="auto">{t("boxAuto")}</option>
+                        <option value="none">{t("boxNone")}</option>
+                        <option value="custom">{t("boxCustom")}</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      {boxMode === "custom" && (
+                        <>
+                          <label>{t("boxCustom")}</label>
+                          <div className="path-row">
+                            <input type="color" className="colour-dot" value={boxColor}
+                              onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
+                            <input value={boxColor} spellCheck={false}
+                              onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+
+                {style !== "quote" && article.image.startsWith("http") && (
+                  <div className="group">
+                    <div className="group-title">{t("photoFit")}</div>
+                    <div className="grid3">
+                      <div className="field">
+                        <label>{t("photoFitLabel")}</label>
+                        <select value={photoFit} onChange={(e) => { setPhotoFit(e.target.value); setZoom(1); }}>
+                          <option value="cover">{t("photoFitCover")}</option>
+                          <option value="whole">{t("photoFitWhole")}</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>{t("photoFill")}</label>
+                        <select value={photoFill} disabled={photoFit !== "whole"}
+                          onChange={(e) => setPhotoFill(e.target.value)}>
+                          <option value="blur">{t("photoFillBlur")}</option>
+                          <option value="solid">{t("photoFillSolid")}</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label>{t("photoZoom")}</label>
+                        <Stepper value={Math.round(zoom * 100)} onChange={(v) => setZoom(v / 100)}
+                          min={100} max={400} step={5} suffix="%" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Ukuran huruf & jarak dalam LANGKAH dari template standar,
+                    bukan piksel mutlak: 0 selalu bisa dikembalikan. */}
+                <div className="group">
+                  {/* Tombol "kembali ke standar" naik ke baris judul: kalau ia ikut
+                      di dalam kisi, empat angka + satu tombol tidak pernah muat
+                      satu baris dan kelompoknya melipat jadi dua. */}
+                  <div className="group-title with-action">
+                    <span>{t("groupType")}</span>
+                    <button className="ghost tiny"
+                      onClick={() => { setTitleStep(0); setParagraphStep(0); setHeader(0); setCardTop(0); setZoom(1); }}
+                      disabled={titleStep === 0 && paragraphStep === 0 && header === 0 && cardTop === 0 && zoom === 1}>
+                      {t("fontReset")}
+                    </button>
+                  </div>
+                  <div className="grid4">
+                    <div className="field">
+                      <label>{t("fontTitle")}</label>
+                      <Stepper value={titleStep} onChange={setTitleStep} min={-FONT_STEPS} max={FONT_STEPS} />
+                    </div>
+                    <div className="field">
+                      <label>{t("fontParagraph")}</label>
+                      <Stepper value={paragraphStep} onChange={setParagraphStep} min={-FONT_STEPS} max={FONT_STEPS} />
+                    </div>
+                    <div className="field">
+                      <label>{t("headerSpace")}</label>
+                      <Stepper value={header} onChange={setHeader} min={0} max={HEADER_MAX} step={10} suffix="px" />
+                    </div>
+                    <div className="field">
+                      <label>{t("cardDown")}</label>
+                      <Stepper value={cardTop} onChange={setCardTop} min={0} max={CARD_TOP_MAX} step={10} suffix="px" />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
-
-          <div className="field">
-            <label>{t("caption")} {captionIndex !== null && <em>{t("fromParagraph", { n: captionIndex })}</em>}</label>
-            <textarea rows={4} value={caption} onChange={(e) => setCaption(e.target.value)} />
           </div>
-          <div className="field">
-            <label>{t("hashtags")}</label>
-            <input value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder={t("hashtagsPlaceholder")} />
-          </div>
+        </div>
 
-          {style !== "quote" && article.image.startsWith("http") && (
-            <div className="field">
-              <label>
-                {t("photoFrame")} <em>{t("photoFrameHint")}</em>
-              </label>
-              <div className="photo-tools">
-                <div
-                  ref={boxRef}
-                  className="photo-box"
-                  style={{ aspectRatio: `${CARD_W} / ${photoFrameHeight(ratio)}` }}
-                  onPointerDown={startDrag}
-                  onPointerMove={moveDrag}
-                  onPointerUp={endDrag}
-                  onPointerCancel={endDrag}
-                  onWheel={(e) => {
-                    const z = Math.min(4, Math.max(1, +(zoom * (e.deltaY < 0 ? 1.06 : 1 / 1.06)).toFixed(3)));
-                    // Geseran ikut dijepit: mengecilkan zoom mempersempit ruang
-                    // gerak, jadi posisi lama bisa jadi di luar batas baru.
-                    const bx = Math.floor((CARD_W * (z - 1)) / 2);
-                    const by = Math.floor((frameHeight * (z - 1)) / 2);
-                    setZoom(z);
-                    setPhotoX((v) => clamp(v, bx));
-                    setPhotoY((v) => clamp(v, by));
-                  }}
-                >
-                  {/* CSS-nya sengaja disamakan persis dengan template kartu di
-                      engine/internal/card — kalau salah satu diubah, ubah keduanya. */}
-                  {photoFit === "whole" && photoFill === "blur" && (
-                    <img className="photo-fill" src={article.image} alt="" draggable={false} />
-                  )}
-                  <img
-                    src={article.image}
-                    alt=""
-                    draggable={false}
-                    style={{
-                      objectFit: photoFit === "whole" ? "contain" : "cover",
-                      transform:
-                        `translate(-50%,-50%) translate(${photoX / CARD_W * 100}cqw, ${photoY / CARD_W * 100}cqw) scale(${zoom})`,
-                    }}
-                  />
-                  <div className="photo-fade" />
-                </div>
-                <div className="photo-knobs">
-                  {/* Titik awal zoom, bukan sumbu kedua — persis seperti mode
-                      pas di tab klip. "Utuh" memasukkan seluruh gambar asli
-                      berapa pun rasionya; ruang yang tak terjangkau gambar diisi
-                      salinan buram fotonya atau warna latar kartu. */}
-                  <label>{t("photoFit")}</label>
-                  <select value={photoFit} onChange={(e) => {
-                    setPhotoFit(e.target.value);
-                    setZoom(1); setPhotoX(0); setPhotoY(0);
-                  }}>
-                    <option value="cover">{t("photoFitCover")}</option>
-                    <option value="whole">{t("photoFitWhole")}</option>
-                  </select>
-                  {photoFit === "whole" && (
+        {/* --- KANAN: artikelnya — dari mana, bagian mana, isinya apa --- */}
+        <div className="screen-col">
+          <div className="panel">
+            <Section title={t("groupSource")}>
+
+              {/* Satu baris: dua pintu masuk + pencarian. Pencarian sejajar
+                  dengan keduanya sebab ia pintu ketiga, bukan setelan milik
+                  salah satunya. */}
+              <div className="tabs">
+                <button className={"ghost" + (entry === "link" ? " active" : "")}
+                  onClick={() => setEntry("link")}>
+                  {t("tabPasteLink")}
+                </button>
+                <Popover width={660} buttonClass="ghost" label={t("tabBrowse")}
+                  onOpen={() => setBrowseOpen(true)}>
+                  {(close) => (
                     <>
-                      <label>{t("photoFill")}</label>
-                      <select value={photoFill} onChange={(e) => setPhotoFill(e.target.value)}>
-                        <option value="blur">{t("photoFillBlur")}</option>
-                        <option value="solid">{t("photoFillSolid")}</option>
-                      </select>
+                      <div className="popover-head">
+                        {query ? (
+                          <>
+                            <span>{t("searchResultsFor")} <b>{query}</b></span>
+                            <button className="ghost tiny" onClick={() => { setQuery(""); setTyped(""); }}>
+                              {t("backToSources")}
+                            </button>
+                          </>
+                        ) : (
+                          <select value={feed} onChange={(e) => setFeed(e.target.value)}>
+                            {config?.feeds.map((f) => (
+                              <option key={f.id} value={f.id}>{f.name} — {f.topic}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      {listBusy ? (
+                        <p className="stage">{t("loadingNews")}</p>
+                      ) : (
+                        <div className="news-list">
+                          {items.map((a) => (
+                            <div
+                              key={a.url}
+                              className={"news-item" + (article.url === a.url ? " active" : "")}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => { useArticle(a); close(); }}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault(); useArticle(a); close();
+                                }
+                              }}
+                            >
+                              {a.image && <img src={a.image} alt="" loading="lazy" />}
+                              <div className="news-text">
+                                <div className="news-title">{a.title}</div>
+                                <div className="news-foot">
+                                  <span className="meta">{a.date || a.domain}</span>
+                                  <button
+                                    className={"copy-btn" + (copied === a.url ? " ok" : "")}
+                                    title={t("copyLinkTitle")}
+                                    aria-label={t("copyLinkTitle")}
+                                    disabled={copyBusy === a.url}
+                                    onClick={(e) => { e.stopPropagation(); copyLink(a.url); }}
+                                  >
+                                    {copyBusy === a.url ? t("copyOpening")
+                                      : copied === a.url ? t("copied")
+                                      : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </>
                   )}
-                  <label>{t("photoZoom", { n: zoom.toFixed(2) })}</label>
+                </Popover>
+                <div className="search">
                   <input
-                    type="range" min={1} max={4} step={0.01}
-                    value={zoom}
-                    onChange={(e) => {
-                      const z = parseFloat(e.target.value);
-                      setZoom(z);
-                      setPhotoX((v) => clamp(v, Math.floor((CARD_W * (z - 1)) / 2)));
-                      setPhotoY((v) => clamp(v, Math.floor((frameHeight * (z - 1)) / 2)));
-                    }}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                    placeholder={t("searchPlaceholder")}
+                    aria-label={t("search")}
                   />
-                  {zoom === 1 && <p className="meta">{t("photoZoomHint")}</p>}
-                  <p className="meta">{t("photoOffset", { x: photoX, y: photoY })}</p>
-                  <button
-                    className="ghost tiny"
-                    onClick={() => { setPhotoX(0); setPhotoY(0); setZoom(1); }}
-                  >
-                    {t("photoReset")}
+                  <button onClick={runSearch} disabled={!typed.trim() || listBusy}>
+                    {listBusy && query ? t("searching") : t("search")}
                   </button>
                 </div>
               </div>
-            </div>
-          )}
 
-          <div className="row">
-            <div className="field">
-              <label>{t("style")}</label>
-              <select value={style} onChange={(e) => setStyle(e.target.value)}>
-                {config?.styles.map((s) => <option key={s} value={s}>{styleLabels[s] || s}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>{t("ratio")}</label>
-              <select value={ratio} onChange={(e) => setRatio(e.target.value)}>
-                {config?.ratios.map((r) => (
-                  <option key={r} value={r}>
-                    {r} {r === "9:16" ? t("ratioStory") : r === "4:5" ? t("ratioFeed") : t("ratioSquare")}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>{t("textAlign")}</label>
-              <select value={align} onChange={(e) => setAlign(e.target.value)}>
-                {(config?.aligns ?? ["left", "center", "right", "justify"]).map((a) => (
-                  <option key={a} value={a}>{alignLabels[a] || a}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          {align === "justify" && <p className="stage">{t("justifyNote")}</p>}
-
-          {/* --- Warna kartu --- */}
-          <div className="field">
-            <label>{t("cardColour")} <em>{t("cardColourHint")}</em></label>
-            <div className="row">
-              <div className="field">
-                <select value={colorSource} onChange={(e) => setColorSource(e.target.value)}>
-                  <option value="photo">{t("colourFromPhoto")}</option>
-                  <option value="custom">{t("colourCustom")}</option>
-                </select>
-              </div>
-            </div>
-            {/* Daftar tertutup, bukan pemilih spektrum. Engine hanya memakai RONA
-                warna pilihan — terangnya dikunci palet — jadi pemilih spektrum
-                menjanjikan yang tidak dikerjakan: putih & abu-abu tidak mengubah
-                apa pun, dan itu terbaca sebagai bug. Warnanya datang dari engine,
-                tidak dihitung ulang di sini. */}
-            {colorSource === "custom" && (
-              <>
-                {/* Satu baris per keluarga warna, urutannya dari engine. Sengaja
-                    tanpa nama: yang perlu dilihat warnanya, bukan istilahnya. */}
-                {colourRows(config?.card_colours).map((row, i) => (
-                  <div className="swatches" key={i}>
-                    {row.map((c) => (
-                      <button
-                        key={c}
-                        type="button"
-                        className={"swatch" + (c === customColor ? " on" : "")}
-                        style={{ background: c }}
-                        title={c}
-                        aria-label={c}
-                        onClick={() => setCustomColor(c)}
-                      />
-                    ))}
+              {entry === "link" && (
+                <div className="field">
+                  <label>{t("articleLink")}</label>
+                  <div className="path-row">
+                    <input
+                      value={link}
+                      onChange={(e) => setLink(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && fetchLink()}
+                      placeholder="https://www.antaranews.com/berita/..."
+                    />
+                    <button onClick={fetchLink} disabled={fetching || !link.trim()}>
+                      {fetching ? t("fetching") : t("fetch")}
+                    </button>
                   </div>
-                ))}
-                <p className="meta">{t("colourSwatchNote", { hex: customColor })}</p>
+                </div>
+              )}
+
+            </Section>
+
+            {ready && (
+              <>
+                {/* LLM hanya MEMILIH NOMOR paragraf; isinya selalu verbatim dari
+                    artikelnya (notes/13). */}
+                <Section title={t("groupParagraph")}>
+                  <div className="grid3">
+                    <div className="field">
+                      <label>{t("engine")}</label>
+                      <select value={engine} onChange={(e) => setEngine(e.target.value)}>
+                        <option value="ollama">{t("engineOllama")}</option>
+                        <option value="claude">{t("engineClaude")}</option>
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>{t("model")}</label>
+                      {engine === "ollama" ? (
+                        // Daftar dipakai bila Ollama menjawab; kalau tidak, kolom
+                        // ketik tetap ada supaya pengguna tidak terkunci saat
+                        // Ollama sedang mati atau berjalan di mesin lain.
+                        ollamaInstalled.length > 0 ? (
+                          <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
+                            {ollamaInstalled.map((m) => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        ) : (
+                          <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}
+                            placeholder="qwen2.5" />
+                        )
+                      ) : (
+                        <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
+                          <option value="claude-haiku-4-5">claude-haiku-4-5</option>
+                          <option value="claude-sonnet-4-5">claude-sonnet-4-5</option>
+                          <option value="claude-opus-4-1">claude-opus-4-1</option>
+                        </select>
+                      )}
+                    </div>
+                    <div className="field field-check">
+                      <button onClick={analyze} disabled={analyzeBusy}>
+                        {analyzeBusy ? t("analyzing") : t("analyze")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {analyzeBusy && engine === "ollama" && <p className="stage">{t("analyzingLocal")}</p>}
+                  {selection?.note && <div className="warnbox">{selection.note}</div>}
+                  {selection && (
+                    <div className="par-list">
+                      {selection.rankings.map((r) => (
+                        <div
+                          key={r.index}
+                          className={
+                            "par" +
+                            (cardIndex === r.index ? " pick-card" : "") +
+                            (captionIndex === r.index ? " pick-caption" : "")
+                          }
+                        >
+                          <div
+                            className={"par-score" + (r.source === "heuristic" ? " auto" : "")}
+                            title={r.source === "heuristic" ? t("scoredAuto") : t("scoredByEngine", { engine: selection.engine })}
+                          >
+                            {r.score.toFixed(1)}
+                            {r.source === "heuristic" && <span className="par-auto">{t("auto")}</span>}
+                          </div>
+                          <div className="par-body">
+                            <div className="par-text">{r.text}</div>
+                            {r.reason && <div className="par-reason">{r.reason}</div>}
+                            <div className="par-actions">
+                              <button className="tiny ghost" onClick={() => applyToCard(paragraphs, r.index)}>
+                                {cardIndex === r.index ? t("onCard") : t("useOnCard")}
+                              </button>
+                              <button className="tiny ghost" onClick={() => applyToCaption(paragraphs, r.index)}>
+                                {captionIndex === r.index ? t("asCaption") : t("useAsCaption")}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+
+                <Section title={t("groupContent")}>
+                  <div className="field">
+                    <label>{t("articleTitle")}</label>
+                    <textarea rows={2} value={article.title} onChange={edit("title")} />
+                  </div>
+                  <div className="field">
+                    <label>{t("cardText")} {cardIndex !== null && <em>{t("fromParagraph", { n: cardIndex })}</em>}</label>
+                    <textarea rows={3} value={article.summary} onChange={edit("summary")} />
+                  </div>
+                  <div className="field">
+                    <label>{t("caption")} {captionIndex !== null && <em>{t("fromParagraph", { n: captionIndex })}</em>}</label>
+                    <textarea rows={3} value={caption} onChange={(e) => setCaption(e.target.value)} />
+                  </div>
+                  <div className="grid3">
+                    <div className="field">
+                      <label>{t("sourceBadge")}</label>
+                      <input value={article.source} onChange={edit("source")} />
+                    </div>
+                    <div className="field">
+                      <label>{t("date")}</label>
+                      <input value={article.date} onChange={edit("date")} />
+                    </div>
+                    <div className="field">
+                      <label>{t("hashtags")}</label>
+                      <input value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder={t("hashtagsPlaceholder")} />
+                    </div>
+                  </div>
+                  <div className="field">
+                    <label>{t("imageURL")} {style === "quote" && <em>{t("imageUnusedInQuote")}</em>}</label>
+                    <input value={article.image} onChange={edit("image")} />
+                  </div>
+                  {/* Pengingat atribusi: isi kartu ini verbatim milik
+                      penerbitnya, dan itu kewajiban bukan hiasan (notes/13). */}
+                  <p className="meta">{t("creditSource")}</p>
+                </Section>
               </>
             )}
-            {colorSource === "photo" && <p className="meta">{t("colourFromPhotoNote")}</p>}
           </div>
 
-          <div className="field">
-            <label>{t("cardBoxBackground")}</label>
-            <div className="row">
-              <div className="field">
-                <select value={boxMode} onChange={(e) => setBoxMode(e.target.value)}>
-                  <option value="auto">{t("boxAuto")}</option>
-                  <option value="none">{t("boxNone")}</option>
-                  <option value="custom">{t("boxCustom")}</option>
-                </select>
-              </div>
-              {boxMode === "custom" && (
-                <div className="field" style={{ flex: "none" }}>
-                  <input type="color" value={boxColor}
-                    onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
-                </div>
-              )}
-              {boxMode === "custom" && (
-                <div className="field">
-                  <input value={boxColor} spellCheck={false}
-                    onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
-                </div>
-              )}
-            </div>
-            {boxMode === "none" && <p className="meta">{t("boxNoneNote")}</p>}
-          </div>
-
-          {/* Pratinjau di kiri, kendali ukuran huruf di kanan: keduanya saling
-              menjawab, jadi menyetel dan melihat hasilnya tidak perlu berpindah
-              tempat. Tombolnya di bawah keduanya. */}
-          <div className="card-stage">
-            <div className="card-stage-view">
-              {result ? (
-                <img src={result.file} alt={t("newsTitle")} />
-              ) : (
-                <p className="meta">{t("previewEmpty")}</p>
-              )}
-            </div>
-
-            <div className="card-stage-tools">
-              <label>{t("fontSizes")}</label>
-              {([
-                ["title", titleStep, setTitleStep],
-                ["paragraph", paragraphStep, setParagraphStep],
-              ] as const).map(([key, value, set]) => (
-                <div key={key} className="field">
-                  <label>
-                    {key === "title" ? t("fontTitle") : t("fontParagraph")}{" "}
-                    <em>{value === 0 ? t("fontStandard") : `${value > 0 ? "+" : ""}${value}`}</em>
-                  </label>
-                  <input
-                    type="range" min={-FONT_STEPS} max={FONT_STEPS} step={1}
-                    value={value} onChange={(e) => set(Number(e.target.value))}
-                  />
-                </div>
-              ))}
-              <p className="meta">{t("fontStepsNote")}</p>
-
-              {/* Menggeser isi sebagai SATU kesatuan — judul, guntingan, dan kaki
-                  kartu bergerak bersama. Bukan penggeser per blok: itu sudah
-                  dicoba dan dicabut karena blok jadi saling tumpang tindih. */}
-              <div className="field">
-                <label>
-                  {t("headerSpace")}{" "}
-                  <em>{header === 0 ? t("fontStandard") : `+${header} px`}</em>
-                </label>
-                <input type="range" min={0} max={HEADER_MAX} step={10}
-                  value={header} onChange={(e) => setHeader(Number(e.target.value))} />
-              </div>
-              <p className="meta">{t("headerSpaceNote")}</p>
-
-              {/* Menurunkan SELURUH kartu — area foto ikut turun, dan pita
-                  kosong di atas memakai warna latar kartu. */}
-              <div className="field">
-                <label>
-                  {t("cardDown")}{" "}
-                  <em>{cardTop === 0 ? t("fontStandard") : `+${cardTop} px`}</em>
-                </label>
-                <input type="range" min={0} max={CARD_TOP_MAX} step={10}
-                  value={cardTop} onChange={(e) => setCardTop(Number(e.target.value))} />
-              </div>
-              <p className="meta">{t("cardDownNote")}</p>
-
-              <button className="ghost tiny"
-                onClick={() => { setTitleStep(0); setParagraphStep(0); setHeader(0); setCardTop(0); }}
-                disabled={titleStep === 0 && paragraphStep === 0 && header === 0 && cardTop === 0}>
-                {t("fontReset")}
-              </button>
-            </div>
-          </div>
-
-          {/* Pratinjau dulu, simpan belakangan. Menyetel kartu itu pekerjaan
-              puluhan percobaan, dan tiap simpanan meninggalkan satu folder. */}
-          <div className="row">
-            <button onClick={() => buildCard(true)}
-              disabled={previewBusy || buildBusy || !config?.has_browser}>
-              {previewBusy ? t("rendering") : <><Eye className="ico" aria-hidden="true" /> {t("previewCard")}</>}
-            </button>
+          <div className="panel start-panel">
             <button onClick={() => buildCard(false)}
-              disabled={previewBusy || buildBusy || !config?.has_browser}>
+              disabled={!ready || previewBusy || buildBusy || !config?.has_browser}>
               {buildBusy ? t("rendering") : t("buildCard")}
             </button>
           </div>
         </div>
-      )}
-
-      {/* --- Hasil --- */}
-      {result && (
-        <div className="panel">
-          <label className="blok">{result.preview ? t("previewResult") : t("result")}</label>
-          {/* Gambarnya sudah tampil di atas tombol, jadi di sini cukup tautan
-              unduhannya — mengulang gambar yang sama hanya memanjangkan halaman. */}
-          <div className="card-result">
-            <div>
-              {/* Pratinjau tidak punya berkas pendamping — caption & keterangan
-                  sumber baru ditulis saat kartunya disimpan. */}
-              {result.preview ? (
-                <p className="meta">{t("previewNotSaved")}</p>
-              ) : (
-                <>
-                  <p><a className="dl" href={result.zip}><Download className="ico" aria-hidden="true" /> {t("downloadZip")}</a></p>
-                  <p><a className="dl" href={result.file} download="card.png"><Download className="ico" aria-hidden="true" /> {t("downloadImage")}</a></p>
-                </>
-              )}
-              {article.url && (
-                <p className="meta" style={{ marginTop: 10 }}>
-                  {t("sourceLabel")}{" "}
-                  <a className="dl" href={article.url} target="_blank" rel="noreferrer">{article.domain}</a>
-                  <br />
-                  {t("creditSource")}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      </div>
       </div>
     </div>
   );

@@ -14,6 +14,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // bahasa yang tersimpan dibaca, supaya render server & klien tetap cocok.
   return (
     <html lang="en">
+      <head>
+        {/* Tema dipasang SEBELUM halaman digambar. Kalau dibaca dari React saja,
+            halaman sempat berkedip putih dulu tiap kali dibuka dalam tema gelap
+            — dan kedipan itu paling terlihat justru di aplikasi desktop yang
+            memuat ulang halamannya sendiri saat jendela ditinggal. */}
+        <script dangerouslySetInnerHTML={{ __html:
+          `try{var t=localStorage.getItem("clipper.theme");` +
+          `if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";` +
+          `document.documentElement.dataset.theme=t}catch(e){}` }} />
+      </head>
       <body>
         <I18nProvider>
           {/* Rail kiri berdiri sendiri; bilah atas dan isi halaman berbagi

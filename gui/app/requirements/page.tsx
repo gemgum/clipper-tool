@@ -223,8 +223,6 @@ export default function RequirementsPage() {
       {/* Kepala: judul + satu baris keadaan. Tetap diam di tempatnya, jadi
           "apa yang kurang" tidak pernah hilang saat daftarnya digulir. */}
       <div className="screen-head">
-        <h1>{t("reqTitle")}</h1>
-        <p className="sub">{t("reqSubtitle")}</p>
         {error && <div className="err">{error}</div>}
         {missing.length > 0 && (
           <div className="warnbox">{t("reqMissing", { list: missing.join(", ") })}</div>

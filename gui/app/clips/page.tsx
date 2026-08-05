@@ -37,11 +37,9 @@ export default function ClipsPage() {
 
   return (
     <div className="screen">
-      <div className="screen-head">
-        <h1>{t("tabResults")}</h1>
-        <p className="sub">{t("resultsSub")}</p>
-        {error && <div className="err">{error}</div>}
-      </div>
+      {/* Kepala hanya untuk galat. Judul halaman sudah ada di rail kiri
+          dalam keadaan terpilih (notes/29). */}
+      {error && <div className="screen-head"><div className="err">{error}</div></div>}
       <div className="screen-body one">
         <div className="screen-main">
           {busy ? (

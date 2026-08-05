@@ -34,11 +34,7 @@ export default function HistoryPage() {
 
   return (
     <div className="screen">
-      <div className="screen-head">
-        <h1>{t("tabHistory")}</h1>
-        <p className="sub">{t("historySub")}</p>
-        {error && <div className="err">{error}</div>}
-      </div>
+      {error && <div className="screen-head"><div className="err">{error}</div></div>}
       <div className="screen-body one">
         <div className="screen-main">
           {jobs === null ? (

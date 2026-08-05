@@ -1,5 +1,13 @@
 # Rencana perombakan tampilan
 
+> **Aturan yang mengikat ada di `CLAUDE.md`, bukan di sini.** Dua hal — jendela
+> haram bergulir, dan halaman `/` (Video clips) adalah standar yang disalin
+> halaman lain — dipindah ke sana 6 Agustus 2026 setelah dilanggar berkali-kali.
+> Sebabnya bukan lupa: berkas ini 800 baris dan tidak dibaca ulang tiap sesi,
+> sedangkan `CLAUDE.md` dimuat setiap kali. Aturan yang harus dipatuhi tiap
+> giliran TIDAK boleh tinggal di catatan sepanjang ini. Yang di sini adalah
+> ALASAN dan hasil pengukurannya.
+
 Ditulis 5 Agustus 2026, **belum dikerjakan**. MVP sudah jalan di Windows, jadi
 pekerjaan berikutnya adalah tampilan. Berkas ini menyimpan keputusan yang sudah
 diambil dan batasan yang harus diketahui sebelum ada yang menggambar.
@@ -138,10 +146,10 @@ dalam halaman hanya memakan baris tanpa memberi tahu apa pun.
   selesai menyetel dan ingin menekannya. Bilah kemajuan ikut ke kepala dengan
   alasan yang sama. Kiri: sumber, pratinjau subtitle, log, hasil klip. Kanan:
   setelan render + mesin AI.
-- **`/news`** — **satu kolom**, sengaja. Alurnya berurutan (tempel tautan →
-  pilih paragraf → setel kartu → unduh); memecahnya jadi dua kolom hanya
-  memutus urutan itu tanpa menghemat satu piksel pun. Kolom kedua menyusul
-  kalau desainnya nanti memang memintanya.
+- **`/news`** — ~~**satu kolom**, sengaja~~ **DICABUT 6 Agustus 2026, lihat
+  bagian "Kartu berita disamakan dengan halaman klip" di bawah.** Alasan lamanya
+  (alurnya berurutan, dua kolom memutus urutan) ternyata salah timbang: satu
+  kolom BERARTI menggulir halaman, dan itu justru syarat yang paling keras.
 
 Yang BELUM dikerjakan dan masih terasa sesak di 900×600: kotak seret-lepas di
 halaman klip memakan tinggi besar padahal ada juga tombol "pilih berkas" dan
@@ -901,6 +909,203 @@ Karena tingginya kini datang dari panelnya, `.logbox` memakai `flex: 1;
 min-height: 0` — **bukan angka tinggi**. Tidak ada satu pun tinggi log yang
 dipaku lagi; `min-height: 150px` pada panelnya cuma jaring pengaman untuk jendela
 yang sangat pendek.
+
+### Kartu berita disamakan dengan halaman klip (6 Agustus 2026)
+
+Halaman `/news` adalah yang terakhir memakai bentuk lama: satu kolom sepanjang
+1.127 baris yang WAJIB digulir. Sekarang bentuknya sama persis dengan halaman
+klip — dua kolom, kiri yang dilihat, kanan yang disetel, kepala hanya muncul
+kalau ada peringatan.
+
+| | Kiri (`.screen-main`) | Kanan (`.screen-col`) |
+| --- | --- | --- |
+| isi | baris tautan artikel · pratinjau kartu (meregang) · tautan unduh | Artikel · Paragraf · Isi · Rupa, lalu tombol Simpan di dasar |
+
+**Kotak seret foto dibuang, dan itu keputusan UI bukan penghematan.** Halaman ini
+punya DUA pratinjau: kotak foto 380 px dengan CSS yang menyalin template engine,
+dan pratinjau kartu sungguhnya hasil render Chrome. Keduanya tidak pernah bisa
+sama persis, dan dua pratinjau yang berbeda sedikit lebih membingungkan daripada
+satu yang benar. Yang tinggal: **Foto (potong/utuh) · Isian ruang kosong · Zoom**.
+
+**Yang ikut hilang bersamanya: geseran foto manual (`offset_x`/`offset_y`).**
+Itu satu-satunya kendali yang memang butuh diseret. Engine tetap menerima
+medannya dan GUI mengirim 0 — kalau geseran diperlukan lagi, kembalikan bersama
+kendalinya, jangan sebagai state yang selalu nol. Ini kehilangan kemampuan yang
+disengaja; kalau ternyata dipakai, catatan ini tempat membatalkannya.
+
+Ikut dirapikan sekalian:
+
+- **Tombol "Pratinjau" dibuang.** Sudah ada auto-pratinjau berpenundaan 700 ms
+  sejak lama, jadi tombolnya mengerjakan yang sudah dikerjakan sendiri. Tinggal
+  satu tombol **Simpan kartu** di dasar kolom kanan — sejajar dengan tombol
+  Mulai di halaman klip.
+- **Semua penggeser jadi `<Stepper>`**: ukuran judul, ukuran teks, jarak isi,
+  turun kartu, zoom foto. Alasan yang sama dengan halaman klip.
+- **Judul + kalimat pengantar dibuang di SEMUA halaman** (`/news`,
+  `/requirements`, `/clips`, `/history`) — nama halaman sudah ada di rail kiri
+  dalam keadaan terpilih. Kepala hanya dirender kalau ada galat atau peringatan.
+- **32 kunci i18n mati dibuang** dari kedua kamus, hasil menyisir `app/**`.
+
+Satu keterangan yang **sengaja DIPERTAHANKAN** walau yang lain dibuang:
+`creditSource` ("kreditkan sumbernya saat memposting"). Isi kartu ini verbatim
+milik penerbitnya — itu kewajiban, bukan hiasan antarmuka (notes/13).
+
+### Koreksi hari yang sama: kolomnya salah bagi
+
+Susunan pertama menaruh **isian tautan artikel di kepala panel pratinjau** (meniru
+`<SourceRow>` di halaman klip) dan **setelan rupa kartu di kolom kanan**. Dua-duanya
+salah, dan pemilik proyek menunjuknya langsung: *"jangan gabungkan Article link
+dengan hasil generate, pindahkan design card ke bagian preview karena itu bukan
+fitur artikel."*
+
+Kesalahannya menyalin BENTUK tanpa maknanya. Di halaman klip, path video ada di
+panel pratinjau karena ia menentukan gambar apa yang muncul — sebab-akibat
+langsung. Tautan artikel tidak begitu: ia mengambil TEKS, dan kartunya baru
+dirender setelah puluhan setelan lain. Menempelkannya ke panel hasil menyatukan
+dua hal yang tidak berhubungan.
+
+Aturan pembagian kolomnya sekarang tertulis satu kalimat di `CLAUDE.md`:
+**kiri = pratinjau + apa pun yang mengubah rupanya; kanan = masukan, pilihan,
+dan tombol jalan.** Diuji begitu: "kalau kendali ini disentuh, apakah gambar di
+kiri berubah?" Rupa kartu → ya, jadi ia ke kiri. Tautan artikel → tidak, ke
+kanan.
+
+Susunan `/news` yang berlaku:
+
+| Kiri (`.screen-main`) | Kanan (`.screen-col`) |
+| --- | --- |
+| `.sub-layout` → pratinjau kartu + tautan unduh · **Rupa kartu** · **Foto** · **Huruf & jarak** | **Artikel** (tempel/jelajah) · **Paragraf** · **Isi** · tombol Simpan |
+
+Kelasnya sama persis dengan halaman klip — `.sub-layout`, `.sub-preview`,
+`.sub-settings`, `.grid3`, `.start-panel` — dan tinggi bingkai kartu memakai
+`clamp(240px, 42dvh, 400px)` yang SAMA dengan bingkai 9:16, jadi keduanya ikut
+mengecil bersama saat jendelanya pendek.
+
+### Jelajah berita jadi popup, dan pratinjau memakai tinggi kolomnya
+
+Dua keluhan dari tangkapan layar 6 Agustus 2026.
+
+**1. Pencarian tidak sejajar dengan dua pintu masuk lainnya.** Kotak `.search`
+berdiri sendiri di bawah tab, seolah ia setelan milik mode "jelajah". Padahal ia
+**pintu masuk ketiga** — setara "tempel tautan" dan "jelajah". Sekarang
+ketiganya satu baris, dan pencarian yang memakai sisa lebarnya.
+
+Daftar beritanya sendiri pindah ke **popup yang menempel pada tombol Jelajah**,
+isinya kisi **tiga kolom** yang bergulir sendiri (dua kolom di bawah 760 px).
+Alasannya bukan gaya: daftar yang tinggal di dalam kolom mendorong seluruh
+setelan ke bawah, dan itu berarti kolomnya bergulir.
+
+**Popupnya `position: fixed`, BUKAN `absolute`, dan ini bukan detail.**
+`.screen-col` memakai `overflow-y: auto`, dan itu MEMOTONG anak yang diposisikan
+absolut begitu ia lebih lebar daripada kolomnya — kisi tiga kolom selalu lebih
+lebar. Letaknya karena itu dihitung dari `getBoundingClientRect()` tombolnya dan
+dipasang sebagai koordinat layar, dijepit ke lebar jendela supaya tidak pernah
+keluar layar di jendela 900 px. Ditutup lewat Esc, klik di luar, atau memilih
+satu artikel.
+
+Aturan umumnya layak diingat: **di dalam kerangka berzona, semua popup harus
+`fixed`.** Tiap kolom di sini punya `overflow` sendiri, jadi `absolute` akan
+selalu terpotong.
+
+**2. Panel kiri terasa kosong.** Dengan tinggi pratinjau dipaku
+`clamp(240px, 42dvh, 400px)`, panel kirinya menyisakan ±500 px kotak putih
+kosong di bawah setelan — dan itu terbaca sebagai halaman yang belum selesai.
+
+Pratinjau sekarang memakai **seluruh tinggi kolomnya** (`flex: 1`), dan kolom
+pratinjaunya ikut dilebarkan jadi pecahan `minmax(240px, 0.62fr)`. Sebabnya
+aritmetika: kartu 9:16 setinggi 700 px butuh ±394 px lebar, jadi kolom 240 px
+tetap akan menyia-nyiakan tinggi yang baru saja diberikan.
+
+Ini **berbeda** dengan halaman klip, yang bingkainya tetap `clamp(...)` pada
+kolom 240 px — dan bedanya punya alasan: di sana kolom kanan berisi kendali
+subtitle yang panjang dan memang butuh lebarnya, sedangkan di sini setelan rupa
+kartu cuma tiga kisi pendek. Kalau suatu saat setelan kartu ikut memanjang,
+angkanya perlu ditimbang ulang.
+
+### Enam perbaikan dari tangkapan layar (6 Agustus 2026, putaran terakhir)
+
+**1. Rail tidak memberi tahu pengguna sedang di halaman mana.** Keadaan
+terpilih memakai `background: var(--panel2)` di atas `--panel` — selisihnya
+**1%**, dan itu bukan "halus", itu tidak terlihat. Sekarang latar beraksen 12%
++ garis 3 px yang **menempel ke tepi rail**, penanda posisi yang lazim di
+aplikasi desktop dan terbaca tanpa dibandingkan dengan tetangganya.
+
+Pelajarannya bisa dipakai ulang: **kalau keadaan aktif dibedakan oleh dua token
+yang nilainya berdekatan, ia tidak dibedakan sama sekali.** Periksa selisih
+angkanya, jangan percaya kesan saat menulis CSS-nya.
+
+**2. Popup jadi komponen bersama** (`popover.tsx`). Dulu logikanya ditulis
+langsung di halaman berita; begitu palet warna butuh popup kedua, menyalinnya
+berarti menyalin juga satu detail yang mudah salah: **letaknya WAJIB `fixed`.**
+Tiap kolom di kerangka ini punya `overflow-y: auto` sendiri, jadi anak yang
+`absolute` akan dipotong begitu ia lebih lebar daripada kolomnya — dan isi popup
+di sini hampir selalu lebih lebar. Sekali salah, dua kali salah; jadi satu
+komponen.
+
+`<Popover>` juga menutup saat **digulir** (`scroll` dengan capture), bukan cuma
+Esc dan klik luar: popup `fixed` tidak ikut bergerak bersama kolom yang digulir,
+jadi membiarkannya terbuka berarti ia menggantung di tempat yang salah.
+
+**3. Warna kartu jadi popup.** Dropdown + deretan contekan yang tumbuh di bawah
+kisi menggeser seluruh kelompok tiap kali mode warna diganti. Sekarang satu
+tombol berisi titik warna + namanya; paletnya di dalam popup.
+
+**4. Kelompok "Type & spacing" jadi satu baris.** Empat angka + satu tombol
+tidak pernah muat satu baris, jadi kelompoknya selalu melipat jadi dua.
+Tombol "kembali ke standar" **naik ke baris judul kelompok** (`.group-title
+.with-action`), sisanya `.grid4`. Pola ini layak dipakai ulang: **aksi milik
+kelompok tempatnya di judul kelompok, bukan sebagai sel di dalam kisinya.**
+
+**5. Pratinjau kartu tidak lagi berlatar hitam.** Kotaknya setinggi kolom
+sedangkan kartunya 9:16, jadi sisa ruang muncul sebagai dua pita hitam besar
+yang terbaca sebagai "ada yang kosong". Bingkai dan bayangan sekarang menempel
+pada **gambarnya**, bukan pada kotaknya — sisa ruang menyatu dengan panel, dan
+ini berlaku sama untuk 4:5 dan 1:1 tanpa perhitungan tambahan.
+
+**6. Kelompok di kolom artikel bisa diciutkan** (`section.tsx`). Keluhannya
+"bagian Article masih goyang", dan sebabnya nyata: isi kolom itu muncul-hilang
+mengikuti keadaan — kolom tautan hilang saat pindah ke jelajah, daftar paragraf
+muncul sesudah dianalisis, seluruh blok Isi baru ada setelah artikel termuat.
+Tiap kali itu terjadi, kelompok di bawahnya melompat. Menciutkan yang sudah
+selesai membuat kolomnya diam.
+
+Judulnya `<button>`, bukan `<div onClick>` — ia memang tombol, dan hanya begitu
+ia terjangkau Tab dan terbaca pembaca layar.
+
+### Tema gelap akhirnya dipasang
+
+Struktur tokennya sudah disiapkan sejak awal justru untuk ini, dan terbukti
+terbayar: **tema gelap hanya menimpa nilai `--color-*` di
+`:root[data-theme="dark"]`.** Tidak ada satu pun aturan lain yang perlu tahu tema
+mana yang berlaku, dan tidak ada halaman yang perlu disisir ulang.
+
+Dua hal yang perlu diketahui sebelum menyentuhnya:
+
+- **Nilai `-text` dibalik, dan itu disengaja.** Di tema terang, hijau/oranye/
+  merah cerah tidak lolos ambang 4,5:1 di atas putih, jadi teks memakai varian
+  yang digelapkan. Di atas dasar gelap masalahnya terbalik — warna cerah itu
+  justru yang terbaca — jadi `--color-good-text` dsb. dikembalikan ke nilai
+  cerahnya.
+- **Temanya dipasang skrip kecil di `<head>`, sebelum halaman digambar.** Kalau
+  dibaca dari React saja, halaman berkedip putih dulu tiap kali dibuka dalam
+  tema gelap — dan kedipan itu paling terlihat di aplikasi desktop yang memuat
+  ulang halamannya sendiri saat jendela ditinggal (WebView2). Bawaannya
+  mengikuti `prefers-color-scheme` sampai pengguna memilih sendiri.
+
+`.logbox` ikut dipindah ke token panggung: ia satu-satunya kotak yang hexnya
+ditulis langsung, dan karena itu satu-satunya yang tidak akan ikut berganti tema.
+
+### Placeholder `data/<job>` diganti
+
+`outputDirPlaceholder` berbunyi `Default: data/<job>`. Itu jargon: pengguna awam
+tidak tahu apa itu `<job>`, dan tanda kurung siku terbaca seperti kesalahan
+ketik. Sekarang **"Leave empty to save inside the app"** / **"Kosongkan untuk
+menyimpan di dalam aplikasi"** — mengatakan hal yang sama tanpa menyebut satu
+pun nama folder.
+
+Aturan umum yang layak dipegang: **placeholder untuk pengguna, bukan untuk yang
+menulis kodenya.** Nama folder sungguhan tempatnya di halaman Requirements, yang
+memang menampilkan letak folder apa adanya.
 
 Cara memeriksanya begitu ada browser, di konsol jendela aplikasi:
 

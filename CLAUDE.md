@@ -205,6 +205,54 @@ Ollama / 25 mnt Claude); momen yang terbelah batas disambung lewat tanda
 `"continues"`. Transkrip di-cache di `data/cache/transcripts` (kunci = sidik
 jari isi video + model + bahasa).
 
+## Tampilan: dua aturan yang TIDAK bisa ditawar
+
+Keduanya sudah diminta berkali-kali dan tetap terlanggar, sebab dulu hanya
+tertulis di `notes/29` — berkas 700 baris yang tidak dibaca ulang tiap sesi.
+Sekarang di sini, dan berlaku untuk SETIAP perubahan tampilan.
+
+### 1. Jendela tidak boleh bergulir. Titik.
+
+Yang boleh bergulir hanya **kotak yang memang daftar**: kotak log, daftar
+berita, daftar paragraf. Selain itu — kolom setelan, panel, halaman — harus
+MUAT. Kalau tidak muat, yang dibuang isinya, bukan syaratnya.
+
+Sebelum menyerahkan perubahan tampilan apa pun, periksa:
+
+- tidak ada panel yang tingginya bergantung pada isi yang bisa tumbuh;
+- tiap daftar punya `max-height` + `overflow-y: auto`;
+- kendali yang cuma satu angka memakai `<Stepper>`, bukan `<input type="range">`
+  yang melar selebar kolomnya;
+- tidak ada judul halaman, kalimat pengantar, atau keterangan yang mengulang apa
+  yang sudah terlihat.
+
+### 2. Halaman `/` (Video clips) adalah STANDAR. Salin, jangan mengarang.
+
+Halaman lain mengikuti bentuknya; jangan menemukan tata letak baru tiap halaman.
+Bentuk bakunya:
+
+```
+.screen
+├── .screen-head          hanya bila ada galat/peringatan — TIDAK ada <h1>
+└── .screen-body.two
+    ├── .screen-main      KIRI: yang dilihat
+    │   └── .panel > .sub-layout
+    │        ├── .sub-preview    bingkai pratinjau
+    │        └── .sub-settings   setelan yang MENGUBAH pratinjau itu
+    │                            (kelompok bernama, tiap kelompok .grid3)
+    └── .screen-col       KANAN: yang diisi & dijalankan
+        ├── .panel        kelompok bernama, dibaca atas ke bawah
+        └── .panel.start-panel   satu tombol aksi di dasar
+```
+
+Aturan pembagian kolomnya satu kalimat: **kiri = pratinjau + apa pun yang
+mengubah rupanya; kanan = masukan, pilihan, dan tombol jalan.** Setelan rupa
+TIDAK pernah ditaruh di kolom kanan, dan isian sumber TIDAK pernah ditempel ke
+panel pratinjau.
+
+Label = NAMA (satu-dua kata). Penjelasan pindah ke `title` atau ke teks
+pilihannya. Rinciannya di `notes/29`.
+
 ## Konvensi
 
 - **Komentar** kode dalam **bahasa Indonesia**.
