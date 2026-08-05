@@ -562,18 +562,28 @@ export default function News() {
   const ready = article.title.trim().length > 0;
 
   return (
-    <div className="wrap">
-      <h1>{t("newsTitle")}</h1>
-      <p className="sub">
-        {t("newsIntro")} <b>{t("newsIntroBold")}</b> {t("newsIntroTail")}
-      </p>
+    <div className="screen">
+      {/* Kepala tetap: judul dan peringatan tidak ikut bergulir, jadi "browser
+          belum ada" tidak pernah hilang dari layar saat menyetel kartu. */}
+      <div className="screen-head">
+        <h1>{t("newsTitle")}</h1>
+        <p className="sub">
+          {t("newsIntro")} <b>{t("newsIntroBold")}</b> {t("newsIntroTail")}
+        </p>
+        {config && !config.has_browser && (
+          <div className="warnbox">
+            {t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}
+          </div>
+        )}
+        {error && <div className="warnbox err">{error}</div>}
+      </div>
 
-      {config && !config.has_browser && (
-        <div className="warnbox">
-          {t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}
-        </div>
-      )}
-      {error && <div className="warnbox err">{error}</div>}
+      {/* Satu kolom, BUKAN dua. Alurnya di sini berurutan — tempel tautan,
+          pilih paragraf, setel kartu, unduh — dan memecahnya jadi dua kolom
+          hanya memutus urutan itu tanpa menghemat satu piksel pun. Kolom kedua
+          menyusul kalau desainnya nanti memang memintanya. */}
+      <div className="screen-body one">
+      <div className="screen-main">
 
       {/* --- Pintu masuk --- */}
       <div className="panel">
@@ -1110,6 +1120,8 @@ export default function News() {
           </div>
         </div>
       )}
+      </div>
+      </div>
     </div>
   );
 }

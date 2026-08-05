@@ -61,10 +61,23 @@ dl "$ms/Montserrat-Bold.ttf" "$DEST/Montserrat-Bold.ttf"
 dl "$gf/anton/Anton-Regular.ttf" "$DEST/Anton.ttf"
 dl "$gf/bebasneue/BebasNeue-Regular.ttf" "$DEST/BebasNeue.ttf"
 
+# Teks lisensinya IKUT, dan ini kewajiban bukan kesopanan: ketiga font berlisensi
+# SIL Open Font License, dan OFL mensyaratkan salinan lisensinya menyertai font
+# ketika fontnya disebarkan ulang. Pemasang Windows membundel assets/fonts apa
+# adanya (build-windows.sh), jadi tanpa berkas ini font orang lain terkirim ke
+# pengguna tanpa lisensinya.
+#
+# Satu berkas per keluarga font, bukan satu gabungan: hak ciptanya berbeda
+# pemilik, dan OFL menyertakan baris hak cipta itu di dalam teksnya.
+dl "$gf/montserrat/OFL.txt" "$DEST/Montserrat-OFL.txt"
+dl "$gf/anton/OFL.txt" "$DEST/Anton-OFL.txt"
+dl "$gf/bebasneue/OFL.txt" "$DEST/BebasNeue-OFL.txt"
+
 # Nama family di dalam berkas font itulah yang ditulis ke .ass dan dicari
 # libass; daftarnya ada di api.fontCatalog. Kalau salah satu gagal terunduh,
 # subtitle diam-diam dirender dengan font pengganti — jadi lebih baik berhenti.
-for f in Montserrat.ttf Montserrat-Regular.ttf Montserrat-Bold.ttf Anton.ttf BebasNeue.ttf; do
+for f in Montserrat.ttf Montserrat-Regular.ttf Montserrat-Bold.ttf Anton.ttf BebasNeue.ttf \
+         Montserrat-OFL.txt Anton-OFL.txt BebasNeue-OFL.txt; do
   [ -s "$DEST/$f" ] || { echo "font $f gagal diunduh" >&2; exit 1; }
 done
 echo "    fonts -> $DEST"

@@ -201,7 +201,7 @@ export default function RequirementsPage() {
   ];
 
   return (
-    <main className="wrap">
+    <main className="screen">
       {pickingFolder && (
         <Picker
           mode="folder"
@@ -220,18 +220,23 @@ export default function RequirementsPage() {
         />
       )}
 
-      <h1>{t("reqTitle")}</h1>
-      <p className="sub">{t("reqSubtitle")}</p>
+      {/* Kepala: judul + satu baris keadaan. Tetap diam di tempatnya, jadi
+          "apa yang kurang" tidak pernah hilang saat daftarnya digulir. */}
+      <div className="screen-head">
+        <h1>{t("reqTitle")}</h1>
+        <p className="sub">{t("reqSubtitle")}</p>
+        {error && <div className="err">{error}</div>}
+        {missing.length > 0 && (
+          <div className="warnbox">{t("reqMissing", { list: missing.join(", ") })}</div>
+        )}
+        {req && missing.length === 0 && !busy && (
+          <div className="okbox">{t("reqAllReady")}</div>
+        )}
+      </div>
 
-      {error && <div className="panel err">{error}</div>}
-
-      {missing.length > 0 && (
-        <div className="warnbox">{t("reqMissing", { list: missing.join(", ") })}</div>
-      )}
-      {req && missing.length === 0 && !busy && (
-        <div className="okbox">{t("reqAllReady")}</div>
-      )}
-
+      <div className="screen-body">
+      {/* Kiri: yang ditindaklanjuti. Bergulir di dalam kotaknya sendiri. */}
+      <div className="screen-main">
       {groups.map((g) => {
         const items = req?.components.filter((c) => c.kind === g.kind) || [];
         if (items.length === 0) return null;
@@ -299,6 +304,11 @@ export default function RequirementsPage() {
         );
       })}
 
+      </div>
+
+      {/* Kanan: keterangan tempat. Jarang disentuh, jadi ia menepi — bukan
+          mendorong daftar komponen keluar layar seperti sebelumnya. */}
+      <div className="screen-side">
       {req && (
         <div className="panel">
           <div className="meta" style={{ marginBottom: 12 }}>{t("reqWhereTitle")}</div>
@@ -315,7 +325,7 @@ export default function RequirementsPage() {
               <div className="req-dot idle" />
               <div className="req-main">
                 <div className="req-name">{label}</div>
-                <div className="req-path">{used || "—"}</div>
+                <div className="req-path" title={used || ""}>{used || "—"}</div>
                 {!custom && <div className="meta">{t("reqFolderDefault")}</div>}
               </div>
               <div className="req-actions">
@@ -334,9 +344,9 @@ export default function RequirementsPage() {
           {/* Milik aplikasi — ditampilkan supaya bisa ditemukan, tidak untuk
               dipindah lewat sini. */}
           <div style={{ marginTop: 14 }}>
-            <div className="req-path">{t("reqWhereModels")}: {req.models_dir}</div>
-            <div className="req-path">{t("reqWhereTools")}: {req.tools_dir}</div>
-            <div className="req-path">{t("reqWhereData")}: {req.data_dir}</div>
+            <div className="req-path" title={req.models_dir}>{t("reqWhereModels")}: {req.models_dir}</div>
+            <div className="req-path" title={req.tools_dir}>{t("reqWhereTools")}: {req.tools_dir}</div>
+            <div className="req-path" title={req.data_dir}>{t("reqWhereData")}: {req.data_dir}</div>
           </div>
           {req.dev && <div className="meta" style={{ marginTop: 8 }}>{t("reqDevNote")}</div>}
         </div>
@@ -345,6 +355,8 @@ export default function RequirementsPage() {
       <button className="ghost" disabled={busy} onClick={load}>
         {busy ? t("loading") : t("reqRefresh")}
       </button>
+      </div>
+      </div>
     </main>
   );
 }

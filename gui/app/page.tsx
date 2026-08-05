@@ -723,7 +723,7 @@ export default function Home() {
   };
 
   return (
-    <div className="wrap">
+    <div className="screen">
       {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek.
           DUA aturan per font, tegak dan tebal: kalau hanya satu yang dipasang,
           browser menebalkan sendiri face tegaknya, dan penebalan buatan itu tidak
@@ -737,8 +737,36 @@ export default function Home() {
           `@font-face{font-family:"${n}";font-weight:700;src:url("${src("700")}");font-display:swap;}`,
         ];
       }).join("") }} />
-      <h1><Scissors className="ico" aria-hidden="true" /> Clipper</h1>
-      <p className="sub">{t("brandTagline")}</p>
+      {/* Kepala: nama, tombol mulai, dan kemajuan. Ketiganya TIDAK ikut
+          bergulir — dulu tombol Mulai ada di bawah setelan, jadi ia hilang dari
+          layar persis ketika pengguna selesai menyetel dan ingin menekannya. */}
+      <div className="screen-head">
+        <div className="head-row">
+          <h1><Scissors className="ico" aria-hidden="true" /> Clipper</h1>
+          <div className="head-actions">
+            <button onClick={start} disabled={busy || !path || !!modelMissing}>{busy ? t("processing") : t("start")}</button>
+            {busy && jobId && <button className="ghost" onClick={cancel}>{t("cancel")}</button>}
+          </div>
+        </div>
+        {((status && status !== "queued") || busy) && (
+          <div className="head-progress">
+            <div className="progress-outer"><div className="progress-inner" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
+            <div className="stage">
+              {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")}</>
+                : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
+                : `${stage} — ${message}`} ({Math.round(progress * 100)}%)
+            </div>
+          </div>
+        )}
+        {error && <div className="err">⚠ {error}</div>}
+        {modelMissing && (
+          <div className="warnbox">{t("modelMissingWarn", { model })} <code> ./setup.sh {model}</code> {t("modelMissingWarnTail")}</div>
+        )}
+      </div>
+
+      <div className="screen-body">
+      {/* Kiri: yang dilihat & dihasilkan. */}
+      <div className="screen-main">
 
       {/* 1. Sumber */}
       {picker && (
@@ -786,178 +814,6 @@ export default function Home() {
             <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
             <button className="ghost" onClick={() => setPicker("out")}>{t("pickerGo")}…</button>
           </div>
-        </div>
-      </div>
-
-      {/* 2. Setelan render — dikelompokkan menurut pertanyaan yang dijawabnya:
-          dengan apa diproses, seperti apa hasilnya, bagaimana masuk bingkai,
-          dan berapa banyak klip. */}
-      <div className="panel">
-        <div className="meta" style={{ marginBottom: 14 }}>{t("renderSettings")}</div>
-
-        <div className="group">
-          <div className="group-title">{t("groupEngine")}</div>
-          <div className="row">
-            <div className="field"><label>{t("mode")}</label>
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                <option value="offline">{t("modeOffline")}</option>
-                <option value="hybrid">{t("modeHybrid")}</option>
-              </select></div>
-            <div className="field"><label>{t("whisperModel")}</label>
-              <select value={model} onChange={(e) => setModel(e.target.value)}>
-                {models.map((m) => <option key={m.name} value={m.name}>{m.name} {m.size} {m.downloaded ? "✓" : `✗ ${t("modelNotDownloaded")}`}</option>)}
-              </select></div>
-          </div>
-        </div>
-
-        <div className="group">
-          <div className="group-title">{t("groupQuality")}</div>
-          <div className="row">
-            <div className="field"><label>{t("resolution")}</label>
-              <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-                <option value="720p">720p (HD)</option>
-                <option value="1080p">1080p (Full HD)</option>
-                <option value="1440p">1440p (2K)</option>
-              </select></div>
-            <div className="field"><label>{t("quality")}</label>
-              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-                <option value="draft">{t("qualityDraft")}</option>
-                <option value="hd">{t("qualityHd")}</option>
-                <option value="max">{t("qualityMax")}</option>
-              </select></div>
-            <div className="field"><label title={t("fpsTip")}>{t("fps")} ⓘ</label>
-              <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
-                <option value={0}>{t("fpsSource")}</option>
-                <option value={24}>24</option>
-                <option value={30}>30</option>
-                <option value={60}>60</option>
-              </select></div>
-          </div>
-        </div>
-
-
-        <div className="group">
-          <div className="group-title">{t("groupClips")}</div>
-          <div className="row">
-            <div className="field"><label title={t("clipDurationTip")}>{t("clipDuration")} ⓘ</label>
-              <select value={durationPreset} onChange={(e) => setDurationPreset(e.target.value)}>
-                <option value="auto">{t("durationAuto")}</option>
-                <option value="30">{t("durationAbout", { n: "30s" })}</option>
-                <option value="60">{t("durationAbout", { n: "60s" })}</option>
-                <option value="90">{t("durationAbout", { n: "90s" })}</option>
-                <option value="120">{t("durationAbout", { n: "2 min" })}</option>
-                <option value="180">{t("durationAbout", { n: "3 min" })}</option>
-              </select></div>
-            <div className="field"><label title={t("maxClipsTip")}>{t("maxClips")} ⓘ</label>
-              <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
-            <div className="field"><label title={t("saveClipsTip")}>{t("saveClips")} ⓘ</label>
-              <select value={saveMode} onChange={(e) => setSaveMode(e.target.value)}>
-                <option value="burn">{t("saveBurn")}</option>
-                <option value="clean">{t("saveClean")}</option>
-                <option value="both">{t("saveBoth")}</option>
-              </select></div>
-          </div>
-        </div>
-      </div>
-
-      {/* 2b. Mesin AI (scoring) — berubah menurut mode */}
-      <div className="panel">
-        <div className="meta" style={{ marginBottom: 10 }}>{t("aiEngine", { mode })}</div>
-        {mode === "hybrid" ? (
-          <>
-            <div className="field">
-              <label>{t("apiKeyClaude")} {hasKey && <span className="ok">{t("keyStored")}</span>}</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasKey ? t("keyPlaceholderStored") : "sk-ant-..."} />
-                <button onClick={saveKey} disabled={!apiKey}>{t("save")}</button>
-              </div>
-            </div>
-            <div className="field">
-              <label>{t("claudeModel")}</label>
-              <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
-                <option value="claude-haiku-4-5">{t("claudeHaiku")}</option>
-                <option value="claude-sonnet-5">{t("claudeSonnet")}</option>
-                <option value="claude-opus-4-8">{t("claudeOpus")}</option>
-              </select>
-            </div>
-            {!hasKey && <div className="warnbox">{t("noKeyWarning")}</div>}
-          </>
-        ) : (
-          <>
-            <div className="field">
-              <label>{t("offlineEngine")}</label>
-              <select value={offlineEngine} onChange={(e) => setOfflineEngine(e.target.value)}>
-                <option value="ollama">{t("offlineOllama")}</option>
-                <option value="heuristic">{t("offlineHeuristic")}</option>
-              </select>
-              <div className="meta">{t("engineNoFallback")}</div>
-            </div>
-            {offlineEngine === "ollama" && (
-              <>
-                <div className="field">
-                  <label>{t("localModel")}</label>
-                  <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
-                    {ollamaInstalled.map((m) => {
-                      const specs = [m.params, m.quant, sizeGB(m.bytes)].filter(Boolean).join(" · ");
-                      return (
-                        <option key={m.name} value={m.name}>
-                          {m.name}{specs ? ` — ${specs}` : ""} {m.ready ? t("modelReady") : t("modelNotCapable")}
-                        </option>
-                      );
-                    })}
-                    {/* Saran hanya muncul bila belum terpasang — dicek per nama dasar
-                        supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest". */}
-                    {OLLAMA_SUGGESTED.filter((s) => !ollamaInstalled.some((m) => sameModel(m.name, s))).map((s) => (
-                      <option key={s} value={s}>{s} ({t("modelNeedsDownload")})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="meta">
-                  {ollamaStatus === null ? t("checkingOllama")
-                    : !ollamaStatus.running ? (
-                      <span className="warn">{t("ollamaNotDetected")} <code>ollama serve</code>. <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button></span>
-                    ) : !selectedOllama ? (
-                      <span className="warn">{t("ollamaModelMissing", { model: ollamaModel })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}</button></span>
-                    ) : selectedOllama.ready ? (
-                      <span className="ok">{t("ollamaReady", { model: selectedOllama.name })}{selectedOllama.params ? ` (${selectedOllama.params})` : ""}</span>
-                    ) : (
-                      <span className="warn">{t("ollamaModelWeak", { model: selectedOllama.name, note: selectedOllama.note })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}</button></span>
-                    )}
-                  {ollamaStatus?.running && !ollamaInstalled.length && t("noModelsInstalled")}
-                </div>
-              </>
-            )}
-          </>
-        )}
-
-        {/* Koreksi transkrip berlaku di kedua mode, jadi ditaruh di luar
-            percabangan hybrid/offline. Ia memakai LLM juga saat mesin skornya
-            heuristik — peringatannya ditampilkan tepat di sini supaya tidak
-            mengagetkan saat job berhenti. */}
-        <div className="field" style={{ marginTop: 4 }}>
-          <label className="chk" title={t("transcriptFixTip")}>
-            <input type="checkbox" checked={transcriptFix}
-              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} ⓘ
-          </label>
-          {transcriptFix && (
-            <>
-              <div className="meta">{t("transcriptFixNote")}</div>
-              {mode !== "hybrid" && offlineEngine === "heuristic" && (
-                <div className="warn" style={{ marginTop: 6 }}>⚠ {t("transcriptFixNeedsLLM")}</div>
-              )}
-              {/* Daftar istilah menempel di bawah koreksi transkrip karena hanya
-                  tahap itu yang memakainya — tanpa centang di atas, isian ini
-                  tidak berpengaruh apa pun. */}
-              <div style={{ marginTop: 10 }}>
-                <label htmlFor="terms">{t("terms")}</label>
-                <input id="terms" type="text" value={terms}
-                  placeholder={t("termsPlaceholder")}
-                  onChange={(e) => setTerms(e.target.value)} />
-                <div className="meta" style={{ marginTop: 6 }}>{t("termsNote")}</div>
-              </div>
-            </>
-          )}
         </div>
       </div>
 
@@ -1253,29 +1109,6 @@ export default function Home() {
         </div>
       </div>
 
-      {modelMissing && (
-        <div className="warnbox">{t("modelMissingWarn", { model })} <code> ./setup.sh {model}</code> {t("modelMissingWarnTail")}</div>
-      )}
-
-      <div className="panel">
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={start} disabled={busy || !path || !!modelMissing}>{busy ? t("processing") : t("start")}</button>
-          {busy && jobId && <button className="ghost" onClick={cancel}>{t("cancel")}</button>}
-        </div>
-      </div>
-
-      {((status && status !== "queued") || busy) && (
-        <div className="panel">
-          <div className="progress-outer"><div className="progress-inner" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
-          <div className="stage">
-            {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")}</>
-              : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
-              : `${stage} — ${message}`} ({Math.round(progress * 100)}%)
-          </div>
-          {error && <div className="err">⚠ {error}</div>}
-        </div>
-      )}
-
       {logs.length > 0 && (
         <div className="panel">
           <div className="meta" style={{ marginBottom: 6 }}>{t("log")}</div>
@@ -1319,6 +1152,185 @@ export default function Home() {
           </div>
         </div>
       )}
+      </div>
+
+      {/* Kanan: setelan. Menepi, tidak lagi mendorong pratinjau dan
+          daftar klip keluar layar. Bergulir di dalam kotaknya sendiri. */}
+      <div className="screen-side">
+      {/* 2. Setelan render — dikelompokkan menurut pertanyaan yang dijawabnya:
+          dengan apa diproses, seperti apa hasilnya, bagaimana masuk bingkai,
+          dan berapa banyak klip. */}
+      <div className="panel">
+        <div className="meta" style={{ marginBottom: 14 }}>{t("renderSettings")}</div>
+
+        <div className="group">
+          <div className="group-title">{t("groupEngine")}</div>
+          <div className="row">
+            <div className="field"><label>{t("mode")}</label>
+              <select value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="offline">{t("modeOffline")}</option>
+                <option value="hybrid">{t("modeHybrid")}</option>
+              </select></div>
+            <div className="field"><label>{t("whisperModel")}</label>
+              <select value={model} onChange={(e) => setModel(e.target.value)}>
+                {models.map((m) => <option key={m.name} value={m.name}>{m.name} {m.size} {m.downloaded ? "✓" : `✗ ${t("modelNotDownloaded")}`}</option>)}
+              </select></div>
+          </div>
+        </div>
+
+        <div className="group">
+          <div className="group-title">{t("groupQuality")}</div>
+          <div className="row">
+            <div className="field"><label>{t("resolution")}</label>
+              <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+                <option value="720p">720p (HD)</option>
+                <option value="1080p">1080p (Full HD)</option>
+                <option value="1440p">1440p (2K)</option>
+              </select></div>
+            <div className="field"><label>{t("quality")}</label>
+              <select value={quality} onChange={(e) => setQuality(e.target.value)}>
+                <option value="draft">{t("qualityDraft")}</option>
+                <option value="hd">{t("qualityHd")}</option>
+                <option value="max">{t("qualityMax")}</option>
+              </select></div>
+            <div className="field"><label title={t("fpsTip")}>{t("fps")} ⓘ</label>
+              <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
+                <option value={0}>{t("fpsSource")}</option>
+                <option value={24}>24</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select></div>
+          </div>
+        </div>
+
+
+        <div className="group">
+          <div className="group-title">{t("groupClips")}</div>
+          <div className="row">
+            <div className="field"><label title={t("clipDurationTip")}>{t("clipDuration")} ⓘ</label>
+              <select value={durationPreset} onChange={(e) => setDurationPreset(e.target.value)}>
+                <option value="auto">{t("durationAuto")}</option>
+                <option value="30">{t("durationAbout", { n: "30s" })}</option>
+                <option value="60">{t("durationAbout", { n: "60s" })}</option>
+                <option value="90">{t("durationAbout", { n: "90s" })}</option>
+                <option value="120">{t("durationAbout", { n: "2 min" })}</option>
+                <option value="180">{t("durationAbout", { n: "3 min" })}</option>
+              </select></div>
+            <div className="field"><label title={t("maxClipsTip")}>{t("maxClips")} ⓘ</label>
+              <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
+            <div className="field"><label title={t("saveClipsTip")}>{t("saveClips")} ⓘ</label>
+              <select value={saveMode} onChange={(e) => setSaveMode(e.target.value)}>
+                <option value="burn">{t("saveBurn")}</option>
+                <option value="clean">{t("saveClean")}</option>
+                <option value="both">{t("saveBoth")}</option>
+              </select></div>
+          </div>
+        </div>
+      </div>
+
+      {/* 2b. Mesin AI (scoring) — berubah menurut mode */}
+      <div className="panel">
+        <div className="meta" style={{ marginBottom: 10 }}>{t("aiEngine", { mode })}</div>
+        {mode === "hybrid" ? (
+          <>
+            <div className="field">
+              <label>{t("apiKeyClaude")} {hasKey && <span className="ok">{t("keyStored")}</span>}</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={hasKey ? t("keyPlaceholderStored") : "sk-ant-..."} />
+                <button onClick={saveKey} disabled={!apiKey}>{t("save")}</button>
+              </div>
+            </div>
+            <div className="field">
+              <label>{t("claudeModel")}</label>
+              <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
+                <option value="claude-haiku-4-5">{t("claudeHaiku")}</option>
+                <option value="claude-sonnet-5">{t("claudeSonnet")}</option>
+                <option value="claude-opus-4-8">{t("claudeOpus")}</option>
+              </select>
+            </div>
+            {!hasKey && <div className="warnbox">{t("noKeyWarning")}</div>}
+          </>
+        ) : (
+          <>
+            <div className="field">
+              <label>{t("offlineEngine")}</label>
+              <select value={offlineEngine} onChange={(e) => setOfflineEngine(e.target.value)}>
+                <option value="ollama">{t("offlineOllama")}</option>
+                <option value="heuristic">{t("offlineHeuristic")}</option>
+              </select>
+              <div className="meta">{t("engineNoFallback")}</div>
+            </div>
+            {offlineEngine === "ollama" && (
+              <>
+                <div className="field">
+                  <label>{t("localModel")}</label>
+                  <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
+                    {ollamaInstalled.map((m) => {
+                      const specs = [m.params, m.quant, sizeGB(m.bytes)].filter(Boolean).join(" · ");
+                      return (
+                        <option key={m.name} value={m.name}>
+                          {m.name}{specs ? ` — ${specs}` : ""} {m.ready ? t("modelReady") : t("modelNotCapable")}
+                        </option>
+                      );
+                    })}
+                    {/* Saran hanya muncul bila belum terpasang — dicek per nama dasar
+                        supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest". */}
+                    {OLLAMA_SUGGESTED.filter((s) => !ollamaInstalled.some((m) => sameModel(m.name, s))).map((s) => (
+                      <option key={s} value={s}>{s} ({t("modelNeedsDownload")})</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="meta">
+                  {ollamaStatus === null ? t("checkingOllama")
+                    : !ollamaStatus.running ? (
+                      <span className="warn">{t("ollamaNotDetected")} <code>ollama serve</code>. <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button></span>
+                    ) : !selectedOllama ? (
+                      <span className="warn">{t("ollamaModelMissing", { model: ollamaModel })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}</button></span>
+                    ) : selectedOllama.ready ? (
+                      <span className="ok">{t("ollamaReady", { model: selectedOllama.name })}{selectedOllama.params ? ` (${selectedOllama.params})` : ""}</span>
+                    ) : (
+                      <span className="warn">{t("ollamaModelWeak", { model: selectedOllama.name, note: selectedOllama.note })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}</button></span>
+                    )}
+                  {ollamaStatus?.running && !ollamaInstalled.length && t("noModelsInstalled")}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* Koreksi transkrip berlaku di kedua mode, jadi ditaruh di luar
+            percabangan hybrid/offline. Ia memakai LLM juga saat mesin skornya
+            heuristik — peringatannya ditampilkan tepat di sini supaya tidak
+            mengagetkan saat job berhenti. */}
+        <div className="field" style={{ marginTop: 4 }}>
+          <label className="chk" title={t("transcriptFixTip")}>
+            <input type="checkbox" checked={transcriptFix}
+              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} ⓘ
+          </label>
+          {transcriptFix && (
+            <>
+              <div className="meta">{t("transcriptFixNote")}</div>
+              {mode !== "hybrid" && offlineEngine === "heuristic" && (
+                <div className="warn" style={{ marginTop: 6 }}>⚠ {t("transcriptFixNeedsLLM")}</div>
+              )}
+              {/* Daftar istilah menempel di bawah koreksi transkrip karena hanya
+                  tahap itu yang memakainya — tanpa centang di atas, isian ini
+                  tidak berpengaruh apa pun. */}
+              <div style={{ marginTop: 10 }}>
+                <label htmlFor="terms">{t("terms")}</label>
+                <input id="terms" type="text" value={terms}
+                  placeholder={t("termsPlaceholder")}
+                  onChange={(e) => setTerms(e.target.value)} />
+                <div className="meta" style={{ marginTop: 6 }}>{t("termsNote")}</div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      </div>
+      </div>
     </div>
   );
 }

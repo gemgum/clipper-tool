@@ -58,12 +58,116 @@
 
 * { box-sizing: border-box; }
 
+/* Kerangka aplikasi desktop.
+ *
+ * body jadi kolom flex setinggi layar, jadi halaman yang mau memenuhi jendela
+ * cukup memakai flex:1 — TANPA ada yang perlu tahu setinggi apa bilah navigasi.
+ * Angka ajaib seperti "calc(100dvh - 52px)" selalu meleset begitu navigasinya
+ * disentuh, dan melesetnya baru ketahuan sebagai gulir satu piksel.
+ *
+ * min-height, bukan height: halaman lama (klip, kartu) masih tumbuh ke bawah
+ * dan body-nya tetap boleh bergulir seperti sebelumnya. Yang pindah ke kerangka
+ * berzona memakai .screen di bawah. */
 body {
   margin: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
   line-height: 1.5;
+}
+
+/* Halaman berkerangka WAJIB membatasi tinggi body, bukan sekadar meminta
+ * minimum. Ini diukur, bukan diduga: dengan min-height saja, body tumbuh
+ * mengikuti isinya (1384 px pada jendela 505 px) dan flex:1 tidak punya sisa
+ * ruang untuk dibagi — jadi tidak ada yang menyusut dan gulirnya bocor ke
+ * halaman. Batasnya dipasang lewat :has() supaya HANYA halaman .screen yang
+ * terkunci; halaman lama tetap boleh bergulir seperti biasa. */
+body:has(.screen) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* .screen = halaman yang MEMENUHI jendela dan tidak pernah menggulir sendiri.
+ *
+ * Standar aplikasi desktop, dan ini bedanya dengan halaman web: bingkainya
+ * diam, isinya yang bergerak. Daftar panjang bergulir DI DALAM kotaknya
+ * (.screen-main / .screen-side), sehingga tombol dan status tidak pernah
+ * hilang dari layar — berapa pun panjang daftarnya.
+ *
+ * min-height:0 wajib ada: tanpa itu, flex item menolak menyusut lebih kecil
+ * dari isinya, dan seluruh gulir kembali bocor ke halaman. */
+.screen {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 0;
+  gap: 12px;
+}
+/* Baris kepala: judul di kiri, aksi di kanan. Tombol yang memulai pekerjaan
+   panjang harus selalu terjangkau — bukan tenggelam di bawah setelan. */
+.head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.head-actions { display: flex; gap: 8px; flex: none; }
+.head-progress { margin-top: 8px; }
+.head-progress .stage { margin-top: 4px; }
+
+/* Kepala dipadatkan: di kerangka yang tingginya tetap, tiap piksel yang dipakai
+   judul adalah piksel yang hilang dari daftar. */
+.screen-head { flex: none; }
+.screen-head h1 { font-size: 19px; margin: 0; }
+.screen-head .sub { margin: 2px 0 0; }
+.screen-head .warnbox,
+.screen-head .okbox,
+.screen-head .err { margin-top: 10px; }
+.screen .panel { margin-bottom: 12px; }
+.screen .panel:last-child { margin-bottom: 0; }
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 12px;
+  padding-bottom: 16px;
+}
+.screen-main, .screen-side {
+  min-height: 0;
+  overflow-y: auto;
+  /* Ruang untuk bilah gulirnya sendiri, supaya isi tidak menempel ke bilah. */
+  padding-right: 8px;
+  /* Bilah gulir tipis & senyap. Di kerangka yang isinya beberapa kotak
+     bergulir sekaligus, bilah bawaan yang tebal jadi bagian paling mencolok di
+     layar — padahal ia keterangan, bukan isi. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  overscroll-behavior: contain;
+}
+/* Path panjang di kolom sempit: dipotong satu baris dengan elipsis, bukan
+   dipatahkan di tengah kata sampai jadi empat baris. Alamat lengkapnya tetap
+   bisa dibaca lewat tooltip judulnya. */
+.screen-side .req-path {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Satu kolom penuh — halaman yang alurnya berurutan. */
+.screen-body.one { grid-template-columns: minmax(0, 1fr); }
+
+/* Di jendela sempit panel samping turun ke bawah, dan keduanya berbagi tinggi
+   yang sama — bukan menumpuk lalu memaksa halaman bergulir. */
+@media (max-width: 820px) {
+  .screen-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) minmax(0, 240px);
+  }
 }
 
 .wrap { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }

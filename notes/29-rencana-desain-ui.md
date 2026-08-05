@@ -37,6 +37,96 @@ di `globals.css` jadi token `@theme` lebih dulu**, dengan nilai yang sekarang.
 Halaman lama dan baru tetap bicara warna yang sama, jadi tidak terlihat seperti
 dua aplikasi. Nilainya tinggal ditimpa angka dari Figma nanti.
 
+## Arah tata letak (ditetapkan 5 Agustus 2026)
+
+Syarat dari pemilik proyek: **setiap fitur harus muat dalam satu jendela, tanpa
+menggeser ke atas-bawah maupun kiri-kanan.**
+
+Satu penegasan yang menentukan seluruh sisanya: **JENDELANYA yang tidak boleh
+bergulir, bukan setiap kotak di dalamnya.** Daftar 20 klip, kotak log, dan
+penjelajah berkas harus bergulir di dalam kotaknya sendiri — itu bukan
+pelanggaran, itu justru cara aplikasi desktop bekerja. Yang haram adalah harus
+menggulir HALAMAN untuk menemukan tombol.
+
+### Yang dipilih: kerangka berzona tetap
+
+Bingkai luar diam, isinya yang bergerak. Kepala (judul + keadaan) dan panel
+samping tetap di tempatnya; daftar panjang bergulir di dalam kotaknya. Pola yang
+sama dipakai HandBrake, Lightroom, DaVinci, LM Studio.
+
+Kelasnya: `.screen` → `.screen-head` + `.screen-body` (`.screen-main` +
+`.screen-side`), semuanya di `globals.css`.
+
+### Yang DITOLAK, dan alasannya
+
+- **F-shape** bukan sistem tata letak melainkan temuan pola BACA untuk halaman
+  berisi teks panjang. Clipper papan kendali, bukan bacaan — ia menjawab
+  pertanyaan yang tidak kita punya.
+- **Masonry** justru bertabrakan dengan syarat di atas: kolom bertinggi
+  bervariasi tumbuh ke bawah tanpa batas, jadi ia MENJAMIN gulir halaman.
+- **Neo-Brutalism** memakai warna pekat dan garis tebal sebagai hiasan di
+  mana-mana. Clipper penuh KEADAAN (hijau/merah, sedang mengunduh, skor, bilah
+  kemajuan); begitu semuanya berteriak, merah galat berhenti berarti galat —
+  kebalikan dari keputusan "dasar netral membuat warna jadi sinyal" di bawah.
+  Dua sifatnya yang tetap diambil karena memang sejalan: warna solid tanpa
+  gradien, dan garis 1 px yang tegas.
+
+### Dua hal yang hanya ketahuan dengan mengukur
+
+1. **`min-height` pada `body` TIDAK cukup.** Dengan `min-height: 100dvh`, body
+   tumbuh mengikuti isinya (terukur: 1384 px pada jendela 505 px), jadi `flex: 1`
+   tidak punya sisa ruang untuk dibagi — tidak ada yang menyusut, dan gulirnya
+   bocor ke halaman. Yang mengunci: `body:has(.screen) { height: 100dvh;
+   overflow: hidden }`. Dipagari `:has()` supaya HANYA halaman berkerangka yang
+   terkunci; halaman lama tetap bergulir seperti biasa. Sesudahnya:
+   `body = 505/505`, `main = 283/1162` — halaman diam, daftarnya bergulir.
+2. **`min-height: 0` wajib ada di setiap flex item yang membungkus area
+   bergulir.** Tanpa itu, flex item menolak menyusut lebih kecil daripada isinya
+   dan seluruh usaha di atas batal.
+
+Tinggi bilah navigasi TIDAK dipakukan sebagai angka. `calc(100dvh - 52px)`
+selalu meleset begitu navigasinya disentuh, dan melesetnya muncul sebagai gulir
+satu piksel yang sulit dilacak. Karena itu `body` jadi kolom flex dan halaman
+memakai `flex: 1` — tingginya terhitung sendiri.
+
+### Diverifikasi
+
+`/requirements` dipindah lebih dulu (halaman paling banyak keadaan, sesuai
+saran di bawah). Dipotret di **900×600** (batas terkecil) dan **1240×860**
+(ukuran bawaan jendela): jendela tidak bergulir di keduanya, tombol "Check
+again" selalu terlihat, dan halaman klip **0 piksel berubah** — kerangkanya
+tidak menyentuh halaman yang belum dipindah.
+
+**Ketiga halaman sudah dipindah.** Terukur di jendela 900×600 (tinggi viewport
+505 px):
+
+| Halaman | body | isi kolom utama |
+| --- | --- | --- |
+| `/requirements` | 505/505 | 283 / 1162 |
+| `/` klip | 505/505 | 372 / 1493 |
+| `/news` | 505/505 | 337 / 337 |
+
+`body = 505/505` di ketiganya: **jendelanya tidak pernah bergulir.** Kolomnya
+yang bergulir, dan hanya bila isinya memang lebih panjang.
+
+### Keputusan per halaman
+
+- **`/requirements`** — dua kolom. Kiri daftar komponen (yang ditindaklanjuti),
+  kanan letak folder + tombol "Check again" (keterangan, jarang disentuh).
+- **`/` klip** — dua kolom, DAN tombol **Mulai** dinaikkan ke kepala. Dulu ia
+  ada di bawah seluruh setelan, jadi ia hilang dari layar persis ketika pengguna
+  selesai menyetel dan ingin menekannya. Bilah kemajuan ikut ke kepala dengan
+  alasan yang sama. Kiri: sumber, pratinjau subtitle, log, hasil klip. Kanan:
+  setelan render + mesin AI.
+- **`/news`** — **satu kolom**, sengaja. Alurnya berurutan (tempel tautan →
+  pilih paragraf → setel kartu → unduh); memecahnya jadi dua kolom hanya
+  memutus urutan itu tanpa menghemat satu piksel pun. Kolom kedua menyusul
+  kalau desainnya nanti memang memintanya.
+
+Yang BELUM dikerjakan dan masih terasa sesak di 900×600: kotak seret-lepas di
+halaman klip memakan tinggi besar padahal ada juga tombol "pilih berkas" dan
+kolom path. Itu perapian isi, bukan kerangka.
+
 ## Batasan yang harus diketahui desainernya
 
 Empat hal ini sering dilanggar referensi, dan ketiganya baru ketahuan setelah
@@ -109,9 +199,25 @@ yang harus tampil sama di mana-mana.
 - Warna dipaku `stroke="#27292A"` (abu gelap): di antarmuka gelap Clipper nyaris
   tak terlihat. Perlu diganti `currentColor`.
 - Ukuran 16×16, stroke 1.5, konsisten — asal ikon dari sumber lain mengikuti.
-- **Lisensi belum diperiksa.** Ini kit milik produk lain dari Figma Community.
-  Untuk belajar wajar; untuk dibagikan sebagai aplikasi publik, ketentuannya
-  perlu dibaca dulu.
+- **Lisensi — SUDAH DIPERIKSA, dan ternyata tidak perlu diandalkan.** Berkas
+  gratis di Figma Community berlisensi CC BY 4.0 secara bawaan, yang memang
+  mengizinkan pemakaian komersial dan perubahan asalkan pembuatnya dikredit.
+  Tapi yang kita ambil dari kit ini hanyalah **gaya, palet, dan aturan tata
+  letak** — dan itu ide serta angka, bukan ekspresi berhak cipta. Diperiksa 5
+  Agustus 2026: **tidak ada satu pun berkas dari kit ini di repo.** Ikonnya
+  datang dari lucide-react, fontnya OFL dari Google Fonts.
+
+  Karena tidak ada aset mereka yang dikirim, **tidak ada yang perlu diatribusi**
+  — jadi tidak ada berkas kredit, dan tidak ada kewajiban yang harus dijaga
+  saat rilis.
+
+  Yang tetap dijauhi, sebab CC BY memang tidak mencakupnya: **merek** (nama dan
+  logo Xmind) dan **font NeverMind**, yang di kit itu diberi tombol unduh
+  terpisah — pola yang biasanya berarti lisensinya sendiri.
+
+  Kalau suatu saat aset kit-nya benar-benar dipakai, syaratnya berubah: wajib
+  ada kredit ke pembuatnya, tautan ke lisensinya, dan pernyataan bahwa ada yang
+  diubah.
 
 Pembanding: **lucide-react**, lisensi ISC (bebas komersial), satu dependensi,
 gaya seragam, menutup seluruh kebutuhan Clipper (gunting, unduh, folder, berkas,
