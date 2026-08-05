@@ -72,16 +72,36 @@ jadi mode pengembangan ikut terlindung tanpa harus menyalakan kunci di sana:
 | --- | --- | --- |
 | `Host` harus alamat mesin ini | DNS rebinding — di serangan itu Host berisi nama si penyerang, berapa pun IP yang akhirnya dituju | 403 |
 | Badan permintaan wajib `application/json` | POST lintas-asal yang tidak butuh preflight. Begitu jenisnya wajib JSON, browser wajib minta izin dulu — dan izin itu yang ditolak CORS | 415 |
-| `Sec-Fetch-Site: cross-site` ditolak | Bentuk yang tidak membawa Origin sama sekali: `<img src>`, `<script src>`, `<iframe>` | 403 |
+| `Sec-Fetch-Site: cross-site` ditolak — seluruhnya saat terpasang, yang tanpa Origin saja saat checkout | `<img src>`, `<script src>`, navigasi dari halaman asing: bentuk yang tidak membawa Origin sama sekali, jadi tak terlihat CORS | 403 |
 
 Urutan lapisannya sekarang `withGuard(withCORS(withToken(mux)))` — dari yang
 paling murah & luas ke yang paling sempit.
 
 Tiga hal yang sengaja **tidak** ditolak, dan alasannya:
 
-- **`same-site`**, bukan hanya `same-origin`: GUI pengembangan di `:3000`
-  menghubungi engine di `:8787`, dan bagi browser itu same-site. Menolaknya
-  berarti mematikan alur pengembangan demi serangan yang sudah tertutup Origin.
+- **`cross-site` yang membawa Origin — tapi hanya saat kunci mati.** Ini sempat
+  salah dan menghasilkan bug (lihat di bawah): `localhost` dan `127.0.0.1`
+  adalah host **berbeda** bagi browser, jadi GUI pengembangan di
+  `localhost:3000` yang menghubungi engine di `127.0.0.1:8787` dilabeli
+  `cross-site` — sama persis dengan halaman penyerang. Jendela Tauri dengan asal
+  `http://tauri.localhost` jatuh di keranjang yang sama.
+
+  Ketatnya karena itu **mengikuti keadaan kunci**, dan itu bukan kompromi
+  melainkan pengamatan: saat terpasang, GUI disajikan engine sendiri, jadi
+  setiap permintaan yang sah adalah same-origin dan tidak ada satu pun
+  cross-site yang wajar — semuanya ditolak. Saat checkout, yang ditolak hanya
+  yang tidak membawa Origin; sisanya diserahkan ke CORS, yang memang membedakan
+  halaman lokal dari halaman internet.
+
+  | Permintaan | Terpasang | Checkout |
+  | --- | --- | --- |
+  | same-origin (alur aplikasi jadi) | 200 | 200 |
+  | cross-site + Origin lokal (`npm run dev`) | **403** | 200 |
+  | cross-site tanpa Origin (`<img src>`) | 403 | 403 |
+  | cross-site + Origin dari internet | 403 | 403 |
+
+  Hasilnya: build yang dikirim ke pengguna seketat versi pertama, alur
+  pengembangan tetap hidup, dan tidak ada mode yang kehilangan penjaga.
 - **`OPTIONS`** tidak dinilai dari Content-Type — preflight memang tanpa badan,
   dan menolaknya berarti menolak permintaan yang justru sedang meminta izin.
 - **`/api/upload`** tetap multipart: videonya bisa bergiga-giga dan harus
@@ -91,6 +111,24 @@ Tiga hal yang sengaja **tidak** ditolak, dan alasannya:
 dari `main.go`). Mengikat ke alamat non-loopback adalah keputusan sadar, dan
 menolaknya di sini berarti flag itu diam-diam tidak berfungsi. `0.0.0.0`/`::`
 tidak ikut — itu cara mendengar, bukan nama yang bisa dituju.
+
+### Bug yang dibuat lalu diperbaiki: `npm run dev` mati total
+
+Versi pertama penjaga ini menolak **setiap** `Sec-Fetch-Site: cross-site`.
+Akibatnya `cd gui && npm run dev` lalu membuka `http://localhost:3000` menjawab
+"Cannot reach the engine at http://127.0.0.1:8787" di ketiga halaman — 403 di
+tiap permintaan API.
+
+Sebabnya satu kalimat yang saya kira benar dan ternyata tidak: **bagi browser,
+`localhost` dan `127.0.0.1` bukan host yang sama.** Jadi label yang dikirimnya
+bukan `same-site` melainkan `cross-site`.
+
+Yang membuatnya sulit terlihat: uji unitnya lulus (saya menguji `same-site`,
+label yang sebenarnya tidak pernah muncul di alur itu), dan uji browser saya
+membuka `127.0.0.1:8787` langsung — satu-satunya alur yang memang tidak
+terpengaruh. Pelajaran yang lebih umum daripada bugnya: **kalau sebuah penjaga
+menilai "asal", ujilah lewat asal yang sebenarnya dipakai, bukan lewat nilai
+header yang diketik sendiri.**
 
 ### Yang ikut berubah di GUI
 
@@ -199,23 +237,90 @@ Lalu, dengan `T` = token dari `data/engine.json` dan `B=http://127.0.0.1:8787`:
 
 Kesebelasnya sudah dijalankan pada 5 Agustus 2026 dan hasilnya sesuai.
 
-## Yang BELUM diuji, dan harus
+## Uji browser: cara menjalankannya di WSL
 
-**GUI belum pernah benar-benar dibuka di browser dengan CSP dan cookie yang
-baru** — di mesin pengembangan ini tidak ada Chrome yang terpasang. Yang sudah
-dibuktikan hanyalah yang bisa diperiksa tanpa merender: `gui/out` tidak memuat
-`eval`/`new Function`, tidak memuat alamat luar selain di teks pesan galat, dan
-tidak lagi menyusun `token=` ke URL mana pun.
+Chrome **ada** di mesin pengembangan ini — Chrome Windows lewat `/mnt/c`, yang
+memang sudah dipakai engine untuk kartu berita (`capture.Find()`). Chrome Windows
+bisa menghubungi engine di WSL lewat `127.0.0.1` (localhost forwarding WSL2),
+jadi uji browser tidak butuh alat tambahan apa pun:
 
-Uji yang menutup sisanya, dan yang harus dijalankan sebelum rilis:
+```bash
+CHROME="/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+"$CHROME" --headless=new --disable-gpu --user-data-dir='C:\Users\Public\clipper-qa' \
+  --enable-logging=stderr --v=1 --window-size=1240,860 --virtual-time-budget=9000 \
+  --screenshot='C:\Users\Public\shot.png' "<alamat open: dari banner>"
+```
 
-1. `./build.sh && ./bin/clipper serve -token on`, buka alamat "open:" di browser;
-2. buka konsol pengembang — **tidak boleh ada pelanggaran CSP**;
-3. jalankan satu job sampai selesai: itu menyentuh SSE (`EventSource`),
-   `<video src>`, dan tautan unduh sekaligus — tepat ketiga hal yang dulu memaksa
-   kunci ditaruh di query;
-4. buka tab kartu berita: itu menguji `img-src` terhadap gambar dari media;
-5. **cabut jaringan, buka aplikasi** — uji "nol alamat luar" dari `notes/29`.
+Pelanggaran CSP muncul di stderr sebagai baris `Refused to …`. Dua jebakan yang
+sudah kena sekali, supaya tidak berulang:
+
+- **`--dump-dom` tidak akan pernah selesai di halaman Requirements**: halaman itu
+  membuka `EventSource` yang memang tidak pernah menutup, jadi Chrome menunggu
+  selamanya. Pakai `--screenshot`, atau uji SSE-nya lewat `curl -N` saja.
+- **Cookie sesi mati bersama proses Chrome.** Tiap pemanggilan headless adalah
+  proses baru, jadi setiap kali harus lewat `?token=` lagi. Ini bukan cacat
+  produk — jendela aplikasi sungguhan tetap terbuka — tapi kalau lupa,
+  halamannya melapor "Cannot reach the engine" dan terlihat seperti bug.
+- Chrome yang tertinggal harus dimatikan **berdasarkan baris perintahnya**
+  (`CommandLine -like '*clipper-qa*'`), bukan `taskkill /IM chrome.exe` — yang
+  terakhir ikut menutup browser pengguna beserta seluruh tabnya.
+
+### Sudah lulus (5 Agustus 2026)
+
+| Yang diuji | Hasil |
+| --- | --- |
+| `/` dibuka dengan `?token=` | terender penuh, data dari API terisi (daftar model dengan ✓/✗) |
+| `/news` | terender penuh |
+| Pelanggaran CSP di ketiga halaman | **nol** |
+| `token=` tersisa di DOM/bilah alamat | **nol** |
+| SSE `/api/requirements/events` dengan cookie | aliran bertahan |
+| SSE yang sama tanpa cookie | 401 seketika |
+| `gui/out` memuat `eval`/`new Function` | tidak ada |
+| `gui/out` memuat alamat luar | hanya di teks pesan galat Next/React |
+
+### Masih harus, sebelum rilis
+
+1. **Satu job sampai selesai.** Itu menyentuh SSE progres, `<video src>`, dan
+   tautan unduh sekaligus — tepat ketiga hal yang dulu memaksa kunci ditaruh di
+   query. Belum diuji karena butuh video sungguhan.
+2. **Buat satu kartu berita** dengan gambar dari medianya — itu yang menguji
+   `img-src` terhadap host luar.
+3. **Cabut jaringan, buka aplikasi** — uji "nol alamat luar" dari `notes/29`.
+4. **Di Windows, di jendela Tauri yang sebenarnya.** Yang diuji di sini Chrome,
+   sedangkan aplikasinya memakai WebView2. Keduanya Chromium, tapi bukan hal yang
+   sama — dan Windows adalah sasaran uji penetrasinya.
+
+## Asal non-http: disebut satu per satu
+
+`localOrigin` dulu berbunyi "selain http/https, terima saja". Niatnya tiga skema
+shell desktop (`tauri://`, `app://`, `file://`), tapi yang tertulis adalah
+SEMUA — `chrome-extension://` dan skema karangan mana pun ikut lolos CORS.
+
+Kuncinya tetap menahan permintaannya, jadi itu bukan lubang di aplikasi
+terpasang; ia longgar tanpa satu pun alasan, dan longgar tanpa alasan adalah
+yang paling mudah jadi temuan. Sekarang daftarnya tertutup (`shellSchemes`).
+
+## Batas yang tidak ditutup penjaga mana pun — siapkan jawabannya
+
+Ini bukan cacat, ini bentuk sistemnya. Ditulis supaya jawabannya tidak dikarang
+saat laporan datang:
+
+- **Header adalah penjaga untuk BROWSER, bukan untuk program.** Program apa pun
+  yang jalan sebagai penggunanya bisa menyetel `Host`, `Origin`, dan
+  `Sec-Fetch-Site` sesukanya — seluruh tabel di atas dihasilkan `curl` yang
+  melakukan persis itu. Yang menghentikan program lokal hanyalah kunci sesi, dan
+  kunci itu ada di `engine.json` yang bisa dibaca proses milik pengguna yang
+  sama (0600 melindungi dari pengguna LAIN). Itu memang batas kepercayaan yang
+  ditulis di `28`: apa pun di balik kunci dianggap penggunanya sendiri.
+- **`SameSite=Strict` ditegakkan browser, bukan engine.** Penguji mungkin
+  melaporkan "tidak ada token CSRF". Jawabannya: pertahanannya berlapis —
+  cookie tidak pernah dikirim lintas-situs, Origin diperiksa di server,
+  `cross-site` ditolak, dan badan permintaan wajib `application/json` sehingga
+  bentuk POST sederhana tidak bisa dipakai sama sekali.
+- **Mode checkout tetap tanpa kunci.** `./bin/clipper serve` dari sumber berarti
+  port 8787 tanpa kunci, dan program lokal mana pun bisa memerintah engine. Itu
+  bukan build yang dikirim — pastikan yang diuji adalah hasil pemasangan, bukan
+  checkout.
 
 ## Yang tetap dibiarkan
 

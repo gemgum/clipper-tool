@@ -9,21 +9,18 @@ func TestReframeCheck(t *testing.T) {
 	if err := ReframeFit.Check(); err != nil {
 		t.Errorf("fit seharusnya tersedia: %v", err)
 	}
-	if err := ReframeFaceFollow.Check(); err == nil {
-		t.Error("face_follow belum dibuat, seharusnya ditolak — bukan diam-diam dirender sebagai center")
-	}
 	if err := Reframe("nonsense").Check(); err == nil {
 		t.Error("mode tak dikenal seharusnya ditolak")
 	}
 }
 
-// Validate ikut menolak mode yang belum tersedia, jadi job berhenti di depan
+// Validate ikut menolak mode yang tidak dikenal, jadi job berhenti di depan
 // dengan pesan jelas alih-alih menghasilkan klip yang tidak sesuai pilihan.
-func TestValidateRejectsFaceFollow(t *testing.T) {
+func TestValidateRejectsAnUnknownReframe(t *testing.T) {
 	o := DefaultOptions()
-	o.Reframe = ReframeFaceFollow
+	o.Reframe = Reframe("nonsense")
 	if err := o.Validate(); err == nil {
-		t.Fatal("Validate seharusnya menolak face_follow")
+		t.Fatal("Validate seharusnya menolak mode reframe yang tidak dikenal")
 	}
 
 	o = DefaultOptions()

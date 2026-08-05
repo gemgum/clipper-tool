@@ -336,9 +336,9 @@ const correctionTemperature = 0.1
 // correctionProvider memilih LLM untuk koreksi transkrip.
 //
 // Koreksi butuh LLM walau mesin skornya heuristik, jadi providernya diturunkan
-// dari MODE, bukan dari Provider: hybrid/online → Claude, selain itu → Ollama.
+// dari MODE, bukan dari Provider: hybrid → Claude, selain itu → Ollama.
 func correctionProvider(o config.Options) string {
-	if o.Mode == config.ModeHybrid || o.Mode == config.ModeOnline {
+	if o.Mode == config.ModeHybrid {
 		return "claude"
 	}
 	return "ollama"

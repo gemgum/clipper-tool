@@ -1114,7 +1114,6 @@ export default function Home() {
                 <select value={reframe} onChange={(e) => changeReframe(e.target.value)}>
                   <option value="center">{t("fitCenter")}</option>
                   <option value="fit">{t("fitWhole")}</option>
-                  <option value="face_follow" disabled>{t("fitFace")}</option>
                 </select></div>
               <div className="field"><label title={t("backgroundTip")}>{t("background")} ⓘ</label>
                 <select value={background} onChange={(e) => setBackground(e.target.value)}

@@ -15,7 +15,6 @@ type Mode string
 const (
 	ModeOffline Mode = "offline"
 	ModeHybrid  Mode = "hybrid"
-	ModeOnline  Mode = "online"
 )
 
 // Reframe menentukan cara membuat rasio 9:16.
@@ -32,26 +31,18 @@ const (
 	// gambar masuk. Sisa ruangnya diisi Background — inilah alasan pilihan blur
 	// & hitam ada. "Whole Picture" di antarmuka.
 	ReframeFit Reframe = "fit"
-
-	// ReframeFaceFollow: potong mengikuti wajah. "Follow Face" di antarmuka.
-	ReframeFaceFollow Reframe = "face_follow" // BELUM TERSEDIA
 )
 
-// Check melaporkan apakah mode reframe ini sudah bisa dipakai.
+// Check melaporkan apakah mode reframe ini dikenali.
 //
-// face_follow sudah punya nama dan rencana, tapi deteksi wajahnya belum ada di
-// worker C++. Tanpa pemeriksaan ini ffmpeg diam-diam merendernya sebagai center
-// — persis jenis penggantian senyap yang dilarang di notes/12.
+// Mode asing ditolak, bukan diam-diam dirender sebagai center — persis jenis
+// penggantian senyap yang dilarang di notes/12.
 func (r Reframe) Check() error {
 	switch r {
 	case ReframeCenter, ReframeFit:
 		return nil
-	case ReframeFaceFollow:
-		return fmt.Errorf("reframe mode %q is not available yet (face detection in the C++ worker is not built) — use %q or %q",
-			r, ReframeCenter, ReframeFit)
-	default:
-		return fmt.Errorf("unknown reframe mode %q — choose %q or %q", r, ReframeCenter, ReframeFit)
 	}
+	return fmt.Errorf("unknown reframe mode %q — choose %q or %q", r, ReframeCenter, ReframeFit)
 }
 
 // Background = isi ruang kosong saat video tidak memenuhi bingkai 9:16 —
@@ -116,15 +107,6 @@ const (
 	TranscriptFixOff = "off"
 )
 
-// ScoreEngine menentukan mesin penilaian.
-type ScoreEngine string
-
-const (
-	ScoreHeuristic    ScoreEngine = "heuristic"
-	ScoreHeuristicLLM ScoreEngine = "heuristic_llm"
-	ScoreLLM          ScoreEngine = "llm"
-)
-
 // Paths ke binary & folder yang dipakai engine. Folder-foldernya berasal dari
 // Layout — lihat layout.go untuk alasan pemisahannya.
 type Paths struct {
@@ -159,10 +141,6 @@ type Subtitle struct {
 	Mode           string `json:"mode"`
 	HighlightColor string `json:"highlight_color"` // warna sorot untuk karaoke/word
 	Speed          string `json:"speed"`           // slow | normal | dense
-
-	// Karaoke: field lama, dipertahankan agar preset tersimpan tidak rusak.
-	// Diterjemahkan ke Mode="karaoke" saat Validate.
-	Karaoke bool `json:"karaoke"`
 }
 
 // Mode subtitle yang dikenali.
@@ -196,24 +174,20 @@ func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 type Options struct {
 	Mode           Mode        `json:"mode"`
 	Language       string      `json:"language"`
-	WhisperModel   string      `json:"whisper_model"`
-	Device         string      `json:"device"`
-	Aspect         string      `json:"aspect"`
-	Resolution     string      `json:"resolution"` // 720p | 1080p | 1440p
-	Quality        string      `json:"quality"`    // draft | hd | max
-	FPS            int         `json:"fps"`        // 0 = ikut sumber
-	Reframe        Reframe     `json:"reframe"`
-	Background     string      `json:"background"`     // blur | black
-	Zoom           int         `json:"zoom"`           // 0..100, kelipatan 5
-	SubtitleStyle  string      `json:"subtitle_style"` // plain | viral (fallback warna)
-	Subtitle       Subtitle    `json:"subtitle"`
-	SubtitleOutput string      `json:"subtitle_output"` // burn | clean | both
-	MaxClips       int         `json:"max_clips"`
-	DurationPreset string      `json:"duration_preset"` // auto | 30 | 60 | 90 | 120 | 180
-	TargetMin      float64     `json:"target_min"`
-	TargetMax      float64     `json:"target_max"`
-	ScoreEngine    ScoreEngine `json:"score_engine"`
-	TranscriptFix  string      `json:"transcript_fix"` // on | off (default on)
+	WhisperModel   string   `json:"whisper_model"`
+	Resolution     string   `json:"resolution"` // 720p | 1080p | 1440p
+	Quality        string   `json:"quality"`    // draft | hd | max
+	FPS            int      `json:"fps"`        // 0 = ikut sumber
+	Reframe        Reframe  `json:"reframe"`
+	Background     string   `json:"background"` // blur | black
+	Zoom           int      `json:"zoom"`       // 0..100, kelipatan 5
+	Subtitle       Subtitle `json:"subtitle"`
+	SubtitleOutput string   `json:"subtitle_output"` // burn | clean | both
+	MaxClips       int      `json:"max_clips"`
+	DurationPreset string   `json:"duration_preset"` // auto | 30 | 60 | 90 | 120 | 180
+	TargetMin      float64  `json:"target_min"`
+	TargetMax      float64  `json:"target_max"`
+	TranscriptFix  string   `json:"transcript_fix"` // on | off (default on)
 	// Terms adalah ejaan baku nama & istilah khas video ini, dipakai tahap
 	// koreksi untuk menarik salah dengar ke ejaan yang benar. Whisper tidak
 	// mengenal nama daerah atau istilah Jawa, jadi ia menuliskannya sebagai kata
@@ -234,19 +208,15 @@ func DefaultOptions() Options {
 		Mode:           ModeOffline,
 		Language:       "id",
 		WhisperModel:   "small",
-		Device:         "cpu",
-		Aspect:         "9:16",
 		Resolution:     "1080p",
 		Quality:        "hd",
 		Reframe:        ReframeCenter,
 		Background:     BackgroundBlur,
 		Zoom:           ZoomCenterNatural,
-		SubtitleStyle:  "plain",
 		Subtitle:       DefaultSubtitle(),
 		SubtitleOutput: OutputBurn,
 		MaxClips:       10,
 		DurationPreset: "auto",
-		ScoreEngine:    ScoreHeuristic,
 		TranscriptFix:  TranscriptFixOn,
 		// Provider sengaja kosong: Validate memilih menurut mode (offline →
 		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
@@ -289,12 +259,6 @@ func (o *Options) Validate() error {
 	if o.WhisperModel == "" {
 		o.WhisperModel = d.WhisperModel
 	}
-	if o.Device == "" {
-		o.Device = d.Device
-	}
-	if o.Aspect == "" {
-		o.Aspect = d.Aspect
-	}
 	if o.Resolution == "" {
 		o.Resolution = d.Resolution
 	}
@@ -331,9 +295,6 @@ func (o *Options) Validate() error {
 		o.Zoom = min
 	}
 
-	if o.SubtitleStyle == "" {
-		o.SubtitleStyle = d.SubtitleStyle
-	}
 	// Lengkapi subtitle yang kosong.
 	ds := DefaultSubtitle()
 	if o.Subtitle.Font == "" {
@@ -349,11 +310,7 @@ func (o *Options) Validate() error {
 		o.Subtitle.Y = ds.Y
 	}
 	if o.Subtitle.Color == "" {
-		if o.SubtitleStyle == "viral" {
-			o.Subtitle.Color = "yellow"
-		} else {
-			o.Subtitle.Color = ds.Color
-		}
+		o.Subtitle.Color = ds.Color
 	}
 	if o.Subtitle.Outline < 0 {
 		o.Subtitle.Outline = ds.Outline
@@ -361,15 +318,10 @@ func (o *Options) Validate() error {
 	if o.Subtitle.OutlineColor == "" {
 		o.Subtitle.OutlineColor = ds.OutlineColor
 	}
-	// Mode: kosong → ikut field lama "karaoke" bila diset, selain itu normal.
 	switch o.Subtitle.Mode {
 	case SubNormal, SubKaraoke, SubWord:
 	default:
-		if o.Subtitle.Karaoke {
-			o.Subtitle.Mode = SubKaraoke
-		} else {
-			o.Subtitle.Mode = SubNormal
-		}
+		o.Subtitle.Mode = SubNormal
 	}
 	if o.Subtitle.HighlightColor == "" {
 		o.Subtitle.HighlightColor = ds.HighlightColor
@@ -410,7 +362,7 @@ func (o *Options) Validate() error {
 	}
 	// Provider default menurut mode (pipeline yang memakainya).
 	if o.Provider == "" {
-		if o.Mode == ModeHybrid || o.Mode == ModeOnline {
+		if o.Mode == ModeHybrid {
 			o.Provider = "claude"
 		} else {
 			o.Provider = "ollama"
@@ -453,17 +405,7 @@ func (o Options) Dims() (int, int) {
 	case "1440p":
 		long = 2560
 	}
-	switch o.Aspect {
-	case "9:16":
-		return roundEven(long * 9 / 16), long
-	case "16:9":
-		return long, roundEven(long * 9 / 16)
-	case "1:1":
-		s := long * 9 / 16
-		return roundEven(s), roundEven(s)
-	default:
-		return roundEven(long * 9 / 16), long
-	}
+	return roundEven(long * 9 / 16), long
 }
 
 // Encode mengembalikan parameter crf & preset x264 sesuai kualitas.

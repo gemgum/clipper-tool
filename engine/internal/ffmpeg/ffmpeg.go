@@ -115,7 +115,7 @@ type EncodeOpts struct {
 	Preset     string
 	AssPath    string // subtitle .ass; kosong = tanpa subtitle
 	FontsDir   string // dir font untuk libass
-	Mode       string // center | fit | face_follow
+	Mode       string // center | fit
 	Background string // blur | black — isi ruang kosong yang tersisa
 	Zoom       int    // 5..100 persen ukuran video dalam bingkai
 	FPS        int    // 0 = ikut sumber
@@ -127,13 +127,12 @@ type EncodeOpts struct {
 // sumber, sebab dulu keduanya menyusun filter sendiri-sendiri dan preview
 // tertinggal ketika perilaku render berubah.
 //
-// Mode menentukan CARA video dipasangkan ke bingkai 9:16 — tiga pilihan yang
+// Mode menentukan CARA video dipasangkan ke bingkai 9:16 — dua pilihan yang
 // berdiri sendiri, bukan titik pada satu sumbu:
 //
-//	center      : potong tengah sampai memenuhi bingkai;
-//	fit         : ambil SELURUH resolusi video tanpa crop. Sisa ruangnya diisi
-//	              Background — inilah alasan blur & hitam ada;
-//	face_follow : potong mengikuti wajah (BELUM TERSEDIA).
+//	center : potong tengah sampai memenuhi bingkai;
+//	fit    : ambil SELURUH resolusi video tanpa crop. Sisa ruangnya diisi
+//	         Background — inilah alasan blur & hitam ada.
 //
 // Zoom dibaca RELATIF terhadap titik awal modenya, jadi artinya berbeda di tiap
 // mode. Itu disengaja: yang sama di keduanya adalah "0 sampai naik = makin
@@ -147,7 +146,7 @@ type EncodeOpts struct {
 // Keduanya berhenti di 100: di situ gambar sudah memenuhi bingkai, dan
 // memperbesarnya lagi tidak menambah apa pun selain memotong lebih banyak.
 type Layout struct {
-	Mode       string // center | fit | face_follow
+	Mode       string // center | fit
 	Background string // blur | black — mengisi ruang kosong yang tersisa
 	Zoom       int    // persen; artinya bergantung Mode (lihat di atas)
 }
@@ -245,13 +244,7 @@ func clampZoom(zoom, whenUnset int) int {
 	if zoom <= 0 && whenUnset > 0 {
 		return whenUnset
 	}
-	if zoom < 0 {
-		return 0
-	}
-	if zoom > maxZoom {
-		return maxZoom
-	}
-	return zoom
+	return min(maxZoom, max(0, zoom))
 }
 
 func evenBox(n int) int {

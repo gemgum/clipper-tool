@@ -117,8 +117,8 @@ func TestPreflightIsNotJudgedByItsContentType(t *testing.T) {
 
 // Sec-Fetch-Site dipasang browser sendiri dan tidak bisa disetel halaman. Ia
 // menangkap bentuk yang tidak membawa Origin sama sekali — <img src>,
-// <script src>, <iframe> — yang lolos dari pemeriksaan CORS.
-func TestACrossSiteFetchIsRefused(t *testing.T) {
+// <script src>, navigasi dari halaman asing — yang lolos dari pemeriksaan CORS.
+func TestACrossSiteRequestWithoutAnOriginIsRefused(t *testing.T) {
 	s := &Server{}
 	r := httptest.NewRequest("GET", "/api/browse", nil)
 	r.Header.Set("Sec-Fetch-Site", "cross-site")
@@ -128,18 +128,75 @@ func TestACrossSiteFetchIsRefused(t *testing.T) {
 	}
 }
 
-// GUI pengembangan di :3000 menghubungi engine di :8787; bagi browser itu
-// "same-site", bukan "cross-site". Menolaknya berarti mematikan alur
-// pengembangan demi serangan yang sudah tertutup pemeriksaan Origin.
+// GUI pengembangan di localhost:3000 menghubungi engine di 127.0.0.1:8787.
+// "localhost" dan "127.0.0.1" adalah host BERBEDA bagi browser, jadi labelnya
+// "cross-site" — sama persis dengan halaman penyerang. Yang membedakan keduanya
+// hanya Origin, dan itulah kenapa label ini tidak boleh dipakai sendirian DI
+// MODE PENGEMBANGAN.
+//
+// Pernah dilanggar sekali: menolak semua "cross-site" membuat `npm run dev`
+// menjawab "Cannot reach the engine" di ketiga halaman.
 func TestTheDevelopmentGUIIsNotMistakenForAnAttacker(t *testing.T) {
-	for _, site := range []string{"same-origin", "same-site", "none"} {
-		s := &Server{}
+	for _, origin := range []string{
+		"http://localhost:3000", "http://127.0.0.1:3000", "http://tauri.localhost",
+	} {
+		s := &Server{} // kunci mati = checkout sumber
 		r := httptest.NewRequest("GET", "/api/browse", nil)
-		r.Header.Set("Sec-Fetch-Site", site)
-		r.Header.Set("Origin", "http://localhost:3000")
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		r.Header.Set("Origin", origin)
 		if rec := serveWith(t, s, r); rec.Code != 200 {
-			t.Errorf("sec-fetch-site %q: kode = %d, mau 200", site, rec.Code)
+			t.Errorf("origin %q: kode = %d, mau 200", origin, rec.Code)
 		}
+	}
+}
+
+// Begitu kunci menyala, aplikasinya terpasang: GUI disajikan engine sendiri,
+// jadi setiap permintaan yang sah adalah same-origin. Tidak ada cross-site yang
+// wajar, jadi tidak ada yang perlu dimaafkan — termasuk yang Origin-nya lokal.
+//
+// Inilah yang membuat build yang dikirim ke pengguna seketat mungkin tanpa
+// mematikan alur pengembangan.
+func TestAnInstalledEngineRefusesEveryCrossSiteRequest(t *testing.T) {
+	for _, origin := range []string{
+		"http://localhost:3000", "http://tauri.localhost", "",
+	} {
+		s := &Server{token: "rahasia"}
+		r := httptest.NewRequest("GET", "/api/browse", nil)
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		if origin != "" {
+			r.Header.Set("Origin", origin)
+		}
+		r.AddCookie(&http.Cookie{Name: CookieName, Value: "rahasia"})
+		if rec := serveWith(t, s, r); rec.Code != 403 {
+			t.Errorf("origin %q: kode = %d, mau 403", origin, rec.Code)
+		}
+	}
+}
+
+// Yang same-origin tetap jalan saat kunci menyala — itu seluruh alur aplikasi
+// terpasang, jadi kalau ini ikut tertolak aplikasinya mati.
+func TestAnInstalledEngineStillServesItsOwnPages(t *testing.T) {
+	s := &Server{token: "rahasia"}
+	r := httptest.NewRequest("GET", "/api/browse", nil)
+	r.Header.Set("Sec-Fetch-Site", "same-origin")
+	r.Header.Set("Origin", "http://127.0.0.1:8787")
+	r.AddCookie(&http.Cookie{Name: CookieName, Value: "rahasia"})
+
+	if rec := serveWith(t, s, r); rec.Code != 200 {
+		t.Fatalf("kode = %d, mau 200", rec.Code)
+	}
+}
+
+// Halaman dari internet tetap ditolak walau membawa Origin — di situ lapisan
+// CORS yang menjawab, dan jawabannya 403.
+func TestACrossSiteRequestFromTheInternetIsStillRefused(t *testing.T) {
+	s := &Server{}
+	r := httptest.NewRequest("GET", "/api/browse", nil)
+	r.Header.Set("Sec-Fetch-Site", "cross-site")
+	r.Header.Set("Origin", "https://penyerang.example")
+
+	if rec := serveWith(t, s, r); rec.Code != 403 {
+		t.Fatalf("kode = %d, mau 403", rec.Code)
 	}
 }
 

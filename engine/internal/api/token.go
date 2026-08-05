@@ -186,11 +186,18 @@ func localOrigin(origin string) bool {
 		// menunjuk ke mesin sendiri.
 		return host == "127.0.0.1" || host == "localhost" || host == "::1" ||
 			strings.HasSuffix(host, ".localhost")
-	default:
-		// Skema milik shell desktop (tauri://, app://, file://).
-		return true
 	}
+	// Skema milik shell desktop, disebut satu per satu.
+	//
+	// Dulu di sini "selain http/https, terima saja". Niatnya tiga skema di
+	// bawah, tapi yang tertulis adalah SEMUA — termasuk chrome-extension:// dan
+	// skema karangan mana pun. Kuncinya tetap menahan permintaannya, jadi ini
+	// bukan lubang; ia hanya longgar tanpa satu pun alasan.
+	return shellSchemes[u.Scheme]
 }
+
+// shellSchemes = asal non-http yang dipakai shell desktop.
+var shellSchemes = map[string]bool{"tauri": true, "app": true, "file": true}
 
 // withCORS memberi izin baca hanya kepada halaman lokal.
 func withCORS(next http.Handler) http.Handler {

@@ -704,15 +704,7 @@ func (b *Builder) fonts() template.CSS {
 //
 // Batas bawahnya 1: di bawah itu foto lebih kecil dari bingkainya dan menyisakan
 // celah kosong di tepi kartu.
-func clampZoom(z float64) float64 {
-	switch {
-	case z <= 1:
-		return 1
-	case z > 4:
-		return 4
-	}
-	return z
-}
+func clampZoom(z float64) float64 { return min(4, max(1, z)) }
 
 // offsetLimit = sejauh mana foto boleh digeser tanpa memunculkan celah kosong.
 // Pada zoom Z, foto jadi Z kali ukuran bingkai, jadi sisa ruangnya (Z-1)/2 di
@@ -723,15 +715,7 @@ func offsetLimit(size int, zoom float64) int {
 	return int(float64(size) * (zoom - 1) / 2)
 }
 
-func clamp(v, limit int) int {
-	if v > limit {
-		return limit
-	}
-	if v < -limit {
-		return -limit
-	}
-	return v
-}
+func clamp(v, limit int) int { return min(limit, max(-limit, v)) }
 
 func firstNonEmpty(v ...string) string {
 	for _, s := range v {

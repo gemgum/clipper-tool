@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -26,7 +27,25 @@ import (
 //	                 dan preflight itulah yang ditolak CORS;
 //	Sec-Fetch-Site   penanda yang dipasang browser sendiri dan tidak bisa
 //	                 dipalsukan halaman. Menangkap bentuk yang tidak membawa
-//	                 Origin sama sekali, mis. <img src> dan <script src>.
+//	                 Origin sama sekali, mis. <img src> dan <script src> —
+//	                 satu-satunya celah yang lolos dari pemeriksaan Origin.
+//
+// Seberapa ketat "cross-site" ditolak mengikuti KEADAAN KUNCI, dan itu bukan
+// kompromi melainkan pengamatan:
+//
+//	kunci menyala  aplikasi terpasang. GUI disajikan engine sendiri, jadi setiap
+//	(terpasang)    permintaan yang sah adalah same-origin — tidak ada satu pun
+//	               cross-site yang wajar. Semuanya ditolak, titik.
+//	kunci mati     checkout sumber. Di sini `npm run dev` di localhost:3000
+//	(pengembangan) menghubungi engine di 127.0.0.1:8787, dan bagi browser itu
+//	               "cross-site" sebab localhost dan 127.0.0.1 adalah host
+//	               BERBEDA. Jendela Tauri dengan asal http://tauri.localhost
+//	               jatuh di keranjang yang sama. Jadi di sini yang ditolak hanya
+//	               yang TIDAK membawa Origin; sisanya diserahkan ke CORS, yang
+//	               memang membedakan halaman lokal dari halaman internet.
+//
+// Hasilnya: build yang dikirim ke pengguna seketat mungkin, alur pengembangan
+// tetap hidup, dan tidak ada mode yang kehilangan penjaga.
 
 // jsonFreePaths = jalur yang badannya memang bukan JSON.
 //
@@ -46,10 +65,8 @@ func localHost(host string, extra []string) bool {
 		h = only
 	}
 	h = strings.ToLower(strings.Trim(h, "[]"))
-	for _, e := range extra {
-		if h == e {
-			return true
-		}
+	if slices.Contains(extra, h) {
+		return true
 	}
 	// *.localhost ikut: jendela Tauri di Windows memakai nama itu, dan seluruh
 	// keluarganya memang dijamin menunjuk ke mesin sendiri.
@@ -77,10 +94,8 @@ func (s *Server) withGuard(next http.Handler) http.Handler {
 			writeErr(w, 403, "this engine only answers to its own address on this computer")
 			return
 		}
-		// "cross-site" saja yang ditolak: GUI pengembangan di :3000 menghubungi
-		// engine di :8787, dan bagi browser itu "same-site" — menolaknya berarti
-		// mematikan alur pengembangan demi serangan yang sudah tertutup Origin.
-		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") {
+		if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"), "cross-site") &&
+			(s.token != "" || r.Header.Get("Origin") == "") {
 			writeErr(w, 403, "this engine only answers pages it serves itself")
 			return
 		}

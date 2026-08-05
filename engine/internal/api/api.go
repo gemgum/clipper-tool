@@ -557,8 +557,8 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
-		"modes":   []string{"offline", "hybrid", "online"},
-		"reframe": []string{"center", "fit", "face_follow"},
+		"modes":   []string{"offline", "hybrid"},
+		"reframe": []string{"center", "fit"},
 		// Batas bawah & titik awal zoom berbeda per mode, jadi dikirim per mode.
 		"zoom": map[string]any{
 			"max":  config.ZoomMax,
@@ -853,7 +853,6 @@ func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	// Preview ringan: paksa 720p 9:16.
 	opts := config.DefaultOptions()
 	opts.Resolution = "720p"
-	opts.Aspect = "9:16"
 	if rf := q.Get("reframe"); rf != "" {
 		opts.Reframe = config.Reframe(rf)
 	}

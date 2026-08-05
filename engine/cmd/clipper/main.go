@@ -56,12 +56,11 @@ Usage:
   clipper version
 
 'run' flags:
-  -mode        offline|hybrid|online (default offline)
+  -mode        offline|hybrid (default offline)
   -model       whisper model: tiny|base|small|medium|large-v3 (default small)
   -reframe     how the video is fitted into the 9:16 frame (default center):
                  center      Center of the Picture — crop to fill
                  fit         Whole Picture — the entire video, nothing cropped
-                 face_follow Follow Face (not available yet)
   -background  blur|black — fills the space the video cannot reach. This is what
                "fit" exists for; it also shows up when -zoom is below 100.
   -zoom        in steps of 5, read relative to the starting point of -reframe.
@@ -73,7 +72,6 @@ Usage:
                              point, and the only direction is down
                          5 = the centre crop shrinks inside the frame
                Defaults to the starting point of the mode you chose.
-  -style       plain|viral (default plain)
   -sub-mode    normal|karaoke|word — subtitle style (default normal)
   -sub-speed   slow|normal|dense — subtitle pacing (default normal)
   -save        burn|clean|both — burned-in / clean / both (default burn)
@@ -119,7 +117,6 @@ func cmdRun(layout config.Layout, args []string) {
 	fps := fs.Int("fps", opts.FPS, "")
 	resolution := fs.String("resolution", opts.Resolution, "")
 	quality := fs.String("quality", opts.Quality, "")
-	style := fs.String("style", opts.SubtitleStyle, "")
 	subMode := fs.String("sub-mode", opts.Subtitle.Mode, "")
 	subSpeed := fs.String("sub-speed", opts.Subtitle.Speed, "")
 	save := fs.String("save", opts.SubtitleOutput, "")
@@ -147,7 +144,6 @@ func cmdRun(layout config.Layout, args []string) {
 	opts.FPS = *fps
 	opts.Resolution = *resolution
 	opts.Quality = *quality
-	opts.SubtitleStyle = *style
 	opts.Subtitle.Mode = *subMode
 	opts.Subtitle.Speed = *subSpeed
 	opts.SubtitleOutput = *save
@@ -322,7 +318,7 @@ func keyNote(token string) string {
 // pengguna bebas menaruh path sebelum atau sesudah flag.
 func splitInput(args []string) (input string, flagArgs []string) {
 	valueFlags := map[string]bool{
-		"-mode": true, "-model": true, "-reframe": true, "-style": true,
+		"-mode": true, "-model": true, "-reframe": true,
 		"-max": true, "-min-score": true, "-llm-model": true, "-out": true, "-fps": true,
 		"-resolution": true, "-quality": true, "-background": true, "-zoom": true,
 		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,

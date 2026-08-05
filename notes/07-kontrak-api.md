@@ -29,11 +29,19 @@ Bahasa sumber: **Indonesia** → default `language: "id"`, model Whisper `small`
 > | Card PNG: `kartu.png`, `sumber.txt` | `card.png`, `source.txt` |
 > | Folder kartu: `data/kartu/kartu-<id>` | `data/cards/card-<id>` |
 >
-> **Ditegaskan:** `options.reframe` punya TIGA nilai yang berdiri sendiri —
-> `center` (Center of the Picture, potong tengah), `fit` (Whole Picture, seluruh
-> resolusi video tanpa crop), `face_follow` (belum tersedia). `options.zoom`
-> TERPISAH dari ketiganya: 5..100 persen ukuran video di dalam bingkai, kelipatan
-> 5. Latar hanya tak terlihat pada `center` + `zoom 100`.
+> **Ditegaskan:** `options.reframe` punya DUA nilai yang berdiri sendiri —
+> `center` (Center of the Picture, potong tengah) dan `fit` (Whole Picture,
+> seluruh resolusi video tanpa crop). `options.zoom` TERPISAH dari keduanya:
+> 5..100 persen ukuran video di dalam bingkai, kelipatan 5. Latar hanya tak
+> terlihat pada `center` + `zoom 100`.
+>
+> **Dibuang 5 Agustus 2026** (audit over-engineering): `face_follow`, mode
+> `online`, `options.aspect`, `options.subtitle_style`, `options.score_engine`,
+> `options.device`, dan `subtitle.karaoke`. Semuanya nilai yang tak pernah
+> diset, alias tanpa isi, atau cabang yang tak terjangkau — jadi contoh JSON di
+> bawah yang menyebutnya adalah rancangan awal, bukan kontrak yang berlaku.
+> Keluaran selalu 9:16; warna subtitle diatur lewat `subtitle.color`; mesin skor
+> ditentukan `mode` + `provider`.
 >
 > **`POST /api/jobs` menyemai default sebelum mendekode JSON.** Field yang tidak
 > dikirim mempertahankan defaultnya, bukan jatuh ke nilai nol Go.

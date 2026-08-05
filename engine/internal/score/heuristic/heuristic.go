@@ -173,12 +173,4 @@ func hasNumber(s string) bool {
 	return false
 }
 
-func clamp(v int) int {
-	if v < 0 {
-		return 0
-	}
-	if v > 100 {
-		return 100
-	}
-	return v
-}
+func clamp(v int) int { return min(100, max(0, v)) }

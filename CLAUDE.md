@@ -145,8 +145,13 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
 
 ## Mode & mesin skor
 
-offline (gratis: Ollama lokal atau heuristik) · hybrid (Claude) · online (belum).
-Mode hybrid butuh `ANTHROPIC_API_KEY` di `.env` atau lewat GUI.
+offline (gratis: Ollama lokal atau heuristik) · hybrid (Claude). Mode hybrid
+butuh `ANTHROPIC_API_KEY` di `.env` atau lewat GUI.
+
+Mode `online` dan reframe `face_follow` **dibuang 5 Agustus 2026**: keduanya cuma
+nama tanpa isi — `online` berperilaku persis sama dengan hybrid, `face_follow`
+selalu ditolak. Kalau salah satunya dikerjakan nanti, tambahkan lagi bersama
+implementasinya, bukan sebelumnya (notes/07).
 
 **Tanpa fallback**: mesin yang dipilih pengguna dipakai apa adanya. Bila gagal,
 job berhenti dengan pesan akar masalah — engine TIDAK diam-diam pindah ke

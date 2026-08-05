@@ -124,7 +124,6 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
 }
 
 /* Preview subtitle 9:16 + overlay geser */
-.preview-wrap { display: flex; justify-content: center; margin: 12px 0; }
 .preview9x16 {
   position: relative;
   height: 480px;
@@ -623,13 +622,6 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* Tombol pintasan kedua ujung sumbu zoom. Keduanya hanya menyetel penggeser
    yang sama — bukan kendali kedua, cuma jalan pintas yang bernama. */
-.zoom-presets { display: flex; gap: 8px; margin-bottom: 8px; }
-.zoom-presets button.tiny { margin-left: 0; }
-.zoom-presets button.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(79, 140, 255, 0.12);
-}
 
 /* Panggung kartu: pratinjau di kiri, kendali ukuran huruf di kanan, tombol di
    bawah keduanya. Keduanya saling menjawab — menyetel dan melihat hasilnya
