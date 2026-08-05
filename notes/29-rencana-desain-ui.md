@@ -109,6 +109,26 @@ tidak menyentuh halaman yang belum dipindah.
 `body = 505/505` di ketiganya: **jendelanya tidak pernah bergulir.** Kolomnya
 yang bergulir, dan hanya bila isinya memang lebih panjang.
 
+### Navigasi: rail kiri + setelan di kanan atas
+
+Diminta 5 Agustus 2026 dengan acuan sebuah dasbor: navigasi berpindah dari
+bilah tab di ATAS ke **rail vertikal di KIRI**, dan Requirements keluar dari
+deretan tab menjadi **setelan di kanan atas**.
+
+Pembedaannya bisa diuji, bukan selera: yang di rail dibuka berkali-kali sehari
+(potong video, kartu berita); yang di kanan atas dibuka sekali lalu dilupakan
+(komponen, folder, bahasa). Selama ketiganya berjajar sebagai tab, ketiganya
+terlihat sama penting.
+
+Kerangkanya `grid-template-areas` di `.app` — rail membentang dua baris penuh,
+bilah atas dan halaman berbagi kolom kanan. Grid dipilih karena `<Nav>`
+merender rail DAN bilah atas sebagai dua saudara; dengan grid keduanya bisa
+ditempatkan tanpa div pembungkus tambahan.
+
+Ikut berubah: judul halaman klip dulu berbunyi "Clipper" (merek). Nama aplikasi
+sekarang ada di rail, jadi judulnya menjadi "Video clips" — mengulang merek di
+dalam halaman hanya memakan baris tanpa memberi tahu apa pun.
+
 ### Keputusan per halaman
 
 - **`/requirements`** — dua kolom. Kiri daftar komponen (yang ditindaklanjuti),

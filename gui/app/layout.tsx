@@ -16,8 +16,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <I18nProvider>
-          <Nav />
-          {children}
+          {/* Rail kiri berdiri sendiri; bilah atas dan isi halaman berbagi
+              satu kolom di kanannya. Nav merender keduanya (rail + topbar),
+              jadi urutannya di sini: rail, lalu kolom kanan. */}
+          <div className="app">
+            <Nav />
+            <div className="app-page">{children}</div>
+          </div>
         </I18nProvider>
       </body>
     </html>

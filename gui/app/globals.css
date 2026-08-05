@@ -30,16 +30,30 @@
  * mengubah satu piksel pun. Angka dari Figma nanti tinggal menimpa di sini.
  */
 @theme {
-  --color-bg: #0f1115;
-  --color-panel: #171a21;
-  --color-panel2: #1e222b;
-  --color-border: #2a2f3a;
-  --color-text: #e6e9ef;
-  --color-muted: #9aa4b2;
-  --color-accent: #4f8cff;
-  --color-good: #3ecf8e;
-  --color-warn: #f5a623;
-  --color-bad: #ff6b6b;
+  --color-bg: #f5f5f5;
+  --color-panel: #ffffff;
+  --color-panel2: #fafafa;
+  --color-border: #e2e2e2;
+  --color-text: #27292a;
+  --color-muted: #6b6e70;
+  --color-accent: #0072ec;
+
+  /* Hijau, oranye, dan merah punya DUA nilai, dan itu bukan kemewahan.
+   *
+   * Diukur di atas putih: #20C07D = 2,36:1 · #FF9D43 = 2,07:1 · #FF4747 =
+   * 3,36:1 — ketiganya jauh di bawah ambang 4,5:1 untuk teks. Di tema gelap
+   * mereka aman; di tema terang tidak. Jadi nilai cerahnya hanya untuk LAMPU
+   * status (titik, bilah, latar), dan teks memakai varian -text yang sudah
+   * digelapkan sampai persis lolos ambang (4,58 · 4,61 · 4,50).
+   *
+   * Ini jenis kesalahan yang lolos dari mata saat mendesain dan baru terasa
+   * setelah dipakai lama — karena itu angkanya dihitung, bukan dikira. */
+  --color-good: #20c07d;
+  --color-warn: #ff9d43;
+  --color-bad: #ff4747;
+  --color-good-text: #168658;
+  --color-warn-text: #a6662c;
+  --color-bad-text: #d93c3c;
 }
 
 /* Nama pendek yang dipakai seluruh CSS tulisan tangan di bawah. Dipetakan ke
@@ -54,6 +68,23 @@
   --accent: var(--color-accent);
   --good: var(--color-good);
   --warn: var(--color-warn);
+  --bad: var(--color-bad);
+  /* Dipakai HANYA untuk teks. Lihat alasannya di blok @theme di atas. */
+  /* Panggung pratinjau TIDAK ikut tema, dan ini bukan selera.
+   *
+   * Subtitle dirender putih di atas video, jadi panggungnya harus gelap supaya
+   * pratinjau meniru hasil render. Dengan tema terang, subtitle putih beroutline
+   * hitam di atas panel putih berubah jadi gumpalan yang tidak terbaca — terlihat
+   * langsung begitu paletnya ditukar. notes/29 menyebut ini "belum diputuskan";
+   * sekarang sudah, dan alasannya bisa dilihat, bukan diperdebatkan. */
+  --stage: #000;
+  --stage-2: #16181d;
+  --stage-text: #e6e9ef;
+  --stage-muted: #9aa4b2;
+
+  --good-text: var(--color-good-text);
+  --warn-text: var(--color-warn-text);
+  --bad-text: var(--color-bad-text);
 }
 
 * { box-sizing: border-box; }
@@ -134,7 +165,9 @@ body:has(.screen) {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  /* Kolom kanan dilebarkan jadi 380: sejak Sumber pindah ke sini, isinya
+     kolom-path yang panjang, dan 300 px membuat setiap path terpotong. */
+  grid-template-columns: minmax(0, 1fr) 380px;
   gap: 12px;
   padding-bottom: 16px;
 }
@@ -160,6 +193,39 @@ body:has(.screen) {
 }
 /* Satu kolom penuh — halaman yang alurnya berurutan. */
 .screen-body.one { grid-template-columns: minmax(0, 1fr); }
+
+/* Tiga kolom sejajar: pratinjau (melar) · setelan render · berkas + mesin AI.
+   Dua yang kanan lebarnya TETAP — keduanya daftar kendali yang panjangnya tidak
+   berubah, sedangkan pratinjau yang harus memakai sisa ruang berapa pun lebar
+   jendelanya. */
+.screen-body.three { grid-template-columns: minmax(0, 1fr) 320px 340px; }
+.screen-col { min-height: 0; overflow-y: auto; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+/* Di jendela sempit kolom tengah turun ke bawah pratinjau; yang paling kanan
+   tetap di sisinya, sebab di situlah tombol Mulai. */
+@media (max-width: 1180px) {
+  .screen-body.three { grid-template-columns: minmax(0, 1fr) 340px; }
+  .screen-col { grid-column: 1; }
+}
+
+/* Pratinjau dan setelan render berdampingan. Setelan diberi lebar tetap: ia
+   daftar kendali yang panjangnya tidak berubah, sedangkan pratinjau yang harus
+   memakai sisa ruang berapa pun lebar jendelanya. */
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Dua kelompok setara yang dibaca berdampingan. */
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-top: 14px; }
+@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
+
+.start-panel { display: flex; gap: 10px; }
+.start-panel button { flex: 1; }
 
 /* Di jendela sempit panel samping turun ke bawah, dan keduanya berbagi tinggi
    yang sama — bukan menumpuk lalu memaksa halaman bergulir. */
@@ -214,15 +280,15 @@ button.ghost { background: transparent; border: 1px solid var(--border); color: 
 .progress-outer { background: var(--panel2); border-radius: 8px; height: 10px; overflow: hidden; }
 .progress-inner { background: var(--accent); height: 100%; transition: width 0.3s; }
 .stage { font-size: 13px; color: var(--muted); margin-top: 8px; }
-.err { color: #ff6b6b; font-size: 14px; }
+.err { color: var(--bad-text); font-size: 14px; }
 
 .clips { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
 .clip { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
 .clip video { width: 100%; display: block; background: #000; aspect-ratio: 9/16; object-fit: contain; }
 .clip .body { padding: 12px; }
 .score { display: inline-block; font-weight: 700; font-size: 18px; }
-.score.high { color: var(--good); }
-.score.mid { color: var(--warn); }
+.score.high { color: var(--good-text); }
+.score.mid { color: var(--warn-text); }
 .score.low { color: var(--muted); }
 .title { font-size: 14px; font-weight: 600; margin: 4px 0; min-height: 20px; }
 .meta { font-size: 12px; color: var(--muted); }
@@ -239,7 +305,7 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   margin-bottom: 14px;
   transition: border-color 0.2s, background 0.2s;
 }
-.dropzone.over { border-color: var(--accent); background: rgba(79,140,255,0.08); }
+.dropzone.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .linklike { color: var(--accent); cursor: pointer; text-decoration: underline; }
 
 /* Peringatan model belum diunduh */
@@ -256,7 +322,7 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   background: var(--panel);
   padding: 2px 6px;
   border-radius: 4px;
-  color: var(--good);
+  color: var(--good-text);
 }
 
 /* Log */
@@ -415,43 +481,135 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 .chk input { width: auto; }
 
 /* Status Mesin AI */
-.ok { color: var(--good); font-size: 12px; font-weight: 600; }
-.warn { color: var(--warn); font-size: 12px; }
+.ok { color: var(--good-text); font-size: 12px; font-weight: 600; }
+.warn { color: var(--warn-text); font-size: 12px; }
 .warn code, .ok code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 
-/* ---------- Navigasi antar tab ---------- */
-.nav {
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-  position: sticky;
-  top: 0;
-  z-index: 20;
+/* ---------- Kerangka: rail kiri, bilah atas, isi ----------
+ *
+ * Grid, bukan flex bersarang: <Nav> merender rail DAN bilah atas sebagai dua
+ * saudara, dan grid-template-areas menempatkan keduanya tanpa perlu div
+ * pembungkus tambahan. Rail membentang dua baris penuh; bilah atas dan halaman
+ * berbagi kolom kanan.
+ *
+ * Pembagiannya bukan selera: yang di RAIL dibuka berkali-kali sehari (potong
+ * video, kartu berita), yang di KANAN ATAS dibuka sekali lalu dilupakan
+ * (komponen, folder, bahasa). Menaruh keduanya berdampingan seperti dulu
+ * membuat keduanya terlihat sama penting.
+ */
+.app {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "rail topbar"
+    "rail page";
 }
-.nav-inner {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 16px;
+.app-page {
+  grid-area: page;
+  min-height: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+}
+
+.rail {
+  grid-area: rail;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+  padding: 14px 8px;
+  overflow-y: auto;
 }
-.nav .brand {
+.rail-brand {
   font-weight: 700;
-  font-size: 15px;
-  margin-right: 20px;
-  padding: 14px 0;
+  font-size: 13px;
   letter-spacing: -0.01em;
+  text-align: center;
+  padding: 4px 0 14px;
 }
-.nav-tab {
+/* Ikon di atas, label di bawah — muat di rail sempit, dan labelnya tetap ada:
+   ikon sendirian memaksa pengguna menebak, dan tebakannya baru terbukti
+   setelah diklik. */
+.rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+  border-radius: 10px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 14px;
-  padding: 14px 14px;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  font-size: 11px;
+  line-height: 1.25;
+  text-align: center;
 }
-.nav-tab:hover { color: var(--text); }
-.nav-tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.rail-item:hover { color: var(--text); background: var(--panel2); }
+.rail-item.active { color: var(--accent); background: var(--panel2); }
+.rail-ico { width: 20px; height: 20px; }
+
+.topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+.topbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13px;
+}
+.topbar-item:hover { color: var(--text); background: var(--panel2); }
+.topbar-item { border: 0; cursor: pointer; background: transparent; position: relative; }
+
+/* Panel setelan yang dibuka gerigi. */
+.settings-wrap { position: relative; }
+.dot-bad {
+  position: absolute; top: 4px; right: 4px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--bad);
+}
+.settings-pop {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  width: 300px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.settings-title { font-size: 14px; font-weight: 700; }
+.settings-group { display: flex; flex-direction: column; gap: 8px; }
+.settings-head {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.settings-row { display: flex; align-items: center; gap: 8px; }
+.settings-name { flex: 1; min-width: 0; font-size: 12px; }
+.settings-more { font-size: 12px; color: var(--accent); text-decoration: none; }
+.settings-more:hover { text-decoration: underline; }
+.topbar-item.active { color: var(--accent); background: var(--panel2); }
 
 /* ---------- Tab kartu berita ---------- */
 .tabs { display: flex; gap: 8px; margin-bottom: 18px; }
@@ -515,7 +673,7 @@ label em { font-style: normal; opacity: 0.7; }
   display: block;
 }
 
-.warnbox.err { border-color: #ff6b6b; color: #ff9b9b; }
+.warnbox.err { border-color: var(--bad); color: var(--bad-text); }
 
 /* ---------- Daftar paragraf berperingkat ---------- */
 .par-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; max-height: 520px; overflow-y: auto; padding-right: 4px; }
@@ -539,7 +697,7 @@ label em { font-style: normal; opacity: 0.7; }
   font-size: 15px;
   min-width: 34px;
   text-align: center;
-  color: var(--warn);
+  color: var(--warn-text);
   padding-top: 2px;
 }
 .par-body { flex: 1; min-width: 0; }
@@ -670,13 +828,13 @@ label em { font-style: normal; opacity: 0.7; }
   text-align: center;
   background:
     repeating-linear-gradient(45deg,
-      rgba(255,255,255,0.022) 0 10px, transparent 10px 20px),
-    var(--panel2);
+      rgba(255,255,255,0.03) 0 10px, transparent 10px 20px),
+    var(--stage-2);
 }
 .pe-icon {
   width: 46px;
   height: 78px;
-  border: 2px dashed var(--border);
+  border: 2px dashed var(--stage-muted);
   border-radius: 8px;
   position: relative;
   margin-bottom: 4px;
@@ -689,7 +847,7 @@ label em { font-style: normal; opacity: 0.7; }
   border-radius: 2px;
   background: var(--border);
 }
-.pe-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.pe-title { font-size: 13px; font-weight: 600; color: var(--stage-text); }
 /* Tombol di dalam kolom setelan tidak ikut meregang selebar kolom — lebarnya
    mengikuti isinya, seperti tombol pada umumnya. */
 
@@ -756,7 +914,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Warna berubah sesaat setelah diklik — tanda bahwa penyalinan benar terjadi,
    bukan sekadar tombol yang tertekan. */
 .copy-btn.ok {
-  color: var(--good);
+  color: var(--good-text);
   border-color: var(--good);
   background: rgba(62, 207, 142, 0.12);
 }
@@ -813,7 +971,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .lang-switch button.active {
   color: var(--accent);
   border-color: var(--accent);
-  background: rgba(79, 140, 255, 0.12);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 /* Nama kedua ujung sumbu zoom, ditaruh di bawah penggesernya supaya artinya
@@ -962,7 +1120,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .req-row:first-of-type { border-top: none; }
 .req-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex: none; }
 .req-dot.on { background: var(--good); }
-.req-dot.off { background: #ff6b6b; }
+.req-dot.off { background: var(--bad); }
 .req-dot.idle { background: var(--muted); }
 .req-main { flex: 1; min-width: 0; }
 .req-name { font-size: 14px; font-weight: 600; }
@@ -970,7 +1128,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-left: 8px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--warn);
+  color: var(--warn-text);
   border: 1px solid var(--warn);
   border-radius: 5px;
   padding: 0 5px;

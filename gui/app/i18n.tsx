@@ -125,14 +125,14 @@ const en = {
   offlineOllama: "Local AI (Ollama) — smarter",
   offlineHeuristic: "Heuristic — no AI, fast",
   engineNoFallback:
-    "Your chosen engine is used as-is — if it fails, the job stops with the reason (it is never silently swapped for another engine).",
+    "If the engine fails, the job stops — it is never silently swapped.",
   transcriptFix: "Fix the transcript with AI",
   transcriptFixTip:
     "Speech recognition leaves dialogue dashes, misplaced punctuation and misheard words behind",
   transcriptFixNote:
-    "An LLM repairs punctuation, sentence structure and obviously misheard words before the clips are cut — so it improves the subtitles AND where each clip starts and ends. Corrections that rewrite rather than repair are rejected automatically and reported.",
+    "Repairs punctuation and misheard words before cutting — better subtitles, and better cut points.",
   transcriptFixNeedsLLM:
-    "Needs an LLM even with the heuristic engine: Claude in hybrid mode, Ollama otherwise. If it is unreachable the job stops — untick this to use the raw transcript.",
+    "Needs an LLM. If unreachable the job stops — untick to use the raw transcript.",
   terms: "Names and terms in this video",
   termsPlaceholder: "Londo Ireng, Mahfud MD, URI",
   termsNote:
@@ -167,6 +167,20 @@ const en = {
   reloadPreview: "reload preview",
   resetPreview: "✕ reset preview",
   guidesAlways: "keep centre guides",
+  settingsTitle: "Settings",
+  settingsLanguage: "Language",
+  settingsComponents: "Components",
+  settingsReady: "ready",
+  settingsMissing: "missing",
+  settingsOpenFull: "Open the full Requirements page →",
+  tabResults: "Results",
+  tabHistory: "Output history",
+  resultsSub: "Clips from the run that just finished.",
+  resultsEmpty: "No clips yet — start a run on the Video clips page.",
+  historySub: "Every run so far, newest first.",
+  historyEmpty: "Nothing has been rendered yet.",
+  historyShow: "Show clips",
+  historyHide: "Hide clips",
   grid: "grid",
   gridOff: "off",
   gridHint:
@@ -537,14 +551,14 @@ const id: Record<MessageKey, string> = {
   offlineOllama: "AI lokal (Ollama) — lebih pintar",
   offlineHeuristic: "Heuristik — tanpa AI, cepat",
   engineNoFallback:
-    "Mesin pilihan Anda dipakai apa adanya — bila gagal, job berhenti dengan pesan sebabnya (tidak diam-diam diganti mesin lain).",
+    "Bila mesinnya gagal, job berhenti — tidak diam-diam diganti.",
   transcriptFix: "Perbaiki transkrip dengan AI",
   transcriptFixTip:
     "Pengenalan suara menyisakan tanda hubung dialog, tanda baca salah tempat, dan kata salah dengar",
   transcriptFixNote:
-    "LLM membenahi tanda baca, struktur kalimat, dan kata yang jelas salah dengar sebelum klip dipotong — jadi ia memperbaiki subtitle SEKALIGUS titik awal & akhir tiap klip. Koreksi yang sifatnya menulis ulang ditolak otomatis dan dilaporkan.",
+    "Membenahi tanda baca dan kata salah dengar sebelum dipotong — subtitle lebih baik, titik potong lebih baik.",
   transcriptFixNeedsLLM:
-    "Butuh LLM walau mesin skornya heuristik: Claude di mode hybrid, selain itu Ollama. Bila tak terjangkau job berhenti — hilangkan centang ini untuk memakai transkrip mentah.",
+    "Butuh LLM. Bila tak terjangkau job berhenti — hilangkan centang untuk transkrip mentah.",
   terms: "Nama & istilah di video ini",
   termsPlaceholder: "Londo Ireng, Mahfud MD, URI",
   termsNote:
@@ -578,6 +592,20 @@ const id: Record<MessageKey, string> = {
   reloadPreview: "muat ulang preview",
   resetPreview: "✕ reset preview",
   guidesAlways: "garis tengah terus",
+  settingsTitle: "Setelan",
+  settingsLanguage: "Bahasa",
+  settingsComponents: "Komponen",
+  settingsReady: "siap",
+  settingsMissing: "belum ada",
+  settingsOpenFull: "Buka halaman Requirements lengkap →",
+  tabResults: "Hasil",
+  tabHistory: "Riwayat keluaran",
+  resultsSub: "Klip dari pekerjaan yang baru saja selesai.",
+  resultsEmpty: "Belum ada klip — mulai satu pekerjaan di halaman Video clips.",
+  historySub: "Semua pekerjaan sejauh ini, terbaru di atas.",
+  historyEmpty: "Belum ada yang pernah dirender.",
+  historyShow: "Tampilkan klip",
+  historyHide: "Sembunyikan klip",
   grid: "grid",
   gridOff: "mati",
   gridHint:

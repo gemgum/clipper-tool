@@ -11,7 +11,7 @@
 // ada di font mana pun, dan sebagiannya berada di tempat yang tidak bisa memuat
 // komponen sama sekali (isi <option>).
 import {
-  Scissors, FolderOpen, Download, Eye, RotateCw, CircleCheck, OctagonX,
+  FolderOpen, Download, Eye, RotateCw, CircleCheck, OctagonX,
 } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -742,11 +742,10 @@ export default function Home() {
           layar persis ketika pengguna selesai menyetel dan ingin menekannya. */}
       <div className="screen-head">
         <div className="head-row">
-          <h1><Scissors className="ico" aria-hidden="true" /> Clipper</h1>
-          <div className="head-actions">
-            <button onClick={start} disabled={busy || !path || !!modelMissing}>{busy ? t("processing") : t("start")}</button>
-            {busy && jobId && <button className="ghost" onClick={cancel}>{t("cancel")}</button>}
-          </div>
+          {/* Judul HALAMAN, bukan merek: nama aplikasi sudah ada di rail kiri,
+              dan mengulangnya di sini hanya memakan baris tanpa memberi tahu
+              apa pun. */}
+          <h1>{t("tabClips")}</h1>
         </div>
         {((status && status !== "queued") || busy) && (
           <div className="head-progress">
@@ -764,58 +763,9 @@ export default function Home() {
         )}
       </div>
 
-      <div className="screen-body">
+      <div className="screen-body three">
       {/* Kiri: yang dilihat & dihasilkan. */}
       <div className="screen-main">
-
-      {/* 1. Sumber */}
-      {picker && (
-        <Picker
-          mode={picker === "out" ? "folder" : "file"}
-          start={picker === "out" ? outputDir : path}
-          onPick={(p) => { picker === "out" ? setOutputDir(p) : setPath(p); setPicker(null); }}
-          onClose={() => setPicker(null)}
-        />
-      )}
-
-      <div className="panel">
-        <div className={`dropzone ${dragOver ? "over" : ""}`}
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) useFile(f); }}>
-          {uploading ? (
-            <>
-              <div>{t("uploadingPct", { pct: Math.round(uploadPct * 100) })}</div>
-              <div className="progress-outer" style={{ marginTop: 8 }}><div className="progress-inner" style={{ width: `${uploadPct * 100}%` }} /></div>
-            </>
-          ) : (
-            <>
-              <div><strong>{t("dropTitle")}</strong></div>
-              <div className="meta">{t("dropOr")} <label className="linklike">{t("dropPick")}
-                <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && useFile(e.target.files[0])} />
-              </label> {t("dropOrPaste")}</div>
-              <div className="meta" style={{ marginTop: 6 }}>{t("dropNoCopy")}</div>
-            </>
-          )}
-        </div>
-        <div className="source-actions">
-          <button className="ghost" onClick={() => setPicker("video")}><FolderOpen className="ico" aria-hidden="true" /> {t("browseButton")}</button>
-        </div>
-        <div className="field">
-          <label>{t("videoPath")}</label>
-          <div className="path-row">
-            <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
-            <button className="ghost" onClick={() => setPicker("video")}>{t("pickerGo")}…</button>
-          </div>
-        </div>
-        <div className="field">
-          <label>{t("outputDir")}</label>
-          <div className="path-row">
-            <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
-            <button className="ghost" onClick={() => setPicker("out")}>{t("pickerGo")}…</button>
-          </div>
-        </div>
-      </div>
 
       {/* 3. Setelan subtitle + preview geser */}
       <div className="panel">
@@ -1065,7 +1015,7 @@ export default function Home() {
           {/* Cara video dipasang ke bingkai ditaruh DI SINI, bukan di panel
               setelan render: ketiganya langsung mengubah gambar di preview
               sebelah kiri, jadi hasilnya terlihat saat itu juga. */}
-          <div className="group" style={{ marginTop: 18, marginBottom: 0 }}>
+          <div className="group" style={{ marginTop: 0, marginBottom: 0 }}>
             <div className="group-title">{t("groupVideoInFrame")}</div>
             <div className="row">
               {/* Tiga cara memasangkan video ke bingkai 9:16 — pilihan yang
@@ -1106,7 +1056,6 @@ export default function Home() {
             ) : null}
           </div>
         </div>
-        </div>
       </div>
 
       {logs.length > 0 && (
@@ -1116,47 +1065,12 @@ export default function Home() {
         </div>
       )}
 
-      {clips.length > 0 && (
-        <div className="panel">
-          <h3 style={{ marginTop: 0 }}>{t("clipCount", { n: clips.length })}</h3>
-          <div className="clips">
-            {clips.slice().sort((a, b) => b.score - a.score).map((c) => (
-              <div className="clip" key={c.id}>
-                <video src={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file`)} controls preload="metadata" />
-                <div className="body">
-                  <span className={`score ${scoreClass(c.score)}`}>{c.score}</span><span className="meta"> /100</span>
-                  <div className="title">{c.title || t("noTitle")}</div>
-                  <div className="meta">{formatTime(c.start)}–{formatTime(c.end)} · {Math.round(c.duration)}s</div>
-                  <div className="reasons">
-                    {t("reasonHook")} {c.reasons.hook} · {t("reasonEmotion")} {c.reasons.emotion} · {t("reasonClarity")} {c.reasons.clarity} · {t("reasonShare")} {c.reasons.shareability} · {t("reasonStandalone")} {c.reasons.standalone}
-                  </div>
-                  {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file`)} download>
-                      <Download className="ico" aria-hidden="true" /> {c.video_path_raw && c.video_path_raw !== c.video_path ? t("downloadWithSubs") : t("downloadPlain")}
-                    </a>
-                    {c.video_path_raw && c.video_path_raw !== c.video_path && (
-                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`)} download><Download className="ico" aria-hidden="true" /> {t("downloadClean")}</a>
-                    )}
-                    {c.transcript_txt && (
-                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=txt`)}
-                         download title={t("downloadTxtTip")}><Download className="ico" aria-hidden="true" /> .txt</a>
-                    )}
-                    {c.subtitle_srt && (
-                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`)} download><Download className="ico" aria-hidden="true" /> .srt</a>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
       </div>
 
-      {/* Kanan: setelan. Menepi, tidak lagi mendorong pratinjau dan
-          daftar klip keluar layar. Bergulir di dalam kotaknya sendiri. */}
-      <div className="screen-side">
+      {/* Kolom tengah: setelan render. Sejajar dengan pratinjau, sebab
+          keduanya mengubah rupa klip yang sama — menaruhnya berjauhan
+          memaksa mata bolak-balik untuk satu keputusan. */}
+      <div className="screen-col">
       {/* 2. Setelan render — dikelompokkan menurut pertanyaan yang dijawabnya:
           dengan apa diproses, seperti apa hasilnya, bagaimana masuk bingkai,
           dan berapa banyak klip. */}
@@ -1225,8 +1139,63 @@ export default function Home() {
                 <option value="both">{t("saveBoth")}</option>
               </select></div>
           </div>
+          </div>
         </div>
       </div>
+
+      </div>
+
+      {/* Kanan: setelan. Menepi, tidak lagi mendorong pratinjau dan
+          daftar klip keluar layar. Bergulir di dalam kotaknya sendiri. */}
+      <div className="screen-side">
+      {/* 1. Sumber */}
+      {picker && (
+        <Picker
+          mode={picker === "out" ? "folder" : "file"}
+          start={picker === "out" ? outputDir : path}
+          onPick={(p) => { picker === "out" ? setOutputDir(p) : setPath(p); setPicker(null); }}
+          onClose={() => setPicker(null)}
+        />
+      )}
+
+      <div className="panel">
+        <div className={`dropzone ${dragOver ? "over" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) useFile(f); }}>
+          {uploading ? (
+            <>
+              <div>{t("uploadingPct", { pct: Math.round(uploadPct * 100) })}</div>
+              <div className="progress-outer" style={{ marginTop: 8 }}><div className="progress-inner" style={{ width: `${uploadPct * 100}%` }} /></div>
+            </>
+          ) : (
+            <>
+              <div><strong>{t("dropTitle")}</strong></div>
+              <div className="meta">{t("dropOr")} <label className="linklike">{t("dropPick")}
+                <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && useFile(e.target.files[0])} />
+              </label> {t("dropOrPaste")}</div>
+              <div className="meta" style={{ marginTop: 6 }}>{t("dropNoCopy")}</div>
+            </>
+          )}
+        </div>
+        <div className="source-actions">
+        </div>
+        <div className="field">
+          <label>{t("videoPath")}</label>
+          <div className="path-row">
+            <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
+            <button className="ghost" onClick={() => setPicker("video")}>{t("pickerGo")}…</button>
+          </div>
+        </div>
+        <div className="field">
+          <label>{t("outputDir")}</label>
+          <div className="path-row">
+            <input value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
+            <button className="ghost" onClick={() => setPicker("out")}>{t("pickerGo")}…</button>
+          </div>
+        </div>
+      </div>
+
 
       {/* 2b. Mesin AI (scoring) — berubah menurut mode */}
       <div className="panel">
@@ -1329,6 +1298,14 @@ export default function Home() {
         </div>
       </div>
 
+
+      {/* Mulai ditaruh SESUDAH sumber dan mesin AI: urutan tombolnya mengikuti
+          urutan keputusannya, jadi ia tidak bisa ditekan sebelum yang di atasnya
+          diisi. */}
+      <div className="panel start-panel">
+        <button onClick={start} disabled={busy || !path || !!modelMissing}>{busy ? t("processing") : t("start")}</button>
+        {busy && jobId && <button className="ghost" onClick={cancel}>{t("cancel")}</button>}
+      </div>
       </div>
       </div>
     </div>
