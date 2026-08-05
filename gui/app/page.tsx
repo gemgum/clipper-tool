@@ -1066,6 +1066,7 @@ export default function Home() {
       )}
 
       </div>
+      </div>
 
       {/* Kolom tengah: setelan render. Sejajar dengan pratinjau, sebab
           keduanya mengubah rupa klip yang sama — menaruhnya berjauhan
@@ -1143,8 +1144,6 @@ export default function Home() {
         </div>
       </div>
 
-      </div>
-
       {/* Kanan: setelan. Menepi, tidak lagi mendorong pratinjau dan
           daftar klip keluar layar. Bergulir di dalam kotaknya sendiri. */}
       <div className="screen-side">
@@ -1170,22 +1169,20 @@ export default function Home() {
             </>
           ) : (
             <>
+              {/* Dua baris, bukan empat: di kolom selebar ~300 px kalimat
+                  penjelas melipat sampai memakan tinggi kotaknya sendiri. Yang
+                  tersisa cukup — "dipakai di tempat, tidak disalin" sudah
+                  dijelaskan sekali di label path di bawahnya. */}
               <div><strong>{t("dropTitle")}</strong></div>
               <div className="meta">{t("dropOr")} <label className="linklike">{t("dropPick")}
                 <input type="file" accept="video/*" style={{ display: "none" }} onChange={(e) => e.target.files?.[0] && useFile(e.target.files[0])} />
-              </label> {t("dropOrPaste")}</div>
-              <div className="meta" style={{ marginTop: 6 }}>{t("dropNoCopy")}</div>
+              </label></div>
             </>
           )}
         </div>
-        <div className="source-actions">
-        </div>
         <div className="field">
           <label>{t("videoPath")}</label>
-          <div className="path-row">
-            <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
-            <button className="ghost" onClick={() => setPicker("video")}>{t("pickerGo")}…</button>
-          </div>
+          <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
         </div>
         <div className="field">
           <label>{t("outputDir")}</label>
@@ -1279,7 +1276,6 @@ export default function Home() {
           </label>
           {transcriptFix && (
             <>
-              <div className="meta">{t("transcriptFixNote")}</div>
               {mode !== "hybrid" && offlineEngine === "heuristic" && (
                 <div className="warn" style={{ marginTop: 6 }}>⚠ {t("transcriptFixNeedsLLM")}</div>
               )}
@@ -1291,7 +1287,6 @@ export default function Home() {
                 <input id="terms" type="text" value={terms}
                   placeholder={t("termsPlaceholder")}
                   onChange={(e) => setTerms(e.target.value)} />
-                <div className="meta" style={{ marginTop: 6 }}>{t("termsNote")}</div>
               </div>
             </>
           )}

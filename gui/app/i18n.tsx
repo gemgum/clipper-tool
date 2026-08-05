@@ -34,13 +34,10 @@ const en = {
   engineUnreachable: "Cannot reach the engine at {url}. If you started the app from a terminal, check that window for an error.",
 
   // --- source panel ---
-  dropTitle: "Drag & drop a video here",
+  dropTitle: "Drop a video here",
   dropOr: "or",
   dropPick: "pick a file",
-  dropOrPaste: "· or paste a path manually",
   uploadingPct: "Uploading… {pct}%",
-  browseButton: "Choose from this computer",
-  dropNoCopy: "A file that is already on this computer is used where it is — nothing is copied.",
   pickerFileTitle: "Choose a video on this computer",
   pickerFolderTitle: "Choose a folder",
   pickerUp: "Up",
@@ -129,8 +126,6 @@ const en = {
   transcriptFix: "Fix the transcript with AI",
   transcriptFixTip:
     "Speech recognition leaves dialogue dashes, misplaced punctuation and misheard words behind",
-  transcriptFixNote:
-    "Repairs punctuation and misheard words before cutting — better subtitles, and better cut points.",
   transcriptFixNeedsLLM:
     "Needs an LLM. If unreachable the job stops — untick to use the raw transcript.",
   terms: "Names and terms in this video",
@@ -154,8 +149,7 @@ const en = {
   noModelsInstalled: " — no models are installed at all.",
 
   // --- subtitle settings ---
-  clipAppearance:
-    "How the clip looks — drag the subtitle on the preview to position it",
+  clipAppearance: "Preview",
   groupVideoInFrame: "Video inside the 9:16 frame",
   emptyFrame: "Empty frame",
   loadPreview: "Load a preview frame",
@@ -462,13 +456,10 @@ const id: Record<MessageKey, string> = {
   loading: "Memuat…",
   engineUnreachable: "Tidak bisa menghubungi engine di {url}. Kalau aplikasi dijalankan dari terminal, lihat jendela itu — pesannya ada di sana.",
 
-  dropTitle: "Seret & lepas video ke sini",
+  dropTitle: "Lepas video di sini",
   dropOr: "atau",
   dropPick: "pilih file",
-  dropOrPaste: "· atau tempel path manual",
   uploadingPct: "Mengunggah… {pct}%",
-  browseButton: "Pilih dari komputer ini",
-  dropNoCopy: "Berkas yang memang sudah ada di komputer ini dipakai di tempatnya — tidak ada yang disalin.",
   pickerFileTitle: "Pilih video di komputer ini",
   pickerFolderTitle: "Pilih folder",
   pickerUp: "Naik",
@@ -555,8 +546,6 @@ const id: Record<MessageKey, string> = {
   transcriptFix: "Perbaiki transkrip dengan AI",
   transcriptFixTip:
     "Pengenalan suara menyisakan tanda hubung dialog, tanda baca salah tempat, dan kata salah dengar",
-  transcriptFixNote:
-    "Membenahi tanda baca dan kata salah dengar sebelum dipotong — subtitle lebih baik, titik potong lebih baik.",
   transcriptFixNeedsLLM:
     "Butuh LLM. Bila tak terjangkau job berhenti — hilangkan centang untuk transkrip mentah.",
   terms: "Nama & istilah di video ini",
@@ -579,8 +568,7 @@ const id: Record<MessageKey, string> = {
   downloadSelected: "unduh model terpilih",
   noModelsInstalled: " — belum ada model terpasang sama sekali.",
 
-  clipAppearance:
-    "Tampilan klip — geser subtitle di preview untuk atur posisi",
+  clipAppearance: "Pratinjau",
   groupVideoInFrame: "Video di dalam bingkai 9:16",
   emptyFrame: "Bingkai kosong",
   loadPreview: "Muat preview frame",

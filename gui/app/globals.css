@@ -171,6 +171,17 @@ body:has(.screen) {
   gap: 12px;
   padding-bottom: 16px;
 }
+/* container-type membuat panel di dalamnya bisa bertanya "seberapa lebar AKU",
+   bukan "seberapa lebar jendelanya" — satu-satunya pertanyaan yang benar untuk
+   isi yang hidup di dalam kolom. */
+.screen-main, .screen-col, .screen-side { container-type: inline-size; }
+/* Kolom jadi kolom flex, dan panel utamanya meregang. Tanpa ini, panel yang
+   isinya lebih sedikit berhenti di tengah dan meninggalkan rongga ~250 px di
+   bawahnya — tiga kolom berakhir di tiga ketinggian berbeda, dan itulah yang
+   membuat halaman terasa belum selesai. */
+.screen-main, .screen-col, .screen-side { display: flex; flex-direction: column; gap: 12px; }
+.screen-col > .panel,
+.screen-main > .panel:first-of-type { flex: 1; }
 .screen-main, .screen-side {
   min-height: 0;
   overflow-y: auto;
@@ -198,12 +209,26 @@ body:has(.screen) {
    Dua yang kanan lebarnya TETAP — keduanya daftar kendali yang panjangnya tidak
    berubah, sedangkan pratinjau yang harus memakai sisa ruang berapa pun lebar
    jendelanya. */
-.screen-body.three { grid-template-columns: minmax(0, 1fr) 320px 340px; }
+/* Lebar kolom dipersempit supaya TIGA kolom tetap muat di jendela ~1100 px —
+   ukuran yang benar-benar dipakai, bukan 1240 yang saya pakai menguji. Dengan
+   320+340 sebelumnya, pratinjau tersisa <400 px dan gridnya runtuh. */
+.screen-body.three {
+  /* Ketiganya BERBAGI ruang lebih, tidak hanya pratinjau. Dengan lebar tetap
+     290+300, jendela lebar membuat pratinjau membengkak sampai 1150 px sementara
+     dua kolom lain tetap sempit — sejajar di struktur, tapi tidak terlihat
+     sejajar. minmax menjaga batas terkecilnya supaya tetap muat di ~1100 px. */
+  grid-template-columns:
+    minmax(340px, 1.2fr)
+    minmax(285px, 1fr)
+    minmax(295px, 1fr);
+}
 .screen-col { min-height: 0; overflow-y: auto; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 /* Di jendela sempit kolom tengah turun ke bawah pratinjau; yang paling kanan
    tetap di sisinya, sebab di situlah tombol Mulai. */
-@media (max-width: 1180px) {
-  .screen-body.three { grid-template-columns: minmax(0, 1fr) 340px; }
+/* Baru runtuh di bawah 980 px — di atas itu tiga kolom masih terbaca, dan
+   runtuh terlalu dini justru mengembalikan gulir yang mau dihilangkan. */
+@media (max-width: 980px) {
+  .screen-body.three { grid-template-columns: minmax(0, 1fr) 300px; }
   .screen-col { grid-column: 1; }
 }
 
@@ -764,17 +789,32 @@ label em { font-style: normal; opacity: 0.7; }
 .photo-knobs button.tiny { margin-left: 0; margin-top: 6px; }
 
 /* ---------- Setelan subtitle: preview kiri, setelan kanan ---------- */
+/* Bingkai 9:16 dan kendalinya BERDAMPINGAN — bukan bertumpuk.
+ *
+ * Diukur dari lebar PANEL-nya, bukan lebar jendela (@container, bukan @media):
+ * panel ini hidup di dalam kolom, jadi lebar jendela tidak memberi tahu apa pun
+ * tentang ruang yang benar-benar tersedia untuknya. Di bawah 520 px memang tidak
+ * ada ruang untuk dua kolom, dan di situ saja ia menumpuk. */
 .sub-layout {
   display: grid;
-  grid-template-columns: minmax(230px, 300px) 1fr;
-  gap: 26px;
-  align-items: start;
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
-@media (max-width: 780px) {
-  .sub-layout { grid-template-columns: 1fr; }
-  .sub-preview { justify-self: center; }
+@container (min-width: 520px) {
+  .sub-layout {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 18px;
+    align-items: start;
+  }
 }
-.sub-preview .preview9x16 { height: 430px; --pvh: 430px; }
+/* Tinggi bingkai TERIKAT pada lebar kolomnya, dan itu bukan kehalusan: rasionya
+   9:16, jadi tinggi 460 px berarti lebar 259 px. Kolom stage sebelumnya 210 px,
+   dan bingkainya melimpah menutupi kendali di sebelahnya — label terpotong jadi
+   "ontserrat", "lox background". Sekarang kolomnya 240 px dan tingginya 400 px
+   (= lebar 225 px), jadi ia muat dengan sisa.
+
+   Kalau tingginya dinaikkan lagi, LEBAR KOLOM di .sub-layout harus ikut naik. */
+.sub-preview .preview9x16 { height: 400px; --pvh: 400px; }
 .sub-preview .field { margin-top: 14px; margin-bottom: 8px; }
 
 /* Kendali di bawah gambar preview. */
@@ -790,6 +830,12 @@ label em { font-style: normal; opacity: 0.7; }
 /* Setelan di kanan: sebagian berjajar dalam .row, sebagian menumpuk penuh.
    Hanya .field yang jadi anak LANGSUNG yang dimatikan flex-nya — yang di dalam
    .row tetap ikut membagi lebar seperti biasa. */
+/* DIBATALKAN: mengubah .sub-settings jadi grid dua kolom membuat kendalinya
+   melebihi lebar wadahnya dan menembus ke belakang bingkai 9:16 — labelnya
+   terpotong ("ont", "Whit"). Sebabnya .field punya min-width 160px, jadi dua
+   kolom + jarak selalu lebih lebar daripada ruang yang ada di kolom ini.
+   Merapikan tepi kanan harus lewat jalan lain: mengecilkan min-width .field DI
+   panel ini, atau memberi Preview porsi kolom yang lebih besar. */
 .sub-settings > .field { flex: none; min-width: 0; }
 .sub-settings .row { gap: 12px; }
 .sub-settings .row .field { min-width: 130px; }
@@ -854,6 +900,15 @@ label em { font-style: normal; opacity: 0.7; }
 /* ---------- Kelompok dalam panel Setelan render ---------- */
 .group { margin-bottom: 18px; }
 .group:last-child { margin-bottom: 0; }
+/* Judul PANEL: lebih besar dan gelap. Dulu ia abu-abu kecil sama seperti judul
+   kelompok di dalamnya, jadi dua tingkat hierarki tampil identik dan mata tidak
+   punya titik masuk. */
+.panel > .meta:first-child {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 14px !important;
+}
 .group-title {
   font-size: 11px;
   letter-spacing: 0.09em;

@@ -543,3 +543,53 @@ itu belum bisa diputuskan agen: antarmuka masih memakai `system-ui`, yang
 persis penyakit yang sama dengan emoji — tampilannya berbeda di tiap komputer.
 Begitu fontnya dipilih (dari Figma atau sekarang), `gui/public/` dibuat bersama
 berkas `.woff2`-nya, tidak sebelum itu.
+
+## Kenapa tiga percobaan tata letak gagal, dan apa yang harus dikerjakan dulu
+
+Ditulis 5 Agustus 2026 setelah GAGAL TIGA KALI menyusun kolom di halaman klip.
+
+Gejalanya selalu sama: blok dipindah dengan memotong teks di `page.tsx`, `tsc`
+lolos, build lolos — lalu di browser paneL mendarat **tersarang di dalam panel
+lain**, bukan di sebelahnya. Diukur: `.split` berisi 1 anak padahal 2 ditulis;
+`.screen-body` berisi 2 anak padahal 3 ditulis.
+
+**Sebabnya bukan detail, melainkan cara kerjanya.** `page.tsx` 1.300 baris
+dengan belasan tingkat bersarang. Memindahkan blok di dalamnya = memotong ribuan
+karakter berdasarkan penanda komentar, dan **tidak ada yang bisa memverifikasi
+hasilnya**: TypeScript hanya memeriksa tag seimbang, bukan tag berada di induk
+yang benar. Menghitung kedalaman dengan regex juga gagal — tag menutup-sendiri
+ikut terhitung.
+
+**Yang harus dikerjakan LEBIH DULU, sebelum menyentuh kolom lagi:**
+
+pecah `page.tsx` jadi komponen bernama, **satu per satu, build di antaranya**:
+
+| Komponen | Isi |
+| --- | --- |
+| `<PreviewPanel>` | bingkai 9:16, seretan subtitle, kendali huruf & posisi |
+| `<FramePanel>` | panduan platform + cara video masuk bingkai + zoom |
+| `<RenderSettings>` | mode, model, resolusi, kualitas, fps, durasi, jumlah, simpan |
+| `<SourcePanel>` | seret-lepas, path video, folder keluaran |
+| `<AiEnginePanel>` | mesin skor, model, koreksi transkrip, daftar istilah |
+| `<RunPanel>` | tombol Mulai/Batal + bilah kemajuan |
+| `<LogPanel>` | kotak log |
+
+Sesudah itu menyusun tiga kolom cuma soal menaruh tiga tag berdampingan —
+salah tempat langsung kelihatan di berkas sepanjang 20 baris, bukan 1.300.
+
+**Nama bagan yang dipakai sebagai bahasa bersama** (dipakai di kelas CSS, nama
+komponen, DAN saat meminta perubahan) supaya tidak ada lagi salah tunjuk:
+
+`preview` · `frame` · `render` · `source` · `ai` · `run` · `log` · `results` ·
+`history` · `settings`
+
+**Sekalian saat memecah**: judul bagan ditulis ulang jadi nama, bukan kalimat.
+"How the clip looks — drag the subtitle on the preview to position it" itu
+instruksi, bukan judul; jadikan **"Preview"** dan pindahkan instruksinya ke
+bawahnya sebagai teks kecil (atau buang).
+
+**Dan sekalian juga**: `globals.css` sudah 1.100+ baris padahal Tailwind sudah
+terpasang. Gaya tiap komponen ikut pindah ke kelas Tailwind DI komponennya
+masing-masing; `globals.css` hanya menyisakan token `@theme`, kerangka
+(`.app`, `.rail`, `.topbar`, `.screen*`), dan hal yang benar-benar global.
+Memindahkannya sekarang gratis — komponennya toh sedang ditulis ulang.
