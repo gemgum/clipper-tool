@@ -82,11 +82,11 @@ Usage:
                structure and misheard words before clips are cut (default on).
                Needs an LLM even when -provider is heuristic: Claude in hybrid
                mode, Ollama otherwise. Turn it off to use the raw transcript.
-  -terms       comma-separated correct spellings of names and terms used in this
-               video, e.g. -terms "Londo Ireng,Mahfud MD,URI". Whisper does not
-               know them and writes down the nearest word it does know, so the
-               correction step uses this list to put them back. Needs
-               -transcript-fix on.
+  -terms       comma-separated correct spellings of the words this video uses
+               that Whisper is unlikely to know: people's names, words from a
+               regional language, and abbreviations. Whisper writes down the
+               nearest word it does know instead, so the correction step uses
+               this list to put them back. Needs -transcript-fix on.
   -max         maximum number of clips (default 10)
   -min-score   minimum score 0-100 (default 0)
   -llm-model   Claude model (default claude-haiku-4-5)

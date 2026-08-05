@@ -522,9 +522,14 @@ Biayanya 2 kB pada bundel halaman utama.
 Cara memeriksa aturannya masih dipegang — hasil kosong berarti aman:
 
 ```bash
-grep -rnP '[\x{1F300}-\x{1FAFF}\x{2705}\x{26D4}\x{2B06}\x{2B07}\x{270F}\x{2702}]' \
+grep -rnP '[\x{1F300}-\x{1FAFF}\x{2705}\x{26D4}\x{2B06}\x{2B07}\x{270F}\x{2702}\x{23F0}-\x{23FA}]' \
   gui/app --include=*.tsx --include=*.css
 ```
+
+Rentang `23F0–23FA` ditambahkan 6 Agustus 2026: `⏹` (U+23F9) lolos dari daftar
+lama padahal `Emoji_Presentation=Yes`, dan ia sudah terlanjur duduk di tombol
+Batalkan serta di baris log selama berbulan-bulan. Kalau ada lambang baru yang
+mencurigakan, periksa propertinya dulu — jangan menebak dari bentuknya.
 
 ### 3. `gui/public/` — ditunda, dan alasannya
 
@@ -576,6 +581,336 @@ pecah `page.tsx` jadi komponen bernama, **satu per satu, build di antaranya**:
 
 Sesudah itu menyusun tiga kolom cuma soal menaruh tiga tag berdampingan —
 salah tempat langsung kelihatan di berkas sepanjang 20 baris, bukan 1.300.
+
+### Dikerjakan 6 Agustus 2026 — dan alat yang akhirnya bisa memverifikasi
+
+Catatan di atas menyebut "tidak ada yang bisa memverifikasi hasilnya". Ternyata
+ada, dan sudah terpasang di repo sejak awal: **parser TypeScript itu sendiri**
+(`gui/node_modules/typescript`). `ts.createSourceFile(..., ScriptKind.TSX)` lalu
+menelusuri `JsxElement`/`JsxSelfClosingElement` mencetak pohon induk-anak yang
+sebenarnya — tag menutup-sendiri terurus otomatis, dan `{kondisi && ...}` serta
+fragmen dilewati tanpa menambah kedalaman, persis seperti DOM. Itulah yang
+seharusnya dipakai dari percobaan pertama, bukan menghitung indentasi.
+
+Yang ditemukannya begitu dijalankan: **`.screen-body` berisi 5 anak, bukan 3.**
+Panel Berkas, panel Mesin AI, dan tombol Mulai memang salah induk seperti
+diduga — tapi ada satu lagi yang belum pernah disadari, **kotak log tersarang DI
+DALAM panel pratinjau**, sebab `</div>` penutup panelnya hilang satu.
+
+Ada juga yang hilang diam-diam di salah satu dari tiga percobaan itu: **kotak
+seret-lepas berikut tombol "pilih berkas"**. Markup-nya lenyap, tapi `dragOver`,
+`uploading`, `uploadPct`, dan `useFile` semuanya tertinggal sebagai kode mati —
+tak satu pun compiler mengeluh, karena secara tipe semuanya masih sah.
+Dikembalikan dari `git show` ke dalam `<SourcePanel>`.
+
+Sesudah dipecah, susunan kolomnya muat dalam satu layar `page.tsx` (1.286 → 547
+baris), dan diperiksa **di HTML hasil ekspor**, bukan di sumbernya:
+
+```
+.screen-body  children=2   → .screen-main · .screen-col
+.screen-main  children=3   → SourcePanel · panel-grow(Preview+Frame) · LogPanel
+.screen-col   children=3   → RenderSettings · AiEnginePanel · RunPanel
+```
+
+Dua keputusan kecil saat memecah:
+
+- **`<FramePanel>` masuk lewat `children` `<PreviewPanel>`.** Ia memang duduk di
+  ujung kolom setelan pratinjau, dan menaruhnya di sana lewat slot menjaga DOM
+  tetap sama persis — pemecahannya tidak menggeser satu piksel pun.
+- **Panel yang meregang ditunjuk, bukan diurutkan.** `.screen-main > .panel:
+  first-of-type { flex: 1 }` dulu benar karena pratinjau kebetulan berdiri
+  paling atas; sejak Berkas naik ke atasnya, kolomnya menandai sendiri lewat
+  `.panel-grow`. Urutan panel jadi boleh berubah tanpa diam-diam memindahkan
+  ruang lebih ke panel yang salah.
+
+Yang **belum** dikerjakan dari bagian ini: gaya tiap komponen masih memakai
+kelas `globals.css` yang lama, belum pindah ke Tailwind. Memecah dan menerjemahkan
+gaya sekaligus berarti dua perubahan besar tanpa titik verifikasi di antaranya —
+persis pola yang menghasilkan tiga kegagalan di atas.
+
+## Memadatkan halaman klip (6 Agustus 2026)
+
+Diminta sesudah pemecahan komponen: **jangan sampai pengguna harus menggulir ke
+bawah.** Yang dikerjakan, berikut alasan tiap potongannya — sebab tanpa alasan
+yang tertulis, tiap sesi berikutnya cenderung mengembalikannya.
+
+### Susunan sekarang: dua panel, titik
+
+```
+.screen-main                     .screen-col
+└── .panel.panel-grow            ├── .panel        (SetupPanel)
+    ├── .source-row              └── .panel.start-panel (RunPanel)
+    └── .sub-layout
+        ├── .sub-preview         (bingkai 9:16 + kendali)
+        └── .sub-settings        (huruf, posisi, + FramePanel)
+└── LogPanel (hanya bila ada log)
+```
+
+### Yang dibuang, dan kenapa boleh
+
+- **Kotak seret-lepas (~110 px).** Ia mengulang persis apa yang sudah bisa
+  dilakukan kolom path di bawahnya, dan tingginya penyumbang tunggal terbesar
+  yang memaksa gulir. Menyeret berkas TIDAK hilang: **`.source-row` seluruhnya
+  jadi sasaran lepasnya**, dengan garis putus-putus yang cuma muncul saat ada
+  yang diseret ke atasnya. Kotak permanen bersambungan dengan tinta tanpa kabar.
+- **Panel "Berkas" sebagai panel sendiri.** Sumber pindah jadi baris di kepala
+  panel pratinjau — di situlah tempatnya secara sebab-akibat: ia yang menentukan
+  gambar tepat di bawahnya. Hemat satu bingkai + satu jarak antarpanel.
+- **Panel "Render settings" dan "AI engine" digabung jadi `<SetupPanel>`.**
+  Keduanya menjawab pertanyaan yang sama — "job ini dijalankan bagaimana" — dan
+  mesin skor kini menempel di kelompok Engine, bersama mode & model whisper. Dua
+  bingkai + dua judul panel yang hilang ≈ 90 px.
+- **Judul panel** (`clipAppearance`, `renderSettings`, `aiEngine`). Judul
+  kelompok di dalamnya sudah menamai isinya, dan bingkai 9:16 mengatakan sendiri
+  apa itu. Dua tingkat hierarki untuk satu panel adalah satu tingkat terlalu
+  banyak.
+- **Tujuh baris keterangan** (`previewHintVideo`, `previewHintNoVideo`,
+  `previewNote`, `gridHint`, `zoomFullNote`, `fitWholeNote`,
+  `fitWholeCropNote`, `engineNoFallback`). Semuanya menjelaskan apa yang sudah
+  terlihat di pratinjau sebelahnya.
+- **Kalimat status Ollama yang berbunyi "siap".** Keadaan baik tidak butuh
+  kalimat. Yang tersisa hanya keadaan yang MENUNTUT TINDAKAN — tidak jalan,
+  belum terpasang, model kurang mampu — dan itu tetap lengkap dengan tombolnya.
+
+**23 kunci i18n** jadi tak terpakai dan ikut dibuang dari kedua kamus (dicek
+dengan menyisir seluruh `app/**/*.tsx`, bukan dengan ingatan). Lima di antaranya
+sudah mati sejak sebelum ini: `brandTagline`, `download`, `fitFace`, `termsNote`.
+
+### Yang dirapatkan
+
+| | Sebelum | Sesudah |
+| --- | --- | --- |
+| `.screen .panel` padding | 20 | 16 |
+| `.screen .panel` margin-bottom | 12 (+ `gap:12` kolom = 24 px terpakai) | 0 |
+| `.group` margin-bottom | 18 | 14 |
+| `.group-title` padding+margin | 6 + 12 | 4 + 10 |
+
+Margin bawah `.panel` itu bug diam-diam: kolomnya flex ber-`gap`, jadi margin
+ikut DIJUMLAHKAN di atas gap — 24 px terpakai untuk memisahkan dua kotak yang
+cukup dipisah 12.
+
+### Tinggi bingkai ikut tinggi jendela
+
+`.sub-preview .preview9x16` dulu dipaku 400 px. Itu angka terbesar yang
+sendirian memaksa gulir di jendela terkecil. Sekarang:
+
+```css
+--pvh: clamp(240px, 42dvh, 400px);
+height: var(--pvh);
+```
+
+**Satu variabel untuk keduanya, dan itu wajib**, bukan kerapian: ukuran huruf
+pratinjau dihitung sebagai pecahan dari `--pvh` (`calc(size × scale / 1920 ×
+var(--pvh))`). Kalau `height` dan `--pvh` jadi dua angka terpisah, keduanya bisa
+melenceng dan pratinjau berhenti mencerminkan hasil render — pelanggaran batasan
+"dua area terkunci ke engine" di atas.
+
+Kalau tingginya dinaikkan lagi, **lebar kolom di `.sub-layout` harus ikut naik**
+(rasio 9:16 — tinggi 400 berarti lebar 225 pada kolom 240 px).
+
+### Sejauh mana gulirnya benar-benar hilang — belum diukur
+
+Angka di bawah **hasil hitungan dari CSS, bukan pengukuran**: tidak ada
+Chrome/Chromium di mesin tempat ini dikerjakan, jadi yang bisa diperiksa hanya
+struktur DOM di `gui/out/index.html`, bukan tingginya.
+
+| Jendela | Perkiraan tinggi kolom kiri | Ruang tersedia |
+| --- | --- | --- |
+| 1240×860 (bawaan) | ~590 px | ~690 px — **muat** |
+| 900×600 (terkecil) | ~590 px | ~430 px — **kolom kiri masih bergulir** |
+
+Sebabnya struktural, bukan kurang rapat: di 900 px lebar, kolom setelan subtitle
+tinggal ~180 px sehingga kendalinya WAJIB menumpuk satu per baris (~480 px), dan
+bingkai 9:16 tetap butuh tingginya sendiri. Merapatkan lagi tidak akan menutup
+selisih 150 px itu.
+
+Dan itu **tidak melanggar** keputusan di bagian atas catatan ini: yang haram
+adalah HALAMAN yang bergulir, bukan kolom. `body` tetap 505/505 — yang bergulir
+`.screen-main`, di dalam kotaknya sendiri, persis seperti aplikasi desktop pada
+umumnya.
+
+### Penggeser diganti tombol −/+ (6 Agustus 2026, dari tangkapan layar)
+
+Keluhannya satu kalimat — "sangat terlihat berantakan" — dan penyebabnya
+kelihatan begitu ditunjuk: **`<input type="range">` melar selebar wadahnya.**
+Tiga di antaranya (Ukuran, Garis tepi, Zoom) karena itu membentang penuh dari
+tepi ke tepi panel, masing-masing memakai satu baris utuh untuk menyampaikan
+SATU ANGKA, sementara `<select>` di atasnya cuma separuh lebar. Yang terbaca
+mata bukan "ada tiga setelan", melainkan tiga garis panjang yang tidak sejajar
+dengan apa pun.
+
+Dua cacat lain yang ikut hilang, dan keduanya bukan soal rupa:
+
+- **Penggeser tidak pernah menyebut nilainya sendiri.** Angkanya harus
+  dititipkan ke labelnya — `"Size ({n})"`, `"Zoom ({n}%)"` — jadi label berhenti
+  jadi nama dan berubah jadi tampilan nilai.
+- **Nilai yang persis mustahil disetel dengan tetikus.** Menaruh zoom di 85%
+  atau ukuran di 72 adalah tebak-tebakan seukuran satu piksel layar; dengan
+  tombol −/+ tiap ketukan adalah satu langkah yang bisa dihitung.
+
+`<Stepper>` (`gui/app/stepper.tsx`): satu kotak berbingkai berisi tombol −,
+isian angka, dan tombol +. Yang perlu diketahui sebelum menyentuhnya:
+
+- **Tombolnya ikon lucide, bukan huruf.** Tanda minus yang benar (U+2212) tidak
+  ada di semua font, sedangkan hubung ASCII terlihat lebih pendek daripada
+  plusnya — dua tombol sejajar jadi tampak tidak sama besar. Ini penyakit yang
+  sama dengan emoji, cuma lebih halus.
+- **Panah naik-turun bawaan `type="number"` dimatikan.** Ia mengulang persis dua
+  tombol di kiri-kanannya, dengan sasaran klik seukuran 8 px.
+- **Angka yang diketik tangan dibulatkan ke kelipatan `step`**, jadi ia tidak
+  pernah mendarat di nilai yang tombolnya sendiri tidak bisa capai.
+- **Yang TETAP penggeser: waktu frame pratinjau.** Itu menyusuri durasi video —
+  mencari, bukan menyetel — dan menyeret memang cara yang benar untuk itu.
+
+Ukuran dan Garis tepi kini berbagi satu baris; Zoom ikut baris "cara video masuk
+bingkai". Keterangan `zoom-ends` ("5% · kecil" / "100% · isi penuh") dibuang:
+tombol −/+ mati sendiri begitu sampai batas, jadi ujung skalanya tak perlu
+ditulis.
+
+### Kotak log kembali, dan sekarang selalu ada
+
+Hilang tanpa disadari saat panelnya dipecah: `<LogPanel>` mengembalikan `null`
+selama `logs` kosong, jadi sebelum job pertama dijalankan halaman ini sama
+sekali tidak punya tempat untuk memantau jalannya pekerjaan — dan begitu baris
+pertama masuk, kotak yang menyembul menggeser seluruh kolom.
+
+Sekarang ia **selalu dirender**, di bawah panel pratinjau, dengan kalimat
+pengganti saat masih kosong. Tingginya **tetap 132 px, bukan `max-height`** —
+kotak yang tumbuh mengikuti isinya menggeser kolom tiap baris log masuk, dan log
+paling ramai persis ketika pengguna sedang mengawasi hal lain. Isinya bergulir
+di dalam kotaknya sendiri; itu memang satu-satunya kotak di kolom ini yang boleh.
+
+### Judul "Video clips" dibuang
+
+Nama halaman sudah tertulis di rail kiri dalam keadaan terpilih. Mengulangnya
+sebagai `<h1>` memakan satu baris penuh tanpa memberi tahu apa pun — persoalan
+yang sama dengan judul panel di bagian sebelumnya, satu tingkat lebih tinggi.
+
+Ikut berubah: **`.screen-head` tidak dirender sama sekali kalau isinya kosong.**
+`.screen` adalah kolom flex ber-`gap`, jadi div kosong pun tetap menyisakan
+12 px. Kepala hanya muncul saat ada kemajuan job, galat, atau peringatan model.
+
+### Satu jebakan CSS yang sudah menggigit sekali
+
+`.screen-main > .panel:first-of-type { flex: 1 }` menunjuk panel berdasarkan
+URUTAN. Begitu kotak log pindah ke bawah pratinjau, "yang pertama" berubah arti
+dan ruang lebih mendarat di panel yang keliru — persis kelas kesalahan yang sama
+dengan salah induk, cuma di CSS.
+
+Aturannya sekarang berpasangan dan **sengaja sama kuat (0,4,0)**, dengan yang
+menunjuk nama ditaruh belakangan supaya ia menang walau panel yang ditunjuk
+kebetulan juga yang pertama:
+
+```css
+.screen-main:has(> .panel-grow) > .panel:first-of-type { flex: none; }
+.screen-main:has(> .panel-grow) > .panel-grow          { flex: 1; }
+```
+
+### Kolom setelan disusun ulang: kisi tiga kolom (6 Agustus 2026)
+
+Keluhan berikutnya — "kurang proper, membingungkan, **bukan tentang penamaan
+tapi setiap fungsi**" — menunjuk dua penyakit sekaligus.
+
+**Satu: tepi kanan bergerigi.** Tiap baris memakai `.row` (flex) dan membagi
+lebarnya SENDIRI, jadi baris berisi dua kendali melebar sementara baris berisi
+tiga menyempit. Tidak ada satu kendali pun yang sejajar dengan kendali di baris
+atas atau bawahnya.
+
+Sekarang seluruh kolom memakai satu `.grid3` — `repeat(3, minmax(0,1fr))`.
+Kolomnya ditentukan sekali, jadi semua kendali berdiri di garis yang sama
+berapa pun isi tiap selnya. Tiga hal yang membuatnya benar-benar rata:
+
+- **`.sub-settings` jadi container sendiri** (`container-type: inline-size`).
+  Kisinya harus runtuh menurut lebar KOLOM SETELAN, dan lebar itu sudah dikurangi
+  240 px bingkai pratinjau di sebelah kiri — bertanya ke `.screen-main` selalu
+  memberi angka yang terlalu besar.
+- **`align-items: start` + `align-self: stretch` pada sel tombol/centang.** Kisi
+  dibiarkan `start` supaya sel Font yang tinggi (ada isian font manual di
+  bawahnya) tidak menarik tetangganya ikut memanjang; sel yang isinya centang
+  atau tombol dikembalikan ke `stretch` supaya isinya bisa didorong ke DASAR sel
+  dan sejajar dengan kotak isian di kiri-kanannya.
+- **`.position-value` dibingkai seperti kotak isian**, dengan padding yang sama
+  persis (9+9+1 px), bukan tinggi yang dipaku — tinggi tetap selalu meleset
+  begitu ukuran huruf disentuh. Dulu ia teks telanjang yang mengambang, jadi satu
+  sel dalam barisnya tampak kosong.
+
+**Dua: pengelompokan yang salah.** Kolom setelan tadinya deretan baris tanpa
+nama, dan satu-satunya judul kelompok — "Video inside the 9:16 frame" — berdiri
+tepat di bawah "Social media guides" yang tidak ada hubungannya. Sekarang tiga
+kelompok bernama, dan pembagiannya bisa diuji, bukan selera:
+
+| Kelompok | Menjawab |
+| --- | --- |
+| **Subtitle** | rupa teksnya — font, warna, ukuran, gaya, kerapatan, garis tepi, sorotan, kotak latar |
+| **Placement** | di mana ia berdiri — posisi, platform, tombol area aman |
+| **Frame** | bagaimana VIDEO dipasang — pemasangan, latar, zoom |
+
+**Pembatas platform pindah dari Frame ke Placement**, dan itu perbaikan makna
+bukan pemindahan kotak: ia mengatur ke mana SUBTITLE boleh ditaruh, bukan
+bagaimana video dipasang ke bingkai. Selama ia duduk di kelompok bingkai,
+tombol "area aman" di sebelahnya terbaca seolah menggeser videonya.
+
+Ikut berubah: `PLATFORMS` dan tipe `Zone` pindah dari `frame-panel.tsx` ke
+`preview-panel.tsx`. Overlay zona digambar di atas bingkai pratinjau, jadi di
+situlah tempatnya.
+
+Satu kotak yang dulu muncul-hilang kini **selalu dirender dalam keadaan mati**:
+warna sorotan, yang hanya berarti pada gaya menyorot. Kotak yang menghilang
+membuat sel-sel di bawahnya melompat tiap gaya diganti.
+
+### Semua label ditulis ulang jadi nama, bukan kalimat
+
+Diminta pemilik proyek yang **tidak membaca bahasa Inggris dengan lancar** —
+jadi label yang panjang bukan cuma berantakan, ia benar-benar tidak terbaca.
+Aturannya satu: **label adalah NAMA (satu-dua kata), penjelasan pindah ke
+tooltip `title` atau ke pilihannya sendiri.**
+
+| Sebelum | Sesudah |
+| --- | --- |
+| `How the video fits` | `Fit` |
+| `Center of the Picture — crop to fill` | `Crop to fill` |
+| `Social media guides` | `Platform` |
+| `Subtitle style` / `Subtitle pacing` | `Style` / `Pacing` |
+| `Normal — whole sentences` | `Whole sentences` |
+| `Output folder (optional — empty = data/<job>)` | `Output folder` (sisanya jadi placeholder) |
+| `Claude model (stronger = better and more expensive)` | `Claude model` |
+| `Local model (run through Ollama)` | `Ollama model` |
+| `⤓ Place in the safe area` | `Move to safe area` |
+| `reset to centre` | `Centre` |
+
+Dikerjakan **di kedua kamus sekaligus** — kunci Inggris tanpa pasangan Indonesia
+ditolak TypeScript, jadi tidak mungkin setengah jalan.
+
+Satu temuan sampingan: **`cancel` berbunyi `"⏹ Batalkan"`**, dan U+23F9 itu
+`Emoji_Presentation=Yes` — persis kelas lambang yang notes ini larang, dan
+kebetulan tidak tertangkap grep di atas karena rentangnya tidak ikut terdaftar.
+Sudah dibuang. Kalau grep-nya mau dirapikan nanti, U+23F9 dan tetangganya layak
+masuk daftar.
+
+### Kotak log memanjang sampai sejajar tombol Mulai
+
+Diminta: "panjangkan lagi log agar bawahnya lurus dengan Start process."
+
+Yang meregang di kolom kiri sekarang **kotak log**, bukan panel pratinjau —
+kebalikan dari sebelumnya. Pratinjau setinggi isinya, sisa ruang jatuh ke log,
+jadi dasar kolom kiri berhenti di garis yang sama dengan tombol Mulai di kolom
+kanan (yang memang selalu menempel di dasar, sebab `SetupPanel` di atasnya
+`flex: 1`).
+
+Karena tingginya kini datang dari panelnya, `.logbox` memakai `flex: 1;
+min-height: 0` — **bukan angka tinggi**. Tidak ada satu pun tinggi log yang
+dipaku lagi; `min-height: 150px` pada panelnya cuma jaring pengaman untuk jendela
+yang sangat pendek.
+
+Cara memeriksanya begitu ada browser, di konsol jendela aplikasi:
+
+```js
+const b = document.body, m = document.querySelector('.screen-main');
+console.log('body', b.clientHeight + '/' + b.scrollHeight,
+            'main', m.clientHeight + '/' + m.scrollHeight);
+// body harus SAMA (halaman tidak bergulir).
+// main boleh berbeda di 900x600; di 1240x860 seharusnya sama juga.
+```
 
 **Nama bagan yang dipakai sebagai bahasa bersama** (dipakai di kelas CSS, nama
 komponen, DAN saat meminta perubahan) supaya tidak ada lagi salah tunjuk:

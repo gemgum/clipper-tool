@@ -159,8 +159,10 @@ body:has(.screen) {
 .screen-head .warnbox,
 .screen-head .okbox,
 .screen-head .err { margin-top: 10px; }
-.screen .panel { margin-bottom: 12px; }
-.screen .panel:last-child { margin-bottom: 0; }
+/* Di kerangka berzona, jarak antarpanel diatur `gap` kolomnya. Margin bawaan
+   .panel ikut dijumlahkan di atas gap itu — 24 px terpakai untuk memisahkan dua
+   kotak yang cukup dipisah 12. Tinggi itu yang membuat kolom harus digulir. */
+.screen .panel { margin-bottom: 0; padding: 16px; }
 .screen-body {
   flex: 1;
   min-height: 0;
@@ -180,8 +182,26 @@ body:has(.screen) {
    bawahnya — tiga kolom berakhir di tiga ketinggian berbeda, dan itulah yang
    membuat halaman terasa belum selesai. */
 .screen-main, .screen-col, .screen-side { display: flex; flex-direction: column; gap: 12px; }
-.screen-col > .panel,
+.screen-col > .panel:first-of-type,
 .screen-main > .panel:first-of-type { flex: 1; }
+/* ...kecuali bila kolomnya MENUNJUK sendiri panel mana yang meregang. Urutan
+   panel boleh berubah tanpa diam-diam memindahkan ruang lebih ke panel yang
+   salah — dan itu bukan hipotesis: kotak log yang pindah ke bawah pratinjau
+   sudah sekali membuat `:first-of-type` menunjuk kotak yang keliru.
+
+   Kedua aturan sengaja SAMA kuat (0,4,0) dan yang menunjuk ditaruh belakangan,
+   jadi ia menang walau panel yang ditunjuk kebetulan juga yang pertama. */
+/* Di halaman klip yang meregang adalah KOTAK LOG, bukan panel pratinjau.
+   Pratinjau setinggi isinya; sisa ruang jatuh ke log, jadi dasar kolom kiri
+   berhenti di garis yang sama dengan tombol Mulai di kolom kanan. Itu juga yang
+   membuat kotak log sepanjang mungkin tanpa satu angka tinggi pun dipaku. */
+.screen-main:has(> .log-panel) > .panel:first-of-type { flex: none; }
+.screen-main > .log-panel {
+  flex: 1;
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+}
 .screen-main, .screen-side {
   min-height: 0;
   overflow-y: auto;
@@ -212,6 +232,14 @@ body:has(.screen) {
 /* Lebar kolom dipersempit supaya TIGA kolom tetap muat di jendela ~1100 px —
    ukuran yang benar-benar dipakai, bukan 1240 yang saya pakai menguji. Dengan
    320+340 sebelumnya, pratinjau tersisa <400 px dan gridnya runtuh. */
+/* DUA kolom: Preview (bingkai, kendali subtitle, berkas) dan Setup (render, mesin
+   AI, tombol Mulai). Preview diberi porsi lebih besar karena bingkai 9:16 dan
+   kendalinya memang butuh ruang; setup adalah daftar kendali berlebar tetap. */
+.screen-body.two { grid-template-columns: minmax(420px, 1.35fr) minmax(320px, 1fr); }
+@media (max-width: 900px) {
+  .screen-body.two { grid-template-columns: minmax(0, 1fr); }
+}
+
 .screen-body.three {
   /* Ketiganya BERBAGI ruang lebih, tidak hanya pratinjau. Dengan lebar tetap
      290+300, jendela lebar membuat pratinjau membengkak sampai 1150 px sementara
@@ -289,6 +317,50 @@ input, select {
 }
 input:focus, select:focus { outline: 2px solid var(--accent); }
 
+/* Angka dengan tombol −/+ — pengganti penggeser untuk Ukuran, Garis tepi, dan
+   Zoom. Satu kotak utuh: tombolnya tidak melayang di samping isian melainkan
+   menempel jadi satu bingkai, supaya ia sepadan dengan <select> di sebelahnya
+   dan barisnya rata. */
+.stepper {
+  display: flex;
+  align-items: center;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.stepper:focus-within { outline: 2px solid var(--accent); }
+/* Isian tanpa bingkai sendiri: bingkainya milik .stepper. */
+.stepper input {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  text-align: center;
+  padding: 10px 0;
+  min-width: 0;
+  /* Panah naik-turun bawaan browser dimatikan — ia mengulang dua tombol di
+     kiri-kanannya dengan sasaran klik seukuran 8 px. */
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.stepper input:focus { outline: none; }
+.stepper input::-webkit-outer-spin-button,
+.stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.step-suffix { font-size: 13px; color: var(--muted); padding-right: 2px; }
+.step-btn {
+  background: transparent;
+  color: var(--text);
+  border: none;
+  border-radius: 0;
+  padding: 0 10px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  flex: none;
+}
+.step-btn:hover:not(:disabled) { background: var(--border); }
+.step-btn .ico { width: 15px; height: 15px; }
+
 button {
   background: var(--accent);
   color: white;
@@ -321,17 +393,8 @@ button.ghost { background: transparent; border: 1px solid var(--border); color: 
 .tag { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; margin: 2px 2px 0 0; font-size: 11px; }
 a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
 
-/* Drag & drop */
-.dropzone {
-  border: 2px dashed var(--border);
-  border-radius: 10px;
-  padding: 24px;
-  text-align: center;
-  margin-bottom: 14px;
-  transition: border-color 0.2s, background 0.2s;
-}
-.dropzone.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.linklike { color: var(--accent); cursor: pointer; text-decoration: underline; }
+/* .dropzone & .linklike dibuang 6 Agustus 2026 bersama kotak seret-lepasnya —
+   sasaran lepas sekarang .source-row, lihat di bawah. */
 
 /* Peringatan model belum diunduh */
 .warnbox {
@@ -359,10 +422,18 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
   color: #b9c2d0;
-  max-height: 180px;
+  /* Tinggi datang dari PANELNYA (flex:1 di kolom), bukan dari isinya: kotak yang
+     tumbuh mengikuti isi menggeser seluruh kolom tiap baris log masuk — dan log
+     paling ramai persis ketika pengguna sedang mengawasi hal lain. */
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   white-space: pre-wrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
+/* Judul kotak log dirapatkan — ia keterangan, bukan kelompok setelan. */
+.log-panel .group-title { margin-bottom: 8px; }
 
 /* Preview subtitle 9:16 + overlay geser */
 .preview9x16 {
@@ -813,9 +884,40 @@ label em { font-style: normal; opacity: 0.7; }
    "ontserrat", "lox background". Sekarang kolomnya 240 px dan tingginya 400 px
    (= lebar 225 px), jadi ia muat dengan sisa.
 
-   Kalau tingginya dinaikkan lagi, LEBAR KOLOM di .sub-layout harus ikut naik. */
-.sub-preview .preview9x16 { height: 400px; --pvh: 400px; }
-.sub-preview .field { margin-top: 14px; margin-bottom: 8px; }
+   Kalau tingginya dinaikkan lagi, LEBAR KOLOM di .sub-layout harus ikut naik.
+
+   Tingginya IKUT TINGGI JENDELA (6 Agustus 2026), sebab 400 px tetap adalah
+   satu-satunya angka terbesar yang memaksa halaman digulir di jendela 900x600.
+   Satu variabel dipakai untuk keduanya — height DAN --pvh — supaya ukuran huruf
+   pratinjau, yang dihitung sebagai pecahan dari --pvh, tidak pernah bisa
+   melenceng dari tinggi bingkai yang sebenarnya. */
+.sub-preview .preview9x16 { --pvh: clamp(240px, 42dvh, 400px); height: var(--pvh); }
+.sub-preview .field { margin-top: 10px; margin-bottom: 0; }
+
+/* Sumber: dua kolom path di kepala panel pratinjau. Seluruh baris ini jadi
+   sasaran seret-lepas — kotak khusus setinggi ~110 px sudah dibuang. */
+.source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 14px;
+  border-radius: 8px;
+  /* Garis putus-putus hanya muncul saat ada yang diseret ke atasnya: dalam
+     keadaan diam ia cuma dua isian biasa, dan bingkai tambahan di sekelilingnya
+     adalah tinta tanpa kabar. */
+  outline: 2px dashed transparent;
+  outline-offset: 4px;
+  transition: outline-color 0.12s;
+}
+.source-row.over { outline-color: var(--accent); }
+.source-row .field { margin-bottom: 0; min-width: 0; }
+@container (max-width: 520px) {
+  .source-row { grid-template-columns: minmax(0, 1fr); }
+}
+/* Bilah unggah membentang di bawah kedua kolom — jalur cadangan yang jarang
+   terpakai, jadi ia tidak boleh memakan tempat saat diam. */
+.upload-bar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; }
+.upload-bar .progress-outer { flex: 1; }
 
 /* Kendali di bawah gambar preview. */
 .preview-actions {
@@ -839,23 +941,64 @@ label em { font-style: normal; opacity: 0.7; }
 .sub-settings > .field { flex: none; min-width: 0; }
 .sub-settings .row { gap: 12px; }
 .sub-settings .row .field { min-width: 130px; }
+/* Kolomnya bertanya lebar DIRINYA SENDIRI, bukan lebar .screen-main: kisi di
+   bawah harus runtuh menurut ruang yang benar-benar dipunyainya, dan ruang itu
+   sudah dikurangi 240 px bingkai pratinjau di sebelah kiri. */
+.sub-settings { container-type: inline-size; }
 
-/* Nilai posisi + tombol reset dalam satu baris rapat. */
+/* Kisi tiga kolom — satu-satunya tata letak di kolom setelan.
+ *
+ * Sebelumnya tiap baris memakai .row (flex) dan membagi lebarnya SENDIRI, jadi
+ * baris berisi dua kendali melebar sementara baris berisi tiga menyempit:
+ * tepi kanannya bergerigi dan tidak ada satu kendali pun yang sejajar dengan
+ * kendali di baris atas atau bawahnya. Kisi menentukan kolomnya sekali, jadi
+ * semuanya berdiri di garis yang sama berapa pun isi tiap selnya. */
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 12px;
+  align-items: start;
+}
+@container (max-width: 460px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 300px) { .grid3 { grid-template-columns: minmax(0, 1fr); } }
+.grid3 > .field { margin-bottom: 0; min-width: 0; }
+/* Sel berisi centang atau tombol: didorong ke DASAR selnya supaya sejajar
+   dengan kotak isian di kiri-kanannya, bukan melayang di ketinggian labelnya. */
+/* align-self:stretch WAJIB: .grid3 memakai align-items:start supaya satu sel
+   yang tinggi (Font + isian manualnya) tidak ikut menarik tetangganya. Tanpa
+   ini, sel yang mau mendorong isinya ke bawah tidak punya tinggi untuk didorong
+   ke mana pun. */
+.grid3 > .field-check { align-self: stretch; justify-content: flex-end; }
+.grid3 > .field-check .chk { margin-bottom: 9px; }
+.grid3 > .field-check button { width: 100%; }
+
+/* Kelompok di dalam kolom setelan dirapatkan — di panel ini judul kelompok
+   berfungsi sebagai pemisah, bukan pengantar bab. */
+.sub-settings .group { margin-bottom: 14px; }
+.sub-settings .group:last-child { margin-bottom: 0; }
+
+/* Nilai posisi + tombol tengah: dibingkai seperti kotak isian di sebelahnya,
+   supaya barisnya rata. Dulu ia teks telanjang yang mengambang, jadi satu sel
+   dalam baris tampak kosong. */
 .position-value {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: space-between;
   gap: 6px;
-  font-size: 12px;
-  color: var(--muted);
-  padding-top: 9px;
+  /* Padding, BUKAN tinggi tetap: angkanya harus sama persis dengan <input> di
+     sebelahnya (10px + 10px + 1px garis), dan tinggi yang dipaku selalu meleset
+     begitu ukuran huruf disentuh. */
+  padding: 9px 6px 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
 }
-.position-value button.tiny { margin-left: 0; }
-
-/* Dropdown pembatas + tombol area aman berdampingan. */
-.bounds { display: flex; gap: 8px; align-items: center; }
-.bounds select { flex: 1; min-width: 0; }
-.bounds button.tiny { margin-left: 0; flex: none; white-space: nowrap; }
+.position-value button.tiny { margin-left: 0; flex: none; }
 
 /* Bingkai kosong: mengundang aksi, bukan kotak hitam mati. Subtitle contoh
    tetap bisa digeser di atasnya, jadi posisi sudah bisa diatur sebelum
@@ -898,7 +1041,7 @@ label em { font-style: normal; opacity: 0.7; }
    mengikuti isinya, seperti tombol pada umumnya. */
 
 /* ---------- Kelompok dalam panel Setelan render ---------- */
-.group { margin-bottom: 18px; }
+.group { margin-bottom: 14px; }
 .group:last-child { margin-bottom: 0; }
 /* Judul PANEL: lebih besar dan gelap. Dulu ia abu-abu kecil sama seperti judul
    kelompok di dalamnya, jadi dua tingkat hierarki tampil identik dan mata tidak
@@ -914,8 +1057,8 @@ label em { font-style: normal; opacity: 0.7; }
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--muted);
-  padding-bottom: 6px;
-  margin-bottom: 12px;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border);
 }
 .group .field { margin-bottom: 0; }
@@ -1029,15 +1172,8 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* Nama kedua ujung sumbu zoom, ditaruh di bawah penggesernya supaya artinya
-   terbaca tanpa harus dicoba dulu. */
-.zoom-ends {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: -2px;
-}
+/* .zoom-ends dibuang 6 Agustus 2026 bersama penggeser zoom-nya: tombol -/+ pada
+   .stepper mati sendiri di batasnya, jadi ujung skala tak perlu ditulis. */
 
 /* Tombol pintasan kedua ujung sumbu zoom. Keduanya hanya menyetel penggeser
    yang sama — bukan kendali kedua, cuma jalan pintas yang bernama. */
