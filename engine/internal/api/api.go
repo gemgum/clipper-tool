@@ -180,8 +180,17 @@ func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	feed := strings.TrimSpace(r.URL.Query().Get("feed"))
-	if feed == "" {
-		feed = news.DefaultSources[0].ID
+	// "all" merangkak seluruh feed bawaan sekaligus — itu yang dipakai daftar
+	// berita di GUI, supaya pengguna tidak perlu memilih sumber satu per satu
+	// hanya untuk melihat apa yang baru.
+	if feed == "" || feed == "all" {
+		items, err := news.ListAll(r.Context(), max, lang(r))
+		if err != nil {
+			writeErr(w, 502, err.Error())
+			return
+		}
+		writeJSON(w, 200, items)
+		return
 	}
 	// Nama media diambil dari daftar kurasi bila feednya dikenal — judul channel
 	// RSS terlalu berbeda-beda antar media untuk dipakai sebagai badge kartu.

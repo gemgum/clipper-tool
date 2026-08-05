@@ -14,7 +14,9 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -159,11 +161,11 @@ func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error)
 		feedName = clean(f.AtomTitle)
 	}
 
+	// Batas `max` DIPAKAI SESUDAH pengurutan, bukan saat mengumpulkan: memotong
+	// lebih dulu berarti artikel terbaru bisa ikut terbuang hanya karena feednya
+	// tidak menaruhnya di awal.
 	var out []Article
 	for _, it := range f.Channel.Items {
-		if len(out) >= max {
-			break
-		}
 		link := clean(it.Link)
 		if link == "" {
 			continue
@@ -188,9 +190,6 @@ func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error)
 		})
 	}
 	for _, e := range f.AtomEntries {
-		if len(out) >= max {
-			break
-		}
 		link := clean(e.Link.Href)
 		if link == "" {
 			continue
@@ -209,7 +208,31 @@ func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error)
 	if len(out) == 0 {
 		return nil, fmt.Errorf("the feed parsed but contains no articles — check the feed URL")
 	}
+	sortNewestFirst(out)
+	if len(out) > max {
+		out = out[:max]
+	}
 	return out, nil
+}
+
+// sortNewestFirst mengurutkan artikel dari yang paling baru.
+//
+// Feed TIDAK dijamin urut. Sebagian media menaruh artikel unggulan di atas,
+// sebagian lagi mengurut naik, dan Google News mencampur banyak sumber tanpa
+// urutan waktu sama sekali — jadi "yang di atas" bukan "yang terbaru".
+//
+// Yang tanpa tanggal terbaca ditaruh di BELAKANG, bukan di depan: tanggal
+// kosong berarti tidak diketahui, dan menaruh yang tidak diketahui di puncak
+// daftar "terbaru" adalah kebohongan kecil yang mahal — pengguna memilih
+// artikel dari puncak daftar.
+func sortNewestFirst(a []Article) {
+	sort.SliceStable(a, func(i, j int) bool {
+		x, y := a[i].Published, a[j].Published
+		if (x == "") != (y == "") {
+			return y == ""
+		}
+		return x > y // RFC3339 tersusun leksikografis = tersusun kronologis
+	})
 }
 
 // --- util teks ---
@@ -369,4 +392,67 @@ func rfc3339(s string) string {
 		return t.Format(time.RFC3339)
 	}
 	return ""
+}
+
+// ListAll merangkak SEMUA feed bawaan sekaligus, menggabungkannya, lalu
+// mengurutkan dari yang terbaru.
+//
+// Serentak, bukan berurutan: satu feed lambat tidak boleh menahan sembilan
+// lainnya. Feed yang gagal DILEWATI diam-diam — satu media yang sedang tumbang
+// tidak boleh mengosongkan seluruh daftar; yang penting daftarnya tetap terisi
+// dari sumber lain. Galat hanya dikembalikan bila TIDAK SATU PUN berhasil.
+func ListAll(ctx context.Context, max int, lang string) ([]Article, error) {
+	if max <= 0 {
+		max = 40
+	}
+	type result struct {
+		items []Article
+		err   error
+	}
+	// Tiap feed diambil secukupnya saja; setelah digabung dan diurutkan, hanya
+	// `max` teratas yang dipakai.
+	per := max/2 + 5
+	res := make([]result, len(DefaultSources))
+	var wg sync.WaitGroup
+	for i, src := range DefaultSources {
+		wg.Add(1)
+		go func(i int, src Source) {
+			defer wg.Done()
+			items, err := ListFeed(ctx, src.URL, src.Name, per, lang)
+			res[i] = result{items, err}
+		}(i, src)
+	}
+	wg.Wait()
+
+	var all []Article
+	var firstErr error
+	seen := map[string]bool{}
+	for _, r := range res {
+		if r.err != nil {
+			if firstErr == nil {
+				firstErr = r.err
+			}
+			continue
+		}
+		for _, a := range r.items {
+			// Google News dan feed media memuat artikel yang sama; kunci
+			// duplikatnya URL, bukan judul — judul sering dipoles per sumber.
+			if seen[a.URL] {
+				continue
+			}
+			seen[a.URL] = true
+			all = append(all, a)
+		}
+	}
+	if len(all) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return nil, fmt.Errorf("no feed returned any article")
+	}
+	sortNewestFirst(all)
+	if len(all) > max {
+		all = all[:max]
+	}
+	return all, nil
 }

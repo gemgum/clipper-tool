@@ -1,12 +1,13 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Eye, RotateCw } from "lucide-react";
+import { Crosshair, Eye, Info, RotateCw, X } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Stepper from "./stepper";
+import Select from "./select";
 
 export const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
 
@@ -102,6 +103,23 @@ export default function PreviewPanel({
   const [previewNonce, setPreviewNonce] = useState(0);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
+
+  // Tinggi bingkai = tinggi kolom setelan di sebelahnya, supaya dasarnya
+  // SEJAJAR. Diukur, bukan dirumuskan: tinggi kolom setelan ditentukan isinya
+  // (berapa baris kendali yang muat pada lebar saat itu), dan CSS tidak punya
+  // cara membacanya. Tidak ada lingkaran umpan balik — kolom setelan sama
+  // sekali tidak bergantung pada tinggi bingkai.
+  const layoutRef = useRef<HTMLDivElement | null>(null);
+  const settingsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = settingsRef.current, host = layoutRef.current;
+    if (!el || !host) return;
+    const apply = () => host.style.setProperty("--pv-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // reframe ikut dikirim: preview memakai mode yang sama dengan render, jadi
   // koordinat subtitle diatur di atas geometri yang benar (di mode "muat utuh"
@@ -234,7 +252,7 @@ export default function PreviewPanel({
   const highlightHex = hex(subHighlight);
 
   return (
-    <div className="sub-layout">
+    <div className="sub-layout" ref={layoutRef}>
       {/* Kiri: bingkai preview. Bingkainya selalu ada — walau frame video
           belum dimuat — supaya posisi subtitle tetap bisa diatur lebih dulu. */}
       <div className="sub-preview">
@@ -343,40 +361,6 @@ export default function PreviewPanel({
           </div>
         </div>
 
-        {/* Kendali preview ditaruh DI BAWAH gambar: tombolnya mengubah gambar
-            itu, jadi urutan bacanya lebih masuk akal daripada di atas. */}
-        <div className="preview-actions">
-          {!previewOn ? (
-            <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
-              {previewBusy ? t("loadingPreview") : <><Eye className="ico" aria-hidden="true" /> {t("loadPreview")}</>}
-            </button>
-          ) : (
-            <>
-              <button className="ghost tiny" disabled={previewBusy} onClick={() => loadPreview()}>
-                {previewBusy ? t("loading") : <><RotateCw className="ico" aria-hidden="true" /> {t("reloadPreview")}</>}
-              </button>
-              <button className="ghost tiny" onClick={resetPreview}>{t("resetPreview")}</button>
-              <label className="chk"><input type="checkbox" checked={alwaysGuides}
-                onChange={(e) => setAlwaysGuides(e.target.checked)} /> {t("guidesAlways")}</label>
-              <label className="chk">{t("grid")}
-                <select className="tiny-select" value={grid}
-                  onChange={(e) => setGrid(Number(e.target.value))}>
-                  {GRIDS.map((g) => (
-                    <option key={g} value={g}>{g === 0 ? t("gridOff") : g}</option>
-                  ))}
-                </select>
-              </label>
-            </>
-          )}
-        </div>
-
-        {previewOn && (
-          <div className="field">
-            <label>{t("previewTime", { t: previewTime.toFixed(1) })}</label>
-            <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
-              value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
-          </div>
-        )}
       </div>
 
       {/* Kanan: setelan dalam kelompok bernama, dan tiap kelompok memakai kisi
@@ -387,20 +371,21 @@ export default function PreviewPanel({
           kanannya bergerigi dan tidak ada satu pun yang sejajar. Dengan kisi,
           kolomnya ditentukan sekali dan semua kendali berdiri di garis yang
           sama, berapa pun isinya. */}
-      <div className="sub-settings">
+      <div className="sub-settings" ref={settingsRef}>
         <div className="group">
         <div className="group-title">{t("groupSubtitle")}</div>
         <div className="grid3">
           <div className="field"><label>{t("font")}</label>
-            <select
+            <Select
               value={fontManual ? "__manual__" : subFont}
-              onChange={(e) => {
-                if (e.target.value === "__manual__") { setFontManual(true); return; }
-                setFontManual(false); setSubFont(e.target.value);
-              }}>
-              {fonts.map((f) => <option key={f.name} value={f.name}>{f.name}</option>)}
-              <option value="__manual__">{t("fontOther")}</option>
-            </select>
+              onChange={(v) => {
+                if (v === "__manual__") { setFontManual(true); return; }
+                setFontManual(false); setSubFont(v);
+              }}
+              options={[
+                ...fonts.map((f) => ({ value: f.name, label: f.name })),
+                { value: "__manual__", label: t("fontOther") },
+              ]} />
             {fontManual && (
               <>
                 <input style={{ marginTop: 6 }} value={subFont} spellCheck={false}
@@ -414,25 +399,25 @@ export default function PreviewPanel({
               </>
             )}</div>
           <div className="field"><label>{t("color")}</label>
-            <select value={subColor} onChange={(e) => setSubColor(e.target.value)}>
-              <option value="white">{t("colorWhite")}</option>
-              <option value="yellow">{t("colorYellow")}</option>
-            </select></div>
+            <Select value={subColor} onChange={setSubColor} options={[
+              { value: "white", label: t("colorWhite") },
+              { value: "yellow", label: t("colorYellow") },
+            ]} /></div>
           <div className="field"><label>{t("size")}</label>
             <Stepper value={subSize} onChange={setSubSize} min={40} max={140} step={2} /></div>
 
-          <div className="field"><label title={t("subStyleTip")}>{t("subStyle")} ⓘ</label>
-            <select value={subMode} onChange={(e) => setSubMode(e.target.value)}>
-              <option value="normal">{t("subNormal")}</option>
-              <option value="karaoke">{t("subKaraoke")}</option>
-              <option value="word">{t("subWord")}</option>
-            </select></div>
-          <div className="field"><label title={t("subSpeedTip")}>{t("subSpeed")} ⓘ</label>
-            <select value={subSpeed} onChange={(e) => setSubSpeed(e.target.value)}>
-              <option value="slow">{t("speedSlow")}</option>
-              <option value="normal">{t("speedNormal")}</option>
-              <option value="dense">{t("speedDense")}</option>
-            </select></div>
+          <div className="field"><label title={t("subStyleTip")}>{t("subStyle")} <Info className="ico hint" aria-hidden="true" /></label>
+            <Select value={subMode} onChange={setSubMode} options={[
+              { value: "normal", label: t("subNormal") },
+              { value: "karaoke", label: t("subKaraoke") },
+              { value: "word", label: t("subWord") },
+            ]} /></div>
+          <div className="field"><label title={t("subSpeedTip")}>{t("subSpeed")} <Info className="ico hint" aria-hidden="true" /></label>
+            <Select value={subSpeed} onChange={setSubSpeed} options={[
+              { value: "slow", label: t("speedSlow") },
+              { value: "normal", label: t("speedNormal") },
+              { value: "dense", label: t("speedDense") },
+            ]} /></div>
           <div className="field"><label>{t("outline")}</label>
             <Stepper value={subOutline} onChange={setSubOutline} min={0} max={12} /></div>
 
@@ -440,13 +425,10 @@ export default function PreviewPanel({
               dirender (dinonaktifkan) supaya kolom di bawahnya tidak melompat
               tiap gaya diganti. */}
           <div className="field"><label>{t("highlightColor")}</label>
-            <select value={subHighlight} disabled={subMode === "normal"}
-              onChange={(e) => setSubHighlight(e.target.value)}>
-              <option value="yellow">{t("colorYellow")}</option>
-              <option value="white">{t("colorWhite")}</option>
-              <option value="green">{t("colorGreen")}</option>
-              <option value="cyan">{t("colorCyan")}</option>
-            </select></div>
+            <Select value={subHighlight} onChange={setSubHighlight} disabled={subMode === "normal"} options={[
+              { value: "yellow", label: t("colorYellow") }, { value: "white", label: t("colorWhite") },
+              { value: "green", label: t("colorGreen") }, { value: "cyan", label: t("colorCyan") },
+            ]} /></div>
           {/* Centang duduk di dasar selnya supaya sejajar dengan kotak isian di
               kiri-kanannya, bukan melayang di ketinggian labelnya. */}
           <div className="field field-check">
@@ -466,15 +448,18 @@ export default function PreviewPanel({
             <div className="field"><label>{t("position")}</label>
               <div className="position-value">
                 <span>x {subX} · y {subY}</span>
-                <button className="ghost tiny" onClick={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }}>{t("resetCentre")}</button>
+                <button className="ghost tiny" title={t("resetCentre")} aria-label={t("resetCentre")}
+                  onClick={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }}>
+                  <Crosshair className="ico" aria-hidden="true" />
+                </button>
               </div></div>
-            <div className="field"><label title={t("platformGuideTip")}>{t("platformGuide")} ⓘ</label>
-              <select value={platform} onChange={(e) => setPlatform(e.target.value)}>
-                {Object.keys(PLATFORMS).map((k) => (
-                  <option key={k} value={k}>{k === "generic" ? t("platformGeneric") : PLATFORMS[k].label}</option>
-                ))}
-                <option value="off">{t("platformNone")}</option>
-              </select></div>
+            <div className="field"><label title={t("platformGuideTip")}>{t("platformGuide")} <Info className="ico hint" aria-hidden="true" /></label>
+              <Select value={platform} onChange={setPlatform} options={[
+                ...Object.keys(PLATFORMS).map((k) => ({
+                  value: k, label: k === "generic" ? t("platformGeneric") : PLATFORMS[k].label,
+                })),
+                { value: "off", label: t("platformNone") },
+              ]} /></div>
             <div className="field field-check">
               <button className="ghost" disabled={!zone} onClick={onPlaceSafe}>{t("placeSafe")}</button>
             </div>
@@ -483,6 +468,50 @@ export default function PreviewPanel({
         </div>
 
         {children}
+
+        {/* Kendali pratinjau tinggal DI SINI, bukan di bawah bingkainya.
+            Alasannya tinggi, bukan kerapian: kolom pratinjau dan kotak log
+            berbagi satu jatah tinggi, jadi tiap piksel yang dipakai bilah ini
+            di bawah bingkai diambil langsung dari kotak log. Kolom setelan
+            punya ruang sisa di dasarnya; bilah ini mengisinya. */}
+        {/* Kendali preview ditaruh DI BAWAH gambar: tombolnya mengubah gambar
+            itu, jadi urutan bacanya lebih masuk akal daripada di atas. */}
+        <div className="preview-actions">
+          {!previewOn ? (
+            <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
+              {previewBusy ? t("loadingPreview") : <><Eye className="ico" aria-hidden="true" /> {t("loadPreview")}</>}
+            </button>
+          ) : (
+            <>
+              <button className="ghost tiny icon-only" disabled={previewBusy}
+                title={t("reloadPreview")} aria-label={t("reloadPreview")} onClick={() => loadPreview()}>
+                <RotateCw className="ico" aria-hidden="true" />
+              </button>
+              <button className="ghost tiny icon-only" onClick={resetPreview}
+                title={t("resetPreview")} aria-label={t("resetPreview")}>
+                <X className="ico" aria-hidden="true" />
+              </button>
+              <label className="chk">{t("grid")}
+                <Select value={String(grid)} onChange={(v) => setGrid(Number(v))}
+                  options={GRIDS.map((g) => ({ value: String(g), label: g === 0 ? t("gridOff") : String(g) }))} />
+              </label>
+              <label className="chk"><input type="checkbox" checked={alwaysGuides}
+                onChange={(e) => setAlwaysGuides(e.target.checked)} /> {t("guidesAlways")}</label>
+            </>
+          )}
+        </div>
+
+        {/* Penggeser waktu SATU baris: dulu label di atas + penggeser di bawah
+            memakan 67 px, dan tiap piksel di kolom ini diambil dari bingkai
+            pratinjaunya sendiri. Angkanya pindah ke ujung kanan barisnya. */}
+        {previewOn && (
+          <div className="frame-time" title={t("previewTime", { t: previewTime.toFixed(1) })}>
+            <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
+              aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
+              value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
+            <span className="meta">{previewTime.toFixed(1)}s</span>
+          </div>
+        )}
       </div>
     </div>
   );

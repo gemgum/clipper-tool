@@ -2,6 +2,7 @@
 
 import { useI18n } from "./i18n";
 import Stepper from "./stepper";
+import Select from "./select";
 
 // Zoom dibaca RELATIF terhadap titik awal modenya, jadi batas bawah & nilai
 // awalnya berbeda per mode. Harus sama dengan engine/config.
@@ -46,16 +47,15 @@ export default function FramePanel({
             sendiri, bukan titik pada satu sumbu. Mode "video utuh" itulah alasan
             pilihan latar di sebelahnya ada. */}
         <div className="field"><label title={t("fitModeTip")}>{t("fitMode")}</label>
-          <select value={reframe} onChange={(e) => onReframe(e.target.value)}>
-            <option value="center">{t("fitCenter")}</option>
-            <option value="fit">{t("fitWhole")}</option>
-          </select></div>
+          <Select value={reframe} onChange={onReframe} options={[
+            { value: "center", label: t("fitCenter") },
+            { value: "fit", label: t("fitWhole") },
+          ]} /></div>
         <div className="field"><label title={t("backgroundTip")}>{t("background")}</label>
-          <select value={background} onChange={(e) => setBackground(e.target.value)}
-            disabled={noEmptySpace}>
-            <option value="blur">{t("backgroundBlur")}</option>
-            <option value="black">{t("backgroundBlack")}</option>
-          </select></div>
+          <Select value={background} onChange={setBackground} disabled={noEmptySpace} options={[
+            { value: "blur", label: t("backgroundBlur") },
+            { value: "black", label: t("backgroundBlack") },
+          ]} /></div>
         {/* Tombol −/+ menaruh angka yang persis — sesuatu yang tidak pernah bisa
             dilakukan menyeret penggeser dengan tetikus. Tombolnya mati sendiri
             di batas, jadi ujung skalanya tak perlu ditulis. */}

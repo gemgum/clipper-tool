@@ -1,11 +1,12 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Download } from "lucide-react";
+import { Download, Info } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng } from "./engine";
+import Select from "./select";
 
 export type WhisperModel = { name: string; size: string; downloaded: boolean };
 
@@ -151,16 +152,17 @@ export default function SetupPanel({
     <div className="panel">
       <div className="group">
         <div className="group-title">{t("groupEngine")}</div>
-        <div className="row">
+        <div className="grid3">
           <div className="field"><label>{t("mode")}</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)}>
-              <option value="offline">{t("modeOffline")}</option>
-              <option value="hybrid">{t("modeHybrid")}</option>
-            </select></div>
+            <Select value={mode} onChange={setMode} options={[
+              { value: "offline", label: t("modeOffline") },
+              { value: "hybrid", label: t("modeHybrid") },
+            ]} /></div>
           <div className="field"><label>{t("whisperModel")}</label>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              {models.map((m) => <option key={m.name} value={m.name}>{m.name} {m.size} {m.downloaded ? "✓" : `✗ ${t("modelNotDownloaded")}`}</option>)}
-            </select></div>
+            <Select value={model} onChange={setModel} options={models.map((m) => ({
+              value: m.name, label: m.name,
+              note: m.downloaded ? m.size : t("modelNotDownloaded"),
+            }))} /></div>
         </div>
 
         {/* Mesin skor menempel di kelompok Engine, bukan berdiri sebagai panel
@@ -178,11 +180,11 @@ export default function SetupPanel({
             </div>
             <div className="field">
               <label>{t("claudeModel")}</label>
-              <select value={claudeModel} onChange={(e) => setClaudeModel(e.target.value)}>
-                <option value="claude-haiku-4-5">{t("claudeHaiku")}</option>
-                <option value="claude-sonnet-5">{t("claudeSonnet")}</option>
-                <option value="claude-opus-4-8">{t("claudeOpus")}</option>
-              </select>
+              <Select value={claudeModel} onChange={setClaudeModel} options={[
+                { value: "claude-haiku-4-5", label: t("claudeHaiku") },
+                { value: "claude-sonnet-5", label: t("claudeSonnet") },
+                { value: "claude-opus-4-8", label: t("claudeOpus") },
+              ]} />
               {!hasKey && <div className="warn">⚠ {t("noKeyWarning")}</div>}
             </div>
           </div>
@@ -190,29 +192,29 @@ export default function SetupPanel({
           <div className="row" style={{ marginTop: 12 }}>
             <div className="field">
               <label>{t("offlineEngine")}</label>
-              <select value={offlineEngine} onChange={(e) => setOfflineEngine(e.target.value)}>
-                <option value="ollama">{t("offlineOllama")}</option>
-                <option value="heuristic">{t("offlineHeuristic")}</option>
-              </select>
+              <Select value={offlineEngine} onChange={setOfflineEngine} options={[
+                { value: "ollama", label: t("offlineOllama") },
+                { value: "heuristic", label: t("offlineHeuristic") },
+              ]} />
             </div>
             {offlineEngine === "ollama" && (
               <div className="field">
                 <label>{t("localModel")}</label>
-                <select value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}>
-                  {ollamaInstalled.map((m) => {
-                    const specs = [m.params, m.quant, sizeGB(m.bytes)].filter(Boolean).join(" · ");
-                    return (
-                      <option key={m.name} value={m.name}>
-                        {m.name}{specs ? ` — ${specs}` : ""} {m.ready ? t("modelReady") : t("modelNotCapable")}
-                      </option>
-                    );
-                  })}
-                  {/* Saran hanya muncul bila belum terpasang — dicek per nama dasar
-                      supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest". */}
-                  {OLLAMA_SUGGESTED.filter((s) => !ollamaInstalled.some((m) => sameModel(m.name, s))).map((s) => (
-                    <option key={s} value={s}>{s} ({t("modelNeedsDownload")})</option>
-                  ))}
-                </select>
+                <Select value={ollamaModel} onChange={setOllamaModel} options={[
+                  ...ollamaInstalled.map((m) => ({
+                    value: m.name,
+                    label: m.name,
+                    // Spesifikasi jadi keterangan kecil, bukan sambungan nama:
+                    // "llama3.1:latest — 8.0B · Q4_K_M · 4.9 GB ✓ ready" satu baris
+                    // penuh itu yang membuat daftarnya sesak dan tidak terbaca.
+                    note: [m.params, sizeGB(m.bytes), m.ready ? t("modelReady") : t("modelNotCapable")]
+                      .filter(Boolean).join(" · "),
+                  })),
+                  // Saran hanya muncul bila belum terpasang — dicek per nama dasar
+                  // supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest".
+                  ...OLLAMA_SUGGESTED.filter((x) => !ollamaInstalled.some((m) => sameModel(m.name, x)))
+                    .map((x) => ({ value: x, label: x, note: t("modelNeedsDownload") })),
+                ]} />
                 {/* Hanya KEADAAN yang ditulis di sini — "siap" tidak perlu
                     kalimat, cuma lampu hijau. Yang butuh tindakan tetap lengkap
                     dengan tombolnya. */}
@@ -235,7 +237,7 @@ export default function SetupPanel({
         <div className="field" style={{ marginTop: 12 }}>
           <label className="chk" title={t("transcriptFixTip")}>
             <input type="checkbox" checked={transcriptFix}
-              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} ⓘ
+              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} <Info className="ico hint" aria-hidden="true" />
           </label>
           {transcriptFix && (
             <>
@@ -256,49 +258,42 @@ export default function SetupPanel({
 
       <div className="group">
         <div className="group-title">{t("groupQuality")}</div>
-        <div className="row">
+        <div className="grid3">
           <div className="field"><label>{t("resolution")}</label>
-            <select value={resolution} onChange={(e) => setResolution(e.target.value)}>
-              <option value="720p">720p (HD)</option>
-              <option value="1080p">1080p (Full HD)</option>
-              <option value="1440p">1440p (2K)</option>
-            </select></div>
+            <Select value={resolution} onChange={setResolution} options={[
+              { value: "720p", label: "720p" }, { value: "1080p", label: "1080p" },
+              { value: "1440p", label: "1440p" },
+            ]} /></div>
           <div className="field"><label>{t("quality")}</label>
-            <select value={quality} onChange={(e) => setQuality(e.target.value)}>
-              <option value="draft">{t("qualityDraft")}</option>
-              <option value="hd">{t("qualityHd")}</option>
-              <option value="max">{t("qualityMax")}</option>
-            </select></div>
-          <div className="field"><label title={t("fpsTip")}>{t("fps")} ⓘ</label>
-            <select value={fps} onChange={(e) => setFps(Number(e.target.value))}>
-              <option value={0}>{t("fpsSource")}</option>
-              <option value={24}>24</option>
-              <option value={30}>30</option>
-              <option value={60}>60</option>
-            </select></div>
+            <Select value={quality} onChange={setQuality} options={[
+              { value: "draft", label: t("qualityDraft") }, { value: "hd", label: t("qualityHd") },
+              { value: "max", label: t("qualityMax") },
+            ]} /></div>
+          <div className="field"><label title={t("fpsTip")}>{t("fps")} <Info className="ico hint" aria-hidden="true" /></label>
+            <Select value={String(fps)} onChange={(v) => setFps(Number(v))} options={[
+              { value: "0", label: t("fpsSource") }, { value: "24", label: "24" },
+              { value: "30", label: "30" }, { value: "60", label: "60" },
+            ]} /></div>
         </div>
       </div>
 
       <div className="group">
         <div className="group-title">{t("groupClips")}</div>
-        <div className="row">
-          <div className="field"><label title={t("clipDurationTip")}>{t("clipDuration")} ⓘ</label>
-            <select value={durationPreset} onChange={(e) => setDurationPreset(e.target.value)}>
-              <option value="auto">{t("durationAuto")}</option>
-              <option value="30">{t("durationAbout", { n: "30s" })}</option>
-              <option value="60">{t("durationAbout", { n: "60s" })}</option>
-              <option value="90">{t("durationAbout", { n: "90s" })}</option>
-              <option value="120">{t("durationAbout", { n: "2 min" })}</option>
-              <option value="180">{t("durationAbout", { n: "3 min" })}</option>
-            </select></div>
-          <div className="field"><label title={t("maxClipsTip")}>{t("maxClips")} ⓘ</label>
+        <div className="grid3">
+          <div className="field"><label title={t("clipDurationTip")}>{t("clipDuration")} <Info className="ico hint" aria-hidden="true" /></label>
+            <Select value={durationPreset} onChange={setDurationPreset} options={[
+              { value: "auto", label: t("durationAuto") },
+              ...["30s", "60s", "90s", "2 min", "3 min"].map((n, i) => ({
+                value: ["30", "60", "90", "120", "180"][i], label: t("durationAbout", { n }),
+              })),
+            ]} /></div>
+          <div className="field"><label title={t("maxClipsTip")}>{t("maxClips")} <Info className="ico hint" aria-hidden="true" /></label>
             <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
-          <div className="field"><label title={t("saveClipsTip")}>{t("saveClips")} ⓘ</label>
-            <select value={saveMode} onChange={(e) => setSaveMode(e.target.value)}>
-              <option value="burn">{t("saveBurn")}</option>
-              <option value="clean">{t("saveClean")}</option>
-              <option value="both">{t("saveBoth")}</option>
-            </select></div>
+          <div className="field"><label title={t("saveClipsTip")}>{t("saveClips")} <Info className="ico hint" aria-hidden="true" /></label>
+            <Select value={saveMode} onChange={setSaveMode} options={[
+              { value: "burn", label: t("saveBurn") }, { value: "clean", label: t("saveClean") },
+              { value: "both", label: t("saveBoth") },
+            ]} /></div>
         </div>
       </div>
     </div>

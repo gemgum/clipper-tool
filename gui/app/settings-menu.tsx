@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { eng } from "./engine";
 import { LANGUAGES, useI18n } from "./i18n";
+import Popover from "./popover";
 
 // Panel setelan yang dibuka ikon gerigi di bilah atas.
 //
@@ -19,7 +20,6 @@ export default function SettingsMenu() {
   const { lang, setLang, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Component[] | null>(null);
-  const wrap = useRef<HTMLDivElement>(null);
 
   // Status komponen ditarik saat panel DIBUKA, bukan saat halaman dimuat: ia
   // keterangan sesekali, dan menariknya di awal berarti tiap halaman membayar
@@ -32,41 +32,21 @@ export default function SettingsMenu() {
       .catch(() => setItems([]));
   }, [open, items]);
 
-  // Menutup saat menekan di luar atau menekan Esc — dua jalan keluar yang
-  // dicari orang tanpa diajari.
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      if (wrap.current && !wrap.current.contains(e.target as Node)) setOpen(false);
-    };
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", away);
-    document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", esc);
-    };
-  }, [open]);
+  // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
+  // penanda kapan status komponen perlu ditarik.
 
   const missing = items?.filter((c) => c.required && !c.installed).length ?? 0;
 
   return (
-    <div className="settings-wrap" ref={wrap}>
-      <button
-        type="button"
-        className={"topbar-item" + (open ? " active" : "")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t("tabRequirements")}
-        onClick={() => setOpen((v) => !v)}
-      >
+    <Popover width={300} buttonClass="rail-tool" onOpen={() => setOpen(true)} label={
+      <>
         <Settings className="ico" aria-hidden="true" />
         {/* Titik merah hanya muncul bila ada yang WAJIB dan belum ada — kalau
             ia menyala untuk hal opsional, orang berhenti mempercayainya. */}
         {missing > 0 && <span className="dot-bad" aria-hidden="true" />}
-      </button>
-
-      {open && (
+      </>
+    }>
+      {(close) => (
         <div className="settings-pop" role="menu">
           <div className="settings-title">{t("settingsTitle")}</div>
 
@@ -102,11 +82,11 @@ export default function SettingsMenu() {
             )}
           </div>
 
-          <Link className="settings-more" href="/requirements" onClick={() => setOpen(false)}>
+          <Link className="settings-more" href="/requirements" onClick={close}>
             {t("settingsOpenFull")}
           </Link>
         </div>
       )}
-    </div>
+    </Popover>
   );
 }

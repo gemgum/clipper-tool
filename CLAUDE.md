@@ -205,6 +205,27 @@ Ollama / 25 mnt Claude); momen yang terbelah batas disambung lewat tanda
 `"continues"`. Transkrip di-cache di `data/cache/transcripts` (kunci = sidik
 jari isi video + model + bahasa).
 
+## Sasaran: DESKTOP. Web hanya untuk menguji.
+
+Diperbarui 6 Agustus 2026, sesudah aplikasinya benar-benar jalan sebagai
+desktop. Ini **melonggarkan** keputusan 3 Agustus ("mode web DITOLAK"), bukan
+membalikkannya:
+
+- **Yang dioptimalkan tetap mode desktop.** Tiap keputusan tampilan, kinerja,
+  dan pemasangan diambil untuk jendela aplikasi — bukan untuk tab browser.
+- **Membuka lewat browser sekarang sah, TAPI untuk menguji saja.** Ia memang
+  jalan (engine menyajikan GUI di alamatnya sendiri), dan itu yang memungkinkan
+  pengukuran tampilan lewat Chrome headless. Bukan bentuk yang dikirim ke
+  pengguna.
+- **Yang TETAP di luar cakupan:** deploy ke server, multi-pengguna, autentikasi
+  antar-pengguna, dan alamat publik. Kunci sesi di `notes/26`/`30` dirancang
+  untuk satu mesin satu pengguna, dan tidak boleh dilebarkan tanpa membaca
+  ulang kedua catatan itu.
+
+Akibatnya untuk kode baru: **kalau harus memilih antara enak di jendela desktop
+dan enak di tab browser, pilih desktop.** Ukuran jendela acuan 900×600 (batas
+terkecil `tauri.conf.json`) dan 1240×860 (bawaan) — bukan lebar layar penuh.
+
 ## Tampilan: dua aturan yang TIDAK bisa ditawar
 
 Keduanya sudah diminta berkali-kali dan tetap terlanggar, sebab dulu hanya
@@ -216,6 +237,25 @@ Sekarang di sini, dan berlaku untuk SETIAP perubahan tampilan.
 Yang boleh bergulir hanya **kotak yang memang daftar**: kotak log, daftar
 berita, daftar paragraf. Selain itu — kolom setelan, panel, halaman — harus
 MUAT. Kalau tidak muat, yang dibuang isinya, bukan syaratnya.
+
+**Dan sekarang bisa DIUKUR, jadi jangan lagi menyerahkan tebakan.**
+
+```bash
+./bin/clipper serve                                  # terminal lain
+~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome \
+  --headless --remote-debugging-port=9333 --user-data-dir=/tmp/cdp about:blank &
+node scripts/measure-ui.mjs http://127.0.0.1:8787 /tmp/shots
+```
+
+Ia mencetak `scrollHeight` vs `clientHeight` tiap kolom di 900×600 dan
+1240×860, tema terang dan gelap, sekaligus memotret tiap halaman. Angka `over`
+> 0 berarti kotak itu bergulir. **Baseline 6 Agustus 2026: klip & kartu berita
+`0/0` di 1240×860.** Kalau angkanya naik lagi, perubahanmu yang menaikkannya.
+
+Potretnya juga wajib dilihat, bukan cuma angkanya: kotak kosong, teks terpotong,
+dan lambang yang tidak ada di font hanya ketahuan dari gambar. `ⓘ` (U+24D8)
+lolos dari semua grep dan tampil sebagai kotak kosong selama berbulan-bulan —
+ketahuan pada potret pertama.
 
 Sebelum menyerahkan perubahan tampilan apa pun, periksa:
 
@@ -230,6 +270,10 @@ Sebelum menyerahkan perubahan tampilan apa pun, periksa:
 
 Halaman lain mengikuti bentuknya; jangan menemukan tata letak baru tiap halaman.
 Bentuk bakunya:
+
+**Tidak ada bilah atas.** Akun, tema, dan setelan menepi ke DASAR rail kiri
+(`.rail-tools`), berukuran sama. Satu baris penuh selebar jendela untuk tiga
+ikon adalah tinggi yang diambil dari isi halaman, tiap halaman, selamanya.
 
 ```
 .screen

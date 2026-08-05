@@ -175,13 +175,6 @@ body:has(.screen) {
 }
 /* Baris kepala: judul di kiri, aksi di kanan. Tombol yang memulai pekerjaan
    panjang harus selalu terjangkau — bukan tenggelam di bawah setelan. */
-.head-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.head-actions { display: flex; gap: 8px; flex: none; }
 .head-progress { margin-top: 8px; }
 .head-progress .stage { margin-top: 4px; }
 
@@ -230,10 +223,24 @@ body:has(.screen) {
    berhenti di garis yang sama dengan tombol Mulai di kolom kanan. Itu juga yang
    membuat kotak log sepanjang mungkin tanpa satu angka tinggi pun dipaku. */
 .screen-main:has(> .log-panel) > .panel:first-of-type { flex: none; }
+/* Halaman kartu tidak punya kotak log, jadi aturan dasar di atas membuat
+   panel PERTAMANYA meregang setinggi kolom — dan karena isinya berhenti di
+   tengah, yang terlihat kotak putih raksasa yang separuhnya kosong, sekaligus
+   mendorong pratinjau kartu ke bawah sampai kolomnya bergulir.
+   SEMUA panel di halaman itu tingginya mengikuti isinya. */
+.screen-main:has(.card-view) > .panel { flex: none; }
 
 .screen-main > .log-panel {
   flex: 1;
-  min-height: 150px;
+  /* 96, bukan 76: minimumnya harus menyisakan tinggi untuk ISI kotaknya, bukan
+     untuk panelnya. Panel 76 px = judul 25 + padding 32 + kotak 19 px, dan 19 px
+     memangkas baris pertamanya di tengah — terlihat pada potret, tidak pada
+     angka "tidak bergulir". Ini batas BAWAH; di jendela lebih tinggi kotak log
+     tumbuh sendiri (flex:1) sampai 170-an px. */
+  /* Minimumnya dipasang pada KOTAKNYA (di bawah), bukan pada panel: panel
+     sudah memuat judul + padding 57 px, jadi minimum panel selalu meleset dari
+     tinggi isi yang sebenarnya terlihat. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -270,28 +277,27 @@ body:has(.screen) {
 /* DUA kolom: Preview (bingkai, kendali subtitle, berkas) dan Setup (render, mesin
    AI, tombol Mulai). Preview diberi porsi lebih besar karena bingkai 9:16 dan
    kendalinya memang butuh ruang; setup adalah daftar kendali berlebar tetap. */
-.screen-body.two { grid-template-columns: minmax(420px, 1.35fr) minmax(320px, 1fr); }
+/* 1.7fr, bukan 1.35: kolom kiri memuat pratinjau DAN seluruh setelan rupanya,
+   jadi ia butuh lebar untuk tiga kolom. Kolom kanan hanya daftar kendali
+   berlebar tetap. Diukur: dengan 1.35 kolom setelan tinggal 324 px, jatuh ke
+   dua kolom, dan tingginya jadi 697 px — 281 px lebih tinggi daripada
+   ruangnya. */
+/* Kolom kanan dipersempit atas permintaan: isinya daftar kendali berlebar
+   tetap, sedangkan kolom kiri memuat pratinjau DAN seluruh setelan rupanya. */
+/* 1.8fr : 1fr — dan batas bawah kolom kanan 372 px BUKAN angka bebas: di
+   bawah itu kisinya jatuh ke dua kolom dan kelompok Engine tumbuh 170 px.
+   Mempersempit kolom ini justru membuatnya lebih tinggi. */
+.screen-body.two { grid-template-columns: minmax(420px, 1.8fr) minmax(372px, 1fr); }
 @media (max-width: 900px) {
   .screen-body.two { grid-template-columns: minmax(0, 1fr); }
 }
 
-.screen-body.three {
-  /* Ketiganya BERBAGI ruang lebih, tidak hanya pratinjau. Dengan lebar tetap
-     290+300, jendela lebar membuat pratinjau membengkak sampai 1150 px sementara
-     dua kolom lain tetap sempit — sejajar di struktur, tapi tidak terlihat
-     sejajar. minmax menjaga batas terkecilnya supaya tetap muat di ~1100 px. */
-  grid-template-columns:
-    minmax(340px, 1.2fr)
-    minmax(285px, 1fr)
-    minmax(295px, 1fr);
-}
 .screen-col { min-height: 0; overflow-y: auto; padding-right: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 /* Di jendela sempit kolom tengah turun ke bawah pratinjau; yang paling kanan
    tetap di sisinya, sebab di situlah tombol Mulai. */
 /* Baru runtuh di bawah 980 px — di atas itu tiga kolom masih terbaca, dan
    runtuh terlalu dini justru mengembalikan gulir yang mau dihilangkan. */
 @media (max-width: 980px) {
-  .screen-body.three { grid-template-columns: minmax(0, 1fr) 300px; }
   .screen-col { grid-column: 1; }
 }
 
@@ -309,9 +315,6 @@ body:has(.screen) {
 }
 
 /* Dua kelompok setara yang dibaca berdampingan. */
-.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; margin-top: 14px; }
-@media (max-width: 900px) { .pair { grid-template-columns: 1fr; } }
-
 .start-panel { display: flex; gap: 10px; }
 .start-panel button { flex: 1; }
 
@@ -338,7 +341,7 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 }
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; flex: 1; min-width: 160px; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; flex: 1; min-width: 160px; }
 label { font-size: 13px; color: var(--muted); }
 
 input, select {
@@ -346,11 +349,81 @@ input, select {
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 7px 11px;
   font-size: 14px;
   width: 100%;
 }
 input:focus, select:focus { outline: 2px solid var(--accent); }
+
+/* Daftar pilihan milik sendiri (select.tsx).
+ *
+ * Pemicunya sengaja SATU BENTUK dengan <input> di sebelahnya — tinggi, padding,
+ * radius, dan warna yang sama — supaya barisnya tetap rata. Yang berbeda cuma
+ * panah di ujung kanannya. */
+.sel-anchor { display: block; min-width: 0; }
+.sel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 9px 7px 11px;
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+}
+.sel:disabled { opacity: 0.45; cursor: not-allowed; }
+.sel:focus-visible, .sel.open { outline: 2px solid var(--accent); }
+.sel-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-note { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.sel-chev { width: 15px; height: 15px; flex: none; opacity: 0.6; }
+
+/* Daftarnya: fixed, dengan alasan yang sama seperti .popover — kolom di
+   kerangka ini punya overflow sendiri dan memotong anak yang absolut. */
+.sel-list {
+  position: fixed;
+  z-index: 70;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.sel-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+/* Sorotan mengikuti KURSOR (tetikus maupun panah papan ketik), bukan hanya
+   hover — kalau tidak, menelusuri daftar dengan papan ketik jadi tidak terlihat
+   sama sekali. */
+.sel-opt.cursor { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.sel-opt.off { opacity: 0.45; cursor: not-allowed; }
+.sel-opt-text { display: flex; flex-direction: column; gap: 1px; flex: 1; min-width: 0; }
+.sel-opt-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-opt .sel-note { text-align: left; overflow: hidden; text-overflow: ellipsis; }
+/* Centang selalu memakan ruangnya, terpilih atau tidak: kalau ia muncul-hilang,
+   seluruh teks bergeser 22 px tiap kali pilihan berpindah. */
+.sel-tick { width: 14px; height: 14px; flex: none; opacity: 0; margin-top: 2px; }
+.sel-opt[data-on="1"] .sel-tick { opacity: 1; color: var(--accent); }
+.sel-opt[data-on="1"] .sel-opt-label { font-weight: 600; }
 
 /* Angka dengan tombol −/+ — pengganti penggeser untuk Ukuran, Garis tepi, dan
    Zoom. Satu kotak utuh: tombolnya tidak melayang di samping isian melainkan
@@ -371,7 +444,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   border-radius: 0;
   background: transparent;
   text-align: center;
-  padding: 10px 0;
+  padding: 7px 0;
   min-width: 0;
   /* Panah naik-turun bawaan browser dimatikan — ia mengulang dua tombol di
      kiri-kanannya dengan sasaran klik seukuran 8 px. */
@@ -388,7 +461,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   border: none;
   border-radius: 0;
   padding: 0 10px;
-  height: 38px;
+  height: 35px;
   display: flex;
   align-items: center;
   flex: none;
@@ -461,7 +534,9 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
      tumbuh mengikuti isi menggeser seluruh kolom tiap baris log masuk — dan log
      paling ramai persis ketika pengguna sedang mengawasi hal lain. */
   flex: 1;
-  min-height: 0;
+  /* 44 px = dua baris. Di bawah itu baris pertamanya terpangkas di tengah —
+     terlihat pada potret, tidak pada angka "tidak bergulir". */
+  min-height: 44px;
   overflow-y: auto;
   white-space: pre-wrap;
   scrollbar-width: thin;
@@ -628,15 +703,16 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
  * (komponen, folder, bahasa). Menaruh keduanya berdampingan seperti dulu
  * membuat keduanya terlihat sama penting.
  */
+/* Rail + halaman. Bilah atas DIBUANG 6 Agustus 2026: isinya cuma tiga ikon,
+   dan satu baris penuh selebar jendela untuk tiga ikon adalah tinggi yang
+   diambil dari isi halaman — tiap halaman, selamanya. Ketiganya pindah ke dasar
+   rail, yang memang punya ruang sisa. */
 .app {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  grid-template-areas:
-    "rail topbar"
-    "rail page";
+  grid-template-areas: "rail page";
 }
 .app-page {
   grid-area: page;
@@ -652,9 +728,57 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 14px 8px;
-  overflow-y: auto;
+  padding: 14px 8px 10px;
+  min-height: 0;
 }
+/* margin-top:auto mendorongnya ke DASAR rail, berapa pun jumlah menu di atas. */
+.rail-tools {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+}
+/* Ketiganya SATU ukuran — akun, tema, setelan. Ukuran yang berbeda-beda
+   membuat salah satunya terbaca lebih penting daripada yang lain. */
+.rail-tool {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.rail-tool:hover { color: var(--text); background: var(--panel2); }
+.rail-tool.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.rail-tool .ico { width: 18px; height: 18px; }
+.dot-ok {
+  position: absolute; top: 4px; right: 4px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--good);
+}
+/* Isian di dalam popup — kode akses dan sejenisnya. */
+.pop-form { display: flex; flex-direction: column; gap: 8px; }
+/* Dua-tiga pilihan yang saling meniadakan: tombol berdampingan, bukan dropdown.
+   Aturannya sederhana dan layak dipegang — JANGAN menaruh dropdown di dalam
+   popup; itu popup di dalam popup, dan yang terlihat pengguna cuma dua kotak
+   melayang bertumpuk. */
+.seg { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.seg button {
+  flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: 6px;
+  padding: 6px 8px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
+}
+.seg button:hover { color: var(--text); }
+.seg button.active { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.10); }
+.pop-actions { display: flex; gap: 8px; }
+.pop-actions button { flex: 1; padding: 8px 12px; font-size: 13px; }
 .rail-brand {
   font-weight: 700;
   font-size: 13px;
@@ -702,51 +826,13 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 }
 .rail-ico { width: 20px; height: 20px; }
 
-.topbar {
-  grid-area: topbar;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 8px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-}
-.topbar-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 13px;
-}
-.topbar-item:hover { color: var(--text); background: var(--panel2); }
-.topbar-item { border: 0; cursor: pointer; background: transparent; position: relative; }
-
 /* Panel setelan yang dibuka gerigi. */
-.settings-wrap { position: relative; }
 .dot-bad {
   position: absolute; top: 4px; right: 4px;
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--bad);
 }
-.settings-pop {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 40;
-  width: 300px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
-}
+.settings-pop { display: block; }
 .settings-title { font-size: 14px; font-weight: 700; }
 .settings-group { display: flex; flex-direction: column; gap: 8px; }
 .settings-head {
@@ -760,16 +846,20 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 .settings-name { flex: 1; min-width: 0; font-size: 12px; }
 .settings-more { font-size: 12px; color: var(--accent); text-decoration: none; }
 .settings-more:hover { text-decoration: underline; }
-.topbar-item.active { color: var(--accent); background: var(--panel2); }
-
 /* ---------- Tab kartu berita ---------- */
 /* Satu baris: [Paste link] [Browse] [pencarian]. Pencarian ikut sejajar sebab
    ia pintu masuk ketiga, bukan setelan milik salah satu tombol — dan ia yang
    memakai sisa lebarnya. */
-.tabs { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
-.tabs > button, .tabs .browse-anchor > button { flex: none; white-space: nowrap; }
-.tabs .search { flex: 1; min-width: 0; margin: 0; }
-.browse-anchor { position: relative; flex: none; }
+/* Tiga pintu masuk sejajar — tapi BOLEH melipat. Terukur: di kolom selebar
+   375 px, dua tombolnya memakan 230 px dan kotak cari tersisa 20 px, yaitu
+   tidak bisa dipakai sama sekali. Dengan flex-basis 180 ia turun ke barisnya
+   sendiri begitu ruangnya kurang, dan di situ ia selebar penuh. */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+.tabs > button, .tabs .popover-anchor > button { flex: none; white-space: nowrap; }
+/* min-width 170: tanpa itu ia menyusut sampai tinggal "Search n" — flex-basis
+   saja tidak menahan penyusutan. Sekarang ia melipat ke barisnya sendiri
+   sebelum jadi terlalu sempit untuk dipakai. */
+.tabs .search { flex: 1 1 200px; min-width: 170px; margin: 0; }
 .tabs button.active { border-color: var(--accent); color: var(--accent); }
 
 textarea {
@@ -810,48 +900,65 @@ label em { font-style: normal; opacity: 0.7; }
 
 .news-list {
   display: grid;
-  /* Tiga ke samping. Kartu berita perlu ±190 px agar judulnya terbaca; di bawah
-     itu daftarnya turun jadi dua kolom sendiri. */
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  max-height: 46dvh;
+  grid-template-columns: minmax(0, 1fr);
+  /* align-content:start WAJIB. Dengan tinggi yang pasti (flex:1 di kolom feed),
+     grid membagi rata sisa ruangnya ke tiap baris — dan yang terlihat adalah
+     20 artikel tergencet jadi pita setinggi 30 px tanpa judul. Terlihat pada
+     potret; angka "tidak bergulir" tetap hijau. */
+  align-content: start;
+  gap: 6px;
   overflow-y: auto;
   padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
-@media (max-width: 760px) { .news-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
 .news-item {
   cursor: pointer;
   background: var(--panel2);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 0;
-  overflow: hidden;
+  padding: 8px;
+  /* TANPA overflow:hidden, dan itu bukan kelalaian. Item grid dengan `overflow`
+     selain visible kehilangan minimum otomatisnya (min-height jadi 0), jadi
+     grid berhak menggencetnya di bawah tinggi isinya. Terukur: 24 baris
+     tergencet jadi 24 px masing-masing padahal isinya 64 px — gambarnya
+     terpotong dan judulnya hilang. Radius sudutnya sekarang milik gambarnya
+     sendiri, jadi pemotong itu memang tidak diperlukan. */
   text-align: left;
   color: var(--text);
   font-weight: 400;
   display: flex;
-  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
 }
 .news-item:hover { border-color: var(--muted); }
 .news-item.active { border-color: var(--accent); outline: 1px solid var(--accent); }
+/* Gambar kecil di KIRI, teks di kanan. Daftar samping yang sempit tidak muat
+   gambar 16:9 selebar kolom — dan gambar sebesar itu cuma memuat empat artikel
+   per layar, padahal gunanya memindai banyak judul sekaligus. */
 .news-item img {
-  width: 100%;
-  aspect-ratio: 16/9;
+  width: 64px;
+  height: 48px;
+  flex: none;
+  border-radius: 6px;
   object-fit: cover;
   display: block;
   background: var(--panel);
 }
-.news-text { padding: 12px; }
-/* Kartu tanpa gambar tetap punya tinggi wajar di dalam grid. */
-.news-item:not(:has(img)) .news-text { padding: 14px 12px; }
-.news-title { font-size: 13px; font-weight: 600; line-height: 1.35; margin-bottom: 6px; }
+.news-text { flex: 1; min-width: 0; }
+.news-title {
+  font-size: 12.5px; font-weight: 600; line-height: 1.35; margin-bottom: 4px;
+  /* Dua baris lalu elipsis: judul enam baris mendorong artikel berikutnya
+     keluar layar. */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 .warnbox.err { border-color: var(--bad); color: var(--bad-text); }
 
 /* ---------- Daftar paragraf berperingkat ---------- */
-.par-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; max-height: 260px; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.par-list { display: flex; flex-direction: column; gap: 8px; max-height: 60dvh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .par {
   display: flex;
   gap: 12px;
@@ -902,7 +1009,10 @@ label em { font-style: normal; opacity: 0.7; }
 }
 @container (min-width: 520px) {
   .sub-layout {
-    grid-template-columns: 240px minmax(0, 1fr);
+    /* 190, bukan 240: bingkai 9:16 setinggi 321 px hanya selebar 181 px
+       (diukur), jadi 60 px sisanya kosong — sementara kolom setelan di
+       sebelahnya kekurangan persis sebanyak itu untuk muat tiga kolom. */
+    grid-template-columns: var(--pv-w) minmax(0, 1fr);
     gap: 18px;
     align-items: start;
   }
@@ -920,7 +1030,39 @@ label em { font-style: normal; opacity: 0.7; }
    Satu variabel dipakai untuk keduanya — height DAN --pvh — supaya ukuran huruf
    pratinjau, yang dihitung sebagai pecahan dari --pvh, tidak pernah bisa
    melenceng dari tinggi bingkai yang sebenarnya. */
-.sub-preview .preview9x16 { --pvh: clamp(240px, 42dvh, 400px); height: var(--pvh); }
+/* SATU angka mengatur lebar kolom DAN tinggi bingkai, dan itu wajib.
+ *
+ * Dulu keduanya ditulis terpisah — kolom 190 px, tinggi clamp(...,400px) — dan
+ * pada jendela tinggi bingkainya jadi 213 px lebar di kolom 190 px. Ia MELIMPAH
+ * menutupi kolom setelan, dan labelnya terpotong jadi "nt", "yle", "ghlight".
+ * Persis kegagalan yang komentar di atas sudah peringatkan, terulang karena
+ * angkanya dua, bukan satu.
+ *
+ * Sekarang batas atas tingginya DITURUNKAN dari lebar kolomnya (w x 16/9), jadi
+ * bingkainya tidak mungkin lebih lebar daripada tempatnya berdiri. */
+/* Tinggi pratinjau DITURUNKAN DARI TINGGI JENDELA, bukan dipaku.
+ *
+ * Kesalahan sebelumnya: --pv-w ditulis sebagai angka mati (210px) hasil
+ * pengukuran di jendela 1240x860. Akibatnya terukur dan memalukan — di jendela
+ * 1600x1000 pratinjaunya TETAP 210 px, sementara kolom setelan menelan seluruh
+ * ruang lebihnya. Pengguna melihat "tidak ada yang berubah", dan ia benar.
+ *
+ * 380px itu jumlah SEMUA yang bukan pratinjau di kolom kiri, DIUKUR bukan
+ * dijumlah dari angka CSS: 75 hiasan jendela + 64 baris sumber + 32 padding
+ * panel + 100 kotak log + 12 jarak + 91 bilah kendali & baris waktu.
+ * Sisanya milik bingkai. Kalau salah satu angka itu berubah, ubah di sini juga
+ * — dan ukur ulang, jangan ditebak.
+ *
+ * Lebar kolom DITURUNKAN dari tingginya (9:16), jadi tidak mungkin lagi
+ * bingkainya melimpah keluar kolomnya seperti dulu. */
+.sub-layout {
+  /* Nilai awal saja — ResizeObserver di preview-panel.tsx menimpanya dengan
+     tinggi kolom setelan yang sebenarnya, supaya dasar keduanya sejajar.
+     Tanpa nilai awal ini, bingkainya berkedip selebar nol pada gambar pertama. */
+  --pv-h: clamp(240px, calc(100dvh - 380px), 900px);
+  --pv-w: calc(var(--pv-h) * 9 / 16);
+}
+.sub-preview .preview9x16 { --pvh: var(--pv-h); height: var(--pvh); }
 .sub-preview .field { margin-top: 10px; margin-bottom: 0; }
 
 /* Sumber: dua kolom path di kepala panel pratinjau. Seluruh baris ini jadi
@@ -954,9 +1096,17 @@ label em { font-style: normal; opacity: 0.7; }
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-top: 10px;
+  margin-top: 4px;
 }
 .preview-actions button.tiny { margin-left: 0; }
+/* Tombol ikon tanpa teks: labelnya di tooltip. Teksnya yang membuat bilah ini
+   melipat jadi empat baris di kolom selebar 190 px. */
+.preview-actions button.icon-only { padding: 5px 7px; display: inline-flex; }
+.preview-actions .chk { margin-bottom: 0; gap: 4px; }
+/* Waktu frame: penggeser + angkanya dalam satu baris. */
+.frame-time { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.frame-time input { flex: 1; min-width: 0; }
+.frame-time .meta { flex: none; font-variant-numeric: tabular-nums; }
 
 /* Setelan di kanan: sebagian berjajar dalam .row, sebagian menumpuk penuh.
    Hanya .field yang jadi anak LANGSUNG yang dimatikan flex-nya — yang di dalam
@@ -973,7 +1123,7 @@ label em { font-style: normal; opacity: 0.7; }
 /* Kolomnya bertanya lebar DIRINYA SENDIRI, bukan lebar .screen-main: kisi di
    bawah harus runtuh menurut ruang yang benar-benar dipunyainya, dan ruang itu
    sudah dikurangi 240 px bingkai pratinjau di sebelah kiri. */
-.sub-settings { container-type: inline-size; }
+.sub-settings, .screen-col > .panel { container-type: inline-size; }
 
 /* Kisi tiga kolom — satu-satunya tata letak di kolom setelan.
  *
@@ -982,19 +1132,34 @@ label em { font-style: normal; opacity: 0.7; }
  * tepi kanannya bergerigi dan tidak ada satu kendali pun yang sejajar dengan
  * kendali di baris atas atau bawahnya. Kisi menentukan kolomnya sekali, jadi
  * semuanya berdiri di garis yang sama berapa pun isi tiap selnya. */
+/* Dua kolom — dipakai pasangan kotak teks yang sama panjangnya. */
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; align-items: start; }
+@container (max-width: 380px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.grid2 > .field { margin-bottom: 0; min-width: 0; }
+
+/* Panel feed: daftarnya yang memakan sisa tinggi kolom, bukan panelnya yang
+   meregang kosong. */
+.feed-panel { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.feed-panel .news-list { flex: 1; min-height: 120px; }
+.feed-panel .path-row, .feed-panel .search { flex: none; }
+
 .grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px 12px;
+  gap: 8px 10px;
   align-items: start;
 }
-@container (max-width: 460px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* Ambang 380, diukur bukan dikira: pada kolom kanan selebar 391 px, tiga
+   kolom memberi 122 px per sel — cukup untuk "1080p", "Automatic", dan stepper,
+   sesudah label pilihannya dipendekkan. Dengan ambang lama (430) kolom itu
+   selalu jatuh ke dua baris dan tingginya 85 px lebih dari ruangnya. */
+@container (max-width: 340px) { .grid3 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @container (max-width: 300px) { .grid3 { grid-template-columns: minmax(0, 1fr); } }
 /* Empat kolom — dipakai kelompok yang isinya empat angka pendek. */
 .grid4 {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: 8px 10px;
   align-items: start;
 }
 @container (max-width: 560px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -1007,6 +1172,7 @@ label em { font-style: normal; opacity: 0.7; }
   gap: 10px;
 }
 .group-title.with-action button.tiny { margin-left: 0; letter-spacing: 0; text-transform: none; }
+.sub-settings .group:last-child { margin-bottom: 0; }
 /* Judul kelompok yang bisa diciutkan. <button> penuh selebar kelompoknya, jadi
    seluruh barisnya bisa diklik — bukan cuma panah kecil di ujungnya. */
 .group-toggle {
@@ -1031,6 +1197,11 @@ label em { font-style: normal; opacity: 0.7; }
 }
 .group-toggle:hover { color: var(--text); }
 .chev { width: 14px; height: 14px; flex: none; transition: transform .15s; }
+/* Ikon petunjuk di sebelah label — menandai bahwa ada keterangan di tooltip.
+   Dulu ini karakter U+24D8 (i dalam lingkaran); ia TIDAK ada di font Chromium
+   Linux dan tampil sebagai kotak kosong, persis penyakit emoji yang catatan
+   larang. Terbukti dengan potret, bukan dugaan. */
+label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
 .chev.open { transform: rotate(180deg); }
 /* Pemicu palet warna: titik warna + namanya, selebar kotak isian di sebelahnya. */
 .swatch-trigger {
@@ -1066,7 +1237,7 @@ label em { font-style: normal; opacity: 0.7; }
 
 /* Kelompok di dalam kolom setelan dirapatkan — di panel ini judul kelompok
    berfungsi sebagai pemisah, bukan pengantar bab. */
-.sub-settings .group { margin-bottom: 14px; }
+.sub-settings .group { margin-bottom: 8px; }
 .sub-settings .group:last-child { margin-bottom: 0; }
 
 /* Nilai posisi + tombol tengah: dibingkai seperti kotak isian di sebelahnya,
@@ -1080,7 +1251,7 @@ label em { font-style: normal; opacity: 0.7; }
   /* Padding, BUKAN tinggi tetap: angkanya harus sama persis dengan <input> di
      sebelahnya (10px + 10px + 1px garis), dan tinggi yang dipaku selalu meleset
      begitu ukuran huruf disentuh. */
-  padding: 9px 6px 9px 10px;
+  padding: 7px 6px 7px 10px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel2);
@@ -1149,8 +1320,8 @@ label em { font-style: normal; opacity: 0.7; }
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--muted);
-  padding-bottom: 4px;
-  margin-bottom: 10px;
+  padding-bottom: 3px;
+  margin-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
 .group .field { margin-bottom: 0; }
@@ -1174,18 +1345,6 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 
 /* Penanda bahwa daftar di bawah adalah hasil pencarian, bukan isi feed. */
-.search-result {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  font-size: 13px;
-  color: var(--muted);
-  margin-bottom: 12px;
-}
-.search-result b { color: var(--text); }
-.search-result button.tiny { margin-left: 0; }
-
 /* ---------- Tombol salin tautan ---------- */
 .copy-btn {
   background: transparent;
@@ -1216,24 +1375,6 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   gap: 8px;
   margin-top: 8px;
 }
-
-.link-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.link-row a {
-  color: var(--accent);
-  font-size: 12px;
-  text-decoration: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.link-row a:hover { text-decoration: underline; }
 
 /* .news-item kini <div role="button">, jadi fokus keyboardnya diberi tanda
    sendiri — tanpa ini pengguna papan ketik tidak tahu sedang di kartu mana. */
@@ -1332,16 +1473,34 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 @container (min-width: 520px) {
   .sub-layout:has(.card-view) {
     grid-template-columns: minmax(240px, 0.62fr) minmax(0, 1fr);
-    align-items: stretch;
+    /* start, bukan stretch: tingginya sekarang datang dari --pv-h yang diukur
+       dari tumpukan setelan, jadi meregangkan kolomnya cuma mengembalikan
+       ruang menganga yang baru saja dihilangkan. */
+    align-items: start;
   }
+}
+/* Tinggi kartu = tinggi setelan di sebelahnya (--pv-h), TAPI dijepit tinggi
+   jendela: di halaman ini panel isi artikel berdiri di atasnya, jadi kartu
+   setinggi setelannya membuat kolom kiri bergulir. Yang mana pun yang lebih
+   kecil, itu yang dipakai. */
+.sub-preview:has(.card-view) {
+  height: clamp(240px, min(var(--pv-h), calc(100dvh - 600px)), 900px);
 }
 .sub-preview:has(.card-view) { display: flex; flex-direction: column; min-height: 0; }
 .sub-preview .card-view { flex: 1; min-height: 240px; }
+/* Tombol simpan menempel di DASAR kolom setelan kartu — margin-top:auto yang
+   mendorongnya ke sana, sekaligus memakai ruang kosong yang dulu menganga di
+   bawah setelan (pratinjau kartu jauh lebih tinggi daripada setelannya). */
+/* Tumpukan setelan kartu diukur sebagai satu blok (lihat news/page.tsx):
+   tingginya yang menentukan tinggi pratinjau kartu, supaya dasar keduanya
+   sejajar dan tidak ada lagi ruang menganga di bawah setelan. */
+.sub-stack { display: flex; flex-direction: column; }
+.save-row { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.save-row > button { width: 100%; }
+.sub-layout:has(.card-view) .sub-settings { display: flex; flex-direction: column; }
 /* Tautan unduh berjajar, bukan satu per baris. */
 .dl-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-top: 10px; }
 /* Contekan warna dibungkus supaya tidak menempel ke kisi di atasnya. */
-.swatch-wrap { margin-top: 10px; }
-
 /* Contekan warna kartu. Daftar tertutup — lihat card.Swatches() di engine:
    yang boleh dipilih hanya warna yang benar-benar berpengaruh. */
 .swatches { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 8px; }
@@ -1423,8 +1582,6 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .picker-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Baris "pilih dari komputer ini" di bawah kotak seret & lepas. */
-.source-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
-.source-actions button { padding: 9px 14px; font-size: 13px; }
 .path-row { display: flex; gap: 8px; align-items: center; }
 .path-row input { flex: 1; }
 .path-row button { padding: 10px 14px; font-size: 13px; white-space: nowrap; }
@@ -1471,3 +1628,12 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   margin-bottom: 20px;
   font-size: 14px;
 }
+
+/* Dibuang 6 Agustus 2026, disisir dengan membandingkan kelas di globals.css
+   terhadap seluruh app/**.tsx: .head-row .head-actions (judul halaman sudah
+   tidak ada), .screen-body.three (semua halaman dua atau satu kolom),
+   .pair, .browse-anchor (diganti .popover-anchor), .search-result, .link-row,
+   .swatch-wrap, .source-actions. */
+
+/* .topbar & .settings-wrap dibuang 6 Agustus 2026 bersama bilah atasnya;
+   popup setelan sekarang memakai .popover bersama. */

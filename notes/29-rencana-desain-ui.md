@@ -1095,6 +1095,376 @@ Dua hal yang perlu diketahui sebelum menyentuhnya:
 `.logbox` ikut dipindah ke token panggung: ia satu-satunya kotak yang hexnya
 ditulis langsung, dan karena itu satu-satunya yang tidak akan ikut berganti tema.
 
+### Chromium akhirnya ada, dan langsung membantah dua klaim saya
+
+Seluruh catatan di atas ditutup kalimat "belum diukur, tidak ada Chrome di mesin
+ini". Sejak 6 Agustus 2026 ada (`npx playwright install chromium`, tanpa root),
+dan pengukuran pertama membantah dua hal yang saya tulis sendiri:
+
+| | Klaim | Terukur |
+| --- | --- | --- |
+| klip di 1240×860 | "muat" | kolom kiri **+281 px**, kanan **+85 px** |
+| `ⓘ` | "simbol teks biasa, aman" | **kotak kosong** — 8 buah |
+
+`ⓘ` (U+24D8) lolos dari SEMUA grep penjaga dan sudah duduk di sana
+berbulan-bulan. Pelajarannya: daftar rentang emoji tidak pernah lengkap, dan
+satu-satunya pemeriksaan yang benar adalah **melihat gambarnya**.
+
+Sebab kolom klip kelebihan tinggi ternyata aritmetika, bukan selera: kolom
+setelan cuma **324 px** — di bawah ambang tiga kolom — jadi jatuh ke dua kolom
+dan tingginya **697 px**. Sementara kolom pratinjau 240 px padahal bingkai 9:16
+di dalamnya cuma **181 px**: 60 px menganggur, persis yang dibutuhkan
+tetangganya. Sesudah pratinjau dipersempit dan pembagian kolom digeser, setelan
+turun ke **474 px** tanpa satu kendali pun dibuang.
+
+Angka sesudahnya, dan ini yang jadi baseline: **klip & kartu berita `0/0` di
+1240×860.** 900×600 masih belum muat (+481 / +187) dan itu **belum dikerjakan** —
+di lebar 900 kolom setelan tinggal ~180 px sehingga kendalinya wajib menumpuk.
+Menutupnya butuh keputusan pemilik proyek: kendali mana yang dibuang, atau
+batas minimum jendelanya dinaikkan.
+
+Alatnya disimpan di `scripts/measure-ui.mjs`, perintahnya di `CLAUDE.md`.
+**Jangan lagi menyerahkan tebakan.**
+
+### Dua bug yang cuma ketahuan setelah dirender
+
+**1. Penanda posisi rail mati di semua halaman kecuali `/`.** Ekspor statis Next
+menghasilkan `/news/index.html`, jadi `location.pathname` berbunyi `"/news/"`
+sedangkan `href` di daftar rail ditulis `"/news"`. Perbandingan `===` tidak
+pernah cocok. Sekarang keduanya dinormalkan lebih dulu (`samePath`).
+
+Ini kelas kesalahan yang layak diingat: **ekspor statis menambahkan garis miring
+yang tidak ada di kode.** Cek apa pun yang membandingkan path apa adanya.
+
+**2. Bingkai pratinjau melimpah menutupi kolom setelan** — labelnya terpotong
+jadi "nt", "yle", "ghlight". Persis kegagalan yang komentar di CSS sudah
+peringatkan bertahun sebelumnya, terulang karena **angkanya dua**: lebar kolom
+`190px` dan tinggi `clamp(..., 400px)` ditulis terpisah, dan pada jendela tinggi
+bingkainya jadi 213 px di kolom 190 px.
+
+Sekarang satu variabel mengatur keduanya:
+
+```css
+.sub-layout { --pv-w: 190px; }
+.sub-preview .preview9x16 { --pvh: clamp(200px, 42dvh, calc(var(--pv-w) * 16 / 9)); }
+```
+
+Batas atas tingginya DITURUNKAN dari lebar kolomnya, jadi ia tidak mungkin lebih
+lebar daripada tempatnya berdiri. **Kalau satu ukuran harus cocok dengan ukuran
+lain, jangan menulis dua angka.**
+
+### Sapuan kode setelah semua ini
+
+Dijalankan sekalian, dan semuanya sekarang bisa diperiksa mesin:
+
+- `go vet` · `go build` · `go test ./...` — lolos;
+- `tsc --noEmit` · `next build` — lolos;
+- **konsol browser bersih di lima halaman** (galat, peringatan, dan exception
+  dikumpulkan lewat CDP — sebelumnya tidak pernah bisa dilihat sama sekali);
+- **13 kelas CSS mati dibuang**, disisir dengan membandingkan seluruh kelas di
+  `globals.css` terhadap semua `app/**/*.tsx`: `.head-row` `.head-actions`
+  (judul halaman sudah tidak ada), `.screen-body.three` (semua halaman dua atau
+  satu kolom), `.pair`, `.browse-anchor` (diganti `.popover-anchor`),
+  `.search-result`, `.link-row`, `.swatch-wrap`, `.source-actions`;
+- satu kunci i18n mati (`newsSource`) dibuang.
+
+### Kolom pratinjau diratakan dengan kolom setelan (6 Agustus 2026)
+
+Keluhannya: tumpukan kendali di bawah bingkai berantakan, pratinjaunya terlalu
+sempit, dan kolom mesin terlalu lebar. Ketiganya satu masalah: **kolom kiri
+punya jatah tinggi tetap, dan tiap piksel yang dipakai kendali diambil dari
+bingkai pratinjaunya sendiri.**
+
+Yang dikerjakan, semuanya diukur ulang tiap langkah:
+
+- **Muat-ulang & Bersihkan jadi tombol ikon**, dan Kisi + Garis tengah ikut satu
+  bilah. Teks tombolnya yang membuat bilah itu melipat jadi empat baris di kolom
+  190 px.
+- **Penggeser waktu jadi satu baris** — label di atas + penggeser di bawah
+  memakan 67 px; sekarang 28 px, angkanya pindah ke ujung kanan barisnya.
+- **`--pv-w` 190 → 210 px**, dan angkanya diturunkan dari hasil ukur:
+  bingkai (210 × 16/9) + bilah 51 + baris waktu 28 = **466 px**, yaitu tinggi
+  kolom setelan di sebelahnya. Keduanya berhenti di garis yang sama.
+
+Terukur dengan **pratinjau benar-benar termuat** (video sungguhan lewat
+`localStorage`, bukan halaman kosong — dan itu perlu, sebab halaman kosong tidak
+merender bilah kendali maupun penggeser waktu sama sekali):
+
+| | sebelum | sesudah |
+| --- | --- | --- |
+| kolom kiri melimpah | +34 px | **0** |
+| tinggi kolom pratinjau | 500 | 464 |
+| tinggi kolom setelan | 466 | 466 |
+
+### Satu percobaan yang GAGAL, dan kenapa layak dicatat
+
+Permintaan "persempit kolom mesin" dikerjakan apa adanya lebih dulu: pembagian
+`2fr : 1fr`, batas bawah 280 px. Hasilnya **kebalikannya** — kolom itu turun ke
+350 px, jatuh di bawah ambang tiga kolom, dan tingginya NAIK 170 px (kelompok
+Engine 280 → 357, Quality & Output 97 → 173 masing-masing).
+
+**Mempersempit kolom berkisi bisa membuatnya lebih tinggi.** Batas bawahnya
+sekarang dipaku `372px` berikut alasannya di CSS, supaya tidak ada yang
+mempersempitnya lagi tanpa sadar. Yang berlaku: `1.8fr : minmax(372px, 1fr)`.
+
+### Kesalahan paling memalukan sejauh ini: angka mati dari satu jendela
+
+Pemilik proyek: *"wow tidak ngapa-ngapain dari tadi? tidak ada yang berubah."*
+Ia benar, dan sebabnya bisa diukur.
+
+Seluruh penyetelan tata letak sebelumnya diukur di **1240×860** lalu hasilnya
+dituliskan sebagai **angka mati**: `--pv-w: 210px`. Di jendela pengguna yang
+jauh lebih lebar, pratinjaunya karena itu **tetap 210 px** sementara kolom
+setelan menelan seluruh ruang lebihnya. Terukur:
+
+```
+1600x1000  pratinjau 464 px
+1240x860   pratinjau 464 px     <- persis sama. Nol adaptasi.
+```
+
+**Mengukur satu ukuran jendela lalu memaku hasilnya bukan mengukur — itu
+menebak dengan langkah tambahan.** Sekarang tingginya diturunkan dari tinggi
+jendela:
+
+```css
+--pv-h: clamp(240px, calc(100dvh - 404px), 900px);
+--pv-w: calc(var(--pv-h) * 9 / 16);
+```
+
+`404px` itu jumlah semua yang BUKAN pratinjau di kolom kiri (hiasan jendela,
+baris sumber, padding panel, kotak log, bilah kendali), diukur bukan dijumlah
+dari angka CSS. Lebar kolom diturunkan dari tingginya, jadi bingkainya tidak
+mungkin lagi melimpah keluar kolomnya. Hasilnya:
+
+| Jendela | sebelum | sesudah |
+| --- | --- | --- |
+| 1240×860 | 464 | 465 |
+| 1600×1000 | 464 | **605** |
+
+Aturan yang layak dipegang: **kalau sebuah ukuran diambil dari pengukuran, ia
+harus ditulis sebagai RUMUS dari sesuatu yang berubah — bukan sebagai angka.**
+Angka mati hanya benar di jendela tempat ia diukur.
+
+### `<select>` bawaan diganti komponen sendiri
+
+Keluhan: daftar pilihannya "sangat kaku", dan *"semua pasti seperti itu"*.
+Memang, dan tidak ada CSS yang bisa memperbaikinya: **daftar yang dibuka
+`<select>` digambar SISTEM OPERASI, bukan halaman.** Ia tidak mewarisi satu pun
+token warna kita — di tema gelap ia tetap putih menyilaukan dengan sorotan biru
+bawaan Windows. Satu-satunya jalan adalah menggambar daftarnya sendiri.
+
+`select.tsx`, dan **ke-30 `<select>` di seluruh `app/` sudah dipindah** — nol
+tersisa, sebab setengah jalan berarti dua rupa berdampingan.
+
+Yang perlu diketahui sebelum menyentuhnya:
+
+- **Papan ketik dilayani penuh** (panah, Home/End, Enter, Esc). `<select>`
+  bawaan melayaninya; menggantinya dengan yang tidak berarti membuat aplikasi
+  ini lebih sulit dipakai, bukan lebih bagus.
+- **Daftar membuka ke ATAS bila ruang di bawah lebih sempit**, dan boleh lebih
+  lebar daripada pemicunya (280 px) — nama model tidak muat di kotak 172 px.
+- **Nilai yang tidak cocok dengan satu pun pilihan menampilkan pilihan
+  pertama**, persis seperti `<select>` bawaan. Tanpa ini kotak "Ollama model"
+  tampil KOSONG selama efek auto-pilih belum jalan — terlihat pada potret
+  pertama, dan terbaca seperti bug.
+- **Keterangan pilihan di baris KEDUA, bukan berdampingan.** Sebaris,
+  "8.0B · 4.9 GB · siap" mendesak nama modelnya sampai hilang sama sekali —
+  juga terlihat pada potret pertama, bukan diduga.
+
+### Kotak log, kendali pratinjau, dan tinggi sebagai JATAH
+
+Tiga permintaan sekaligus, dan ketiganya satu persoalan: **kolom kiri punya satu
+jatah tinggi, dan pratinjau, kendalinya, serta kotak log berebut jatah yang
+sama.**
+
+- **Kendali pratinjau pindah ke dasar kolom setelan.** Di bawah bingkai, tiap
+  piksel yang dipakainya diambil langsung dari kotak log. Kolom setelan punya
+  ruang sisa di dasarnya; bilah ini mengisinya.
+- **Tinggi kendali dikembalikan ke ukuran wajar.** Keluhannya "kenapa jadi
+  besar", dan memang: dengan `padding: 10px` + jarak label 6 px, tiap baris
+  memakan 62 px — enam pilihan berarti 372 px hanya untuk enam kotak. Sekarang
+  7 px dan 4 px. Kelompok Engine 280 → 250 px.
+- **`--pv-h` berubah arti: dari "sisa ruang" jadi JATAH.** Dengan
+  `100dvh - 313px` pratinjau memakan seluruh sisa dan kotak log tinggal **55 px**
+  di jendela 1600×1000 — itu bukan kotak log, itu hiasan. Sekarang
+  `100dvh - 380px`, menyisihkan bagian untuk log.
+
+Terukur, dan ini yang akhirnya dilihat pengguna:
+
+| Jendela | lebar bingkai | kotak log |
+| --- | --- | --- |
+| 1240×860 | 217 px | 44 px |
+| 1600×1000 | **295 px** | **122 px** |
+
+(Awalnya: bingkai 213 px, log 55 px — di kedua jendela, sebab angkanya mati.)
+
+**Minimum dipasang pada ISI, bukan pada panel.** `min-height` pada `.log-panel`
+selalu meleset: panel sudah memuat judul + padding 57 px, jadi panel 76 px
+berarti kotaknya 19 px — dan 19 px memangkas baris pertamanya di tengah.
+Minimumnya sekarang di `.logbox` (44 px = dua baris). **Ini jenis cacat yang
+tidak muncul di angka "tidak bergulir" dan hanya ketahuan dari potret.**
+
+### Kartu: tombol Simpan pindah ke dasar kolom setelan
+
+Pratinjau kartu 9:16 jauh lebih tinggi daripada setelannya, jadi ada ruang
+menganga ±370 px di bawah kolom setelan. Tombol **Simpan kartu** dan tautan
+unduh pindah ke sana (`margin-top: auto`) — mengisi ruang itu DAN menaruh
+tombolnya tepat di bawah setelan yang ia simpan. Kolom artikel tinggal berisi
+artikel.
+
+Ini menyimpang dari kerangka baku di `CLAUDE.md` (tombol aksi di dasar kolom
+kanan), dan penyimpangannya disengaja: di halaman ini kolom kananlah yang tidak
+punya ruang sisa, dan kolom tengah yang punya.
+
+### Bilah atas dibuang; akun, tema, setelan pindah ke dasar rail
+
+Isinya cuma tiga ikon, dan satu baris penuh selebar jendela untuk tiga ikon
+adalah tinggi yang diambil dari isi halaman — tiap halaman, selamanya.
+Ketiganya kini di `.rail-tools` di DASAR rail kiri, **berukuran sama** (32×32):
+ukuran yang berbeda-beda membuat salah satunya terbaca lebih penting.
+
+Ikut dibuang: `.topbar`, `.topbar-item`, `.settings-wrap`. Popup setelan
+sekarang memakai `<Popover>` bersama, jadi tidak ada lagi dua cara memposisikan
+popup di repo ini.
+
+**Kode akses** (`account.tsx`) ditambahkan sebagai ikon ketiga. Untuk sekarang
+ia HANYA MENYIMPAN, dan itu disengaja: gerbang yang benar harus diperiksa
+ENGINE. Kode yang hanya dicek di JavaScript bisa dilewati siapa pun yang membuka
+devtools, jadi memasangnya sekarang cuma memberi rasa aman palsu. Yang
+dikerjakan sekarang tempat memasukkannya; pemeriksaannya menyusul bersama
+keputusan bagaimana kodenya diterbitkan.
+
+### Sejajar itu diukur, bukan dirumuskan
+
+Permintaan "sejajarin aja lalu naikan log proses" tidak bisa dipenuhi dengan
+rumus CSS: tinggi kolom setelan ditentukan ISINYA — berapa baris kendali yang
+muat pada lebar saat itu — dan CSS tidak punya cara membacanya. Semua percobaan
+sebelumnya adalah tebakan konstanta yang benar di satu ukuran jendela saja.
+
+Sekarang `ResizeObserver` membaca tinggi kolom setelan dan menuliskannya ke
+`--pv-h`. Tidak ada lingkaran umpan balik — kolom setelan sama sekali tidak
+bergantung pada tinggi bingkai. Hasilnya:
+
+| Jendela | bingkai | setelan | kotak log |
+| --- | --- | --- | --- |
+| 1240×860 | 479 | 479 | 71 |
+| 1600×1000 | 479 | 479 | **211** |
+
+Sejajar persis di kedua ukuran, dan seluruh sisa tinggi jatuh ke kotak log —
+yang itulah yang diminta. (Sebelumnya: log 44 dan 122.)
+
+Halaman kartu memakai cara yang sama, plus satu perbaikan: panelnya tidak lagi
+meregang setinggi kolom (`flex: none`). Aturan dasar `.screen-main > .panel:
+first-of-type { flex: 1 }` membuatnya meregang padahal isinya berhenti di
+tengah, dan yang terlihat adalah kotak putih raksasa yang separuhnya kosong.
+
+### Tombol Cari yang tidak melakukan apa-apa
+
+Sejak daftar berita pindah ke `<Popover>` — yang memegang keadaan bukanya
+sendiri — menekan "Cari" hanya menyetel kunci pencarian. Hasilnya tidak muncul
+di mana pun. `<Popover>` sekarang bisa dikendalikan dari luar (`open` +
+`onOpenChange`), jadi tombol Cari benar-benar membukanya.
+
+Pelajarannya: **memindahkan keadaan ke dalam komponen bersama memutus siapa pun
+yang dulu menyetelnya dari luar.** Cari pemanggil lamanya, jangan hanya
+memastikan compiler lolos.
+
+### Halaman kartu disusun ulang: daftar feed selalu terlihat
+
+Bentuk lama menyembunyikan berita di balik popup "Jelajah", dan pengguna harus
+memilih SATU sumber dari dropdown sebelum melihat apa pun. Sekarang:
+
+| Kiri (`.screen-main`) | Kanan (`.screen-col`) |
+| --- | --- |
+| **Paragraf + Isi** jadi SATU panel di atas pratinjau · pratinjau + Rupa kartu | daftar berita dari **semua feed**, terus terlihat, dengan tombol muat ulang |
+
+Popup jelajah, tab "Tempel tautan / Jelajah", dan pemilih feed dibuang. Kolom
+tautan tetap ada untuk artikel yang TIDAK muncul di feed.
+
+**Semua bagian bisa diciutkan** (`<Section>`), dan itu yang akhirnya membuat
+halamannya muat: Foto dan Huruf & jarak tertutup secara bawaan. Terukur di
+1600×1000 dengan artikel termuat: **0/0/0** — halaman, kolom kiri, kolom kanan,
+tidak satu pun bergulir. Di 1240×860 kolom kiri masih 50 px lebih; menutup satu
+bagian saja sudah menutupnya.
+
+### Berita ternyata TIDAK pernah diurutkan
+
+Diadukan pemilik proyek ("masih belum newest"), dan benar — `ListFeed`
+mengeluarkan artikel **urut feed apa adanya**. Lebih buruk: `max` dipotong SAAT
+MENGUMPULKAN, jadi artikel terbaru bisa ikut terbuang hanya karena feednya tidak
+menaruhnya di awal.
+
+Dua perbaikan di `engine/internal/news/rss.go`:
+
+- `sortNewestFirst` — RFC3339 tersusun leksikografis = tersusun kronologis, jadi
+  perbandingannya cukup `>`. Yang **tanpa tanggal ditaruh di BELAKANG**, bukan
+  di depan: tanggal kosong berarti tidak diketahui, dan menaruh yang tidak
+  diketahui di puncak daftar "terbaru" adalah kebohongan kecil yang mahal —
+  orang memilih artikel dari puncak daftar. Ada testnya.
+- **Batas `max` dipakai SESUDAH pengurutan**, bukan saat mengumpulkan.
+
+Ditambah `ListAll` — merangkak semua feed bawaan **serentak** (satu feed lambat
+tidak menahan sembilan lainnya), membuang duplikat berdasarkan URL (bukan judul;
+judul dipoles berbeda tiap sumber), lalu mengurutkan. Feed yang gagal dilewati
+diam-diam; galat hanya muncul bila TIDAK SATU PUN berhasil. Dipakai lewat
+`/api/news/list?feed=all`.
+
+### Dua cacat CSS yang hanya ketahuan dari gambar
+
+**1. Dropdown di dalam popup = popup di dalam popup.** Pemilih warna membuka
+popup, dan di dalamnya ada `<select>` yang membuka daftar KEDUA di atasnya. Yang
+terlihat pengguna: dua kotak melayang bertumpuk, tidak jelas mana yang sedang
+dipakai. Diganti dua tombol berdampingan (`.seg`).
+
+**Aturannya: JANGAN menaruh dropdown di dalam popup.** Untuk dua-tiga pilihan
+yang saling meniadakan, pakai tombol berdampingan.
+
+**2. `overflow: hidden` diam-diam mengizinkan grid menggencet barisnya.** Item
+grid dengan `overflow` selain `visible` kehilangan minimum otomatisnya
+(`min-height` jadi 0), jadi grid berhak menyusutkannya di bawah tinggi isinya.
+Terukur: 24 artikel tergencet jadi **24 px** masing-masing padahal isinya 64 px
+— gambarnya terpotong dan judulnya hilang, sementara angka "tidak bergulir"
+tetap hijau. Radius sudut dipindah ke gambarnya sendiri, `overflow` dibuang.
+
+Daftar beritanya sekalian diubah jadi bentuk daftar samping: gambar kecil 64×48
+di kiri, judul dua baris di kanan. Bentuk lama (gambar 16:9 selebar kolom) cuma
+memuat empat artikel per layar.
+
+### Daftar paragraf pindah ke popup; panel isi berhenti meregang
+
+Dua keluhan yang ternyata satu sebab: **panel isi artikel mendorong pratinjau
+kartu keluar layar.**
+
+**1. Peringkat paragraf jadi popup.** Tiap paragraf itu satu alinea utuh; sepuluh
+di antaranya berarti panelnya sendiri yang harus digulir, sekaligus mendorong
+pratinjau turun. Sekarang ada tombol **"Pilih paragraf (N)"** di sebelah
+"Analisa artikel" yang membukanya di popup selebar 760 px — di situ tiap
+paragraf punya ruang untuk dibaca, dan memilih satu langsung menutupnya.
+
+**2. Panel isi tidak lagi meregang.** Aturan dasar
+`.screen-main > .panel:first-of-type { flex: 1 }` membuat panel isi memenuhi
+tinggi kolom padahal isinya berhenti di tengah — kotak putih setengah kosong
+YANG SEKALIGUS mendorong pratinjau ke bawah sampai kolomnya bergulir. Di halaman
+kartu, semua panel kini setinggi isinya.
+
+**3. Dua baris digabung jadi satu.** Paragraf punya empat sel di kisi TIGA
+kolom (dua baris); Isi punya Sumber/Tanggal/Gambar lalu Tagar sendirian (dua
+baris). Keduanya jadi `.grid4` — satu baris masing-masing.
+
+Terukur, dengan artikel benar-benar termuat:
+
+| | sebelum | sesudah |
+| --- | --- | --- |
+| tepi atas pratinjau | 553 px | **449 px** |
+| kolom kiri melimpah (1240×860) | +216 | **0** |
+| kolom kiri melimpah (1600×1000) | +61 | **0** |
+
+Pelajaran yang berulang tiga kali di sesi ini: **`flex: 1` pada panel pertama
+adalah aturan yang menunjuk berdasarkan URUTAN, dan tiap kali isi kolom berubah
+ia menunjuk yang salah.** Halaman klip menunjuk panelnya dengan nama
+(`.panel-grow`, lalu `.log-panel`); halaman kartu tidak memakai `flex` sama
+sekali.
+
 ### Placeholder `data/<job>` diganti
 
 `outputDirPlaceholder` berbunyi `Default: data/<job>`. Itu jargon: pengguna awam

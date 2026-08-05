@@ -6,6 +6,7 @@ import { Scissors, Newspaper, Clapperboard, History } from "lucide-react";
 import { useI18n, type MessageKey } from "./i18n";
 import SettingsMenu from "./settings-menu";
 import ThemeToggle from "./theme-toggle";
+import AccountButton from "./account";
 
 // Navigasi rail kiri + bilah atas.
 //
@@ -23,6 +24,13 @@ const RAIL: { href: string; label: MessageKey; Icon: typeof Scissors }[] = [
   { href: "/history", label: "tabHistory", Icon: History },
 ];
 
+// Ekspor statis Next menghasilkan /news/index.html, jadi alamat yang terbaca
+// browser berakhir dengan garis miring ("/news/") sedangkan href di daftar
+// ditulis tanpa ("/news"). Membandingkannya mentah-mentah membuat SELURUH
+// halaman selain "/" kehilangan penanda posisinya — terukur, bukan dugaan.
+const samePath = (a: string, b: string) =>
+  (a.replace(/\/+$/, "") || "/") === (b.replace(/\/+$/, "") || "/");
+
 export default function Nav() {
   const path = usePathname();
   const { t } = useI18n();
@@ -35,22 +43,26 @@ export default function Nav() {
           <Link
             key={href}
             href={href}
-            className={"rail-item" + (path === href ? " active" : "")}
-            aria-current={path === href ? "page" : undefined}
+            className={"rail-item" + (samePath(path, href) ? " active" : "")}
+            aria-current={samePath(path, href) ? "page" : undefined}
           >
             <Icon className="rail-ico" aria-hidden="true" />
             <span>{t(label)}</span>
           </Link>
         ))}
-      </nav>
 
-      {/* Bilah atas hanya memuat setelan aplikasi. Bahasa pindah KE DALAM
-          panel itu: ia setelan, dan tempatnya bersama setelan lain — bukan
-          berjajar dengan navigasi seolah sama pentingnya. */}
-      <div className="topbar">
-        <ThemeToggle />
-        <SettingsMenu />
-      </div>
+        {/* Akun, tema, dan setelan MENEPI KE DASAR rail, bukan bilah atas
+            sendiri. Bilah itu berisi tiga ikon dan tidak pernah lebih — satu
+            baris penuh selebar jendela untuk tiga ikon adalah tinggi yang
+            diambil dari isi halaman, tiap halaman, selamanya.
+            Ketiganya tetap terpisah dari navigasi di atasnya oleh jarak, jadi
+            "tempat kerja" dan "atur aplikasinya" masih terbaca berbeda. */}
+        <div className="rail-tools">
+          <AccountButton />
+          <ThemeToggle />
+          <SettingsMenu />
+        </div>
+      </nav>
     </>
   );
 }

@@ -35,7 +35,7 @@ export default function ThemeToggle() {
 
   const dark = theme === "dark";
   return (
-    <button className="topbar-item" onClick={flip}
+    <button className="rail-tool" onClick={flip}
       title={dark ? t("themeLight") : t("themeDark")}
       aria-label={dark ? t("themeLight") : t("themeDark")}>
       {dark ? <Sun className="ico" aria-hidden="true" /> : <Moon className="ico" aria-hidden="true" />}

@@ -16,7 +16,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // getBoundingClientRect() tombolnya, lalu dijepit ke lebar jendela supaya tidak
 // pernah keluar layar di jendela terkecil (900 px).
 export default function Popover({
-  label, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen, children,
+  label, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen,
+  open: openProp, onOpenChange, children,
 }: {
   label: React.ReactNode;
   width?: number;
@@ -24,9 +25,15 @@ export default function Popover({
   buttonClass?: string;
   disabled?: boolean;
   onOpen?: () => void;
+  /** Opsional: kendalikan dari luar, mis. tombol "Cari" yang harus membukanya. */
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
   children: (close: () => void) => React.ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [openLocal, setOpenLocal] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : openLocal;
+  const setOpen = (v: boolean) => { if (!controlled) setOpenLocal(v); onOpenChange?.(v); };
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
 
@@ -55,6 +62,10 @@ export default function Popover({
   // Gulir ikut menutup: popup `fixed` tidak ikut bergerak bersama kolom yang
   // digulir, jadi membiarkannya terbuka berarti ia menggantung di tempat yang
   // salah.
+  // Dibuka dari luar (tombol Cari) tidak melewati toggle(), jadi letaknya
+  // dihitung di sini — kalau tidak, popupnya muncul di koordinat lama.
+  useEffect(() => { if (open) place(); }, [open, place]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
