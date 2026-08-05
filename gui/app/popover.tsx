@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { usePopup } from "./use-popup";
 
 // Popup yang MENEMPEL pada tombolnya. Satu komponen untuk semua — jelajah
 // berita, palet warna, dan apa pun berikutnya.
@@ -17,12 +18,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 // pernah keluar layar di jendela terkecil (900 px).
 export default function Popover({
   label, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen,
-  open: openProp, onOpenChange, children,
+  maxHeight = 460, open: openProp, onOpenChange, children,
 }: {
   label: React.ReactNode;
   width?: number;
   align?: "left" | "right";
   buttonClass?: string;
+  /** Batas atas tinggi popup; isinya bergulir di dalamnya. */
+  maxHeight?: number;
   disabled?: boolean;
   onOpen?: () => void;
   /** Opsional: kendalikan dari luar, mis. tombol "Cari" yang harus membukanya. */
@@ -34,22 +37,13 @@ export default function Popover({
   const controlled = openProp !== undefined;
   const open = controlled ? openProp : openLocal;
   const setOpen = (v: boolean) => { if (!controlled) setOpenLocal(v); onOpenChange?.(v); };
-  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
   const btn = useRef<HTMLButtonElement>(null);
+  const { pos, place } = usePopup({
+    open, setOpen, anchor: btn, width, align, maxHeight,
+    selectors: [".popover", ".popover-anchor"],
+  });
 
-  const place = useCallback(() => {
-    const r = btn.current?.getBoundingClientRect();
-    if (!r) return;
-    const w = Math.min(width, window.innerWidth - 32);
-    const wanted = align === "right" ? r.right - w : r.left;
-    setPos({
-      top: r.bottom + 6,
-      left: Math.max(16, Math.min(wanted, window.innerWidth - w - 16)),
-      width: w,
-    });
-  }, [width, align]);
-
-  const close = useCallback(() => setOpen(false), []);
+  const close = useCallback(() => setOpen(false), [setOpen]);
 
   const toggle = () => {
     if (open) { setOpen(false); return; }
@@ -57,33 +51,6 @@ export default function Popover({
     setOpen(true);
     onOpen?.();
   };
-
-  // Esc dan klik di luar — dua jalan keluar yang dicari orang tanpa diajari.
-  // Gulir ikut menutup: popup `fixed` tidak ikut bergerak bersama kolom yang
-  // digulir, jadi membiarkannya terbuka berarti ia menggantung di tempat yang
-  // salah.
-  // Dibuka dari luar (tombol Cari) tidak melewati toggle(), jadi letaknya
-  // dihitung di sini — kalau tidak, popupnya muncul di koordinat lama.
-  useEffect(() => { if (open) place(); }, [open, place]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    const onDown = (e: MouseEvent) => {
-      const el = e.target as HTMLElement;
-      if (!el.closest(".popover") && !el.closest(".popover-anchor")) setOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", close, true);
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", close, true);
-    };
-  }, [open, place, close]);
 
   return (
     <div className="popover-anchor">
@@ -93,7 +60,7 @@ export default function Popover({
         {label}
       </button>
       {open && pos && (
-        <div className="popover" style={{ top: pos.top, left: pos.left, width: pos.width }}>
+        <div className="popover" style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxH }}>
           {children(close)}
         </div>
       )}

@@ -645,12 +645,6 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   flex-shrink: 0;
 }
 
-.tiny-select {
-  margin-left: 6px;
-  padding: 1px 4px;
-  font-size: 11px;
-}
-
 .guide.xy {
   left: 50%; top: 50%;
   width: 12px; height: 12px;
@@ -765,6 +759,8 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   background: var(--good);
 }
 /* Isian di dalam popup — kode akses dan sejenisnya. */
+.ping-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.ping-row .ok, .ping-row .warn { font-size: 12px; }
 .pop-form { display: flex; flex-direction: column; gap: 8px; }
 /* Dua-tiga pilihan yang saling meniadakan: tombol berdampingan, bukan dropdown.
    Aturannya sederhana dan layak dipegang — JANGAN menaruh dropdown di dalam
@@ -854,13 +850,9 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
    375 px, dua tombolnya memakan 230 px dan kotak cari tersisa 20 px, yaitu
    tidak bisa dipakai sama sekali. Dengan flex-basis 180 ia turun ke barisnya
    sendiri begitu ruangnya kurang, dan di situ ia selebar penuh. */
-.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
-.tabs > button, .tabs .popover-anchor > button { flex: none; white-space: nowrap; }
 /* min-width 170: tanpa itu ia menyusut sampai tinggal "Search n" — flex-basis
    saja tidak menahan penyusutan. Sekarang ia melipat ke barisnya sendiri
    sebelum jadi terlalu sempit untuk dipakai. */
-.tabs .search { flex: 1 1 200px; min-width: 170px; margin: 0; }
-.tabs button.active { border-color: var(--accent); color: var(--accent); }
 
 textarea {
   background: var(--panel2);
@@ -888,16 +880,19 @@ label em { font-style: normal; opacity: 0.7; }
 .popover {
   position: fixed;
   z-index: 60;
+  /* Isinya bergulir DI DALAM popup, bukan menembus tepi layar. Halaman ini
+     tidak bisa digulir (body:has(.screen) overflow:hidden), jadi apa pun yang
+     keluar dari layar benar-benar tidak bisa dijangkau. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
-.popover-head { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
-.popover-head select { flex: 1; min-width: 0; }
-.popover-head button.tiny { margin-left: 0; flex: none; }
-
 .news-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -958,7 +953,7 @@ label em { font-style: normal; opacity: 0.7; }
 .warnbox.err { border-color: var(--bad); color: var(--bad-text); }
 
 /* ---------- Daftar paragraf berperingkat ---------- */
-.par-list { display: flex; flex-direction: column; gap: 8px; max-height: 60dvh; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.par-list { display: flex; flex-direction: column; gap: 8px; }
 .par {
   display: flex;
   gap: 12px;
@@ -1233,7 +1228,17 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
    ke mana pun. */
 .grid3 > .field-check { align-self: stretch; justify-content: flex-end; }
 .grid3 > .field-check .chk { margin-bottom: 9px; }
-.grid3 > .field-check button { width: 100%; }
+.grid3 > .field-check button,
+.grid4 > .field-check button,
+.grid3 > .field-check .popover-anchor > button,
+.grid4 > .field-check .popover-anchor > button {
+  /* Tinggi DAN lebar disamakan di sini, bukan per tombol: dua tombol bersebelahan
+     yang salah satunya lewat <Popover> tampak tidak simetris kalau masing-masing
+     mengatur ukurannya sendiri. */
+  width: 100%;
+  min-height: 37px;
+  justify-content: center;
+}
 
 /* Kelompok di dalam kolom setelan dirapatkan — di panel ini judul kelompok
    berfungsi sebagai pemisah, bukan pengantar bab. */
@@ -1483,9 +1488,45 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
    jendela: di halaman ini panel isi artikel berdiri di atasnya, jadi kartu
    setinggi setelannya membuat kolom kiri bergulir. Yang mana pun yang lebih
    kecil, itu yang dipakai. */
-.sub-preview:has(.card-view) {
-  height: clamp(240px, min(var(--pv-h), calc(100dvh - 600px)), 900px);
+/* Pratinjau kartu memakai SISA TINGGI kolomnya, bukan tinggi setelan di
+   sebelahnya. Panel isi artikel di atasnya sudah setinggi isinya, jadi apa pun
+   yang tersisa di bawah memang milik kartu — dan kartu itu produk halaman ini,
+   bukan pelengkap setelan. */
+.screen-main:has(.card-view) > .panel:last-child { flex: 1; min-height: 0; display: flex; }
+.screen-main:has(.card-view) > .panel:last-child > .sub-layout { flex: 1; min-height: 0; }
+@container (min-width: 520px) {
+  .sub-layout:has(.card-view) { align-items: stretch; }
 }
+.sub-preview:has(.card-view) { min-height: 240px; }
+.sub-layout:has(.card-view) .sub-settings { justify-content: flex-start; }
+
+/* Layar penuh untuk kartunya. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  cursor: zoom-out;
+}
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; display: block; }
+.lightbox-x {
+  position: absolute;
+  top: 16px; right: 16px;
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+}
+.lightbox-x:hover { background: rgba(0, 0, 0, 0.75); }
+.card-view.clickable { cursor: zoom-in; }
 .sub-preview:has(.card-view) { display: flex; flex-direction: column; min-height: 0; }
 .sub-preview .card-view { flex: 1; min-height: 240px; }
 /* Tombol simpan menempel di DASAR kolom setelan kartu — margin-top:auto yang
@@ -1496,6 +1537,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
    sejajar dan tidak ada lagi ruang menganga di bawah setelan. */
 .sub-stack { display: flex; flex-direction: column; }
 .save-row { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+.sub-layout:has(.card-view) .sub-stack { flex: 1; min-height: 0; }
 .save-row > button { width: 100%; }
 .sub-layout:has(.card-view) .sub-settings { display: flex; flex-direction: column; }
 /* Tautan unduh berjajar, bukan satu per baris. */
@@ -1637,3 +1679,66 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* .topbar & .settings-wrap dibuang 6 Agustus 2026 bersama bilah atasnya;
    popup setelan sekarang memakai .popover bersama. */
+
+/* .tabs, .tiny-select, .popover-head dibuang 6 Agustus 2026: tab & popup
+   jelajah berita sudah tidak ada, dan pemilihnya kini <Select> sendiri. */
+
+/* ---------- Riwayat: deretan mendatar yang bisa diseret ---------- */
+.run-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.run-when { flex: 1; min-width: 0; }
+.run-title { font-size: 14px; font-weight: 600; }
+.run-head .req-path { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.run-head button.tiny { margin-left: 0; display: inline-flex; align-items: center; gap: 5px; flex: none; }
+
+/* Deretan klip. overflow-x DI SINI, bukan di halaman: yang bergulir barisnya. */
+.strip {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  cursor: grab;
+  /* touch-action: pan-y — seretan mendatar ditangani sendiri lewat pointer
+     event; tanpa ini browser mengambil alihnya di layar sentuh. */
+  touch-action: pan-y;
+}
+.strip:active { cursor: grabbing; }
+.strip-item { position: relative; flex: none; width: 220px; }
+.strip-item .clip { height: 100%; }
+/* Kartu terpilih ditandai bingkai aksen, bukan cuma centang kecil di pojok:
+   pada deretan berisi sepuluh, centang 16 px terlalu mudah terlewat. */
+.strip-item.on .clip { border-color: var(--accent); outline: 1px solid var(--accent); }
+.strip-pick {
+  position: absolute;
+  top: 8px; left: 8px;
+  z-index: 2;
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+}
+.strip-item.on .strip-pick { color: var(--accent); border-color: var(--accent); }
+
+/* Bilah aksi pilihan. */
+.pick-bar { display: flex; align-items: center; gap: 10px; }
+.pick-bar > span { flex: 1; font-size: 13px; }
+button.danger { background: var(--bad); color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+button.danger:hover:not(:disabled) { filter: brightness(1.08); }
+
+/* Pemilih jenis keluaran di halaman riwayat. */
+.seg-panel { padding: 8px !important; }
+.seg-panel .seg { border: 0; background: transparent; padding: 0; }
+.card-strip { width: 200px; }
+.card-strip .clip img { width: 100%; display: block; background: #000; }
+.card-cap {
+  font-size: 11px; color: var(--muted); margin: 4px 0 6px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.feed-more { text-align: center; padding: 8px 0; }

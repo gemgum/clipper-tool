@@ -1465,6 +1465,67 @@ ia menunjuk yang salah.** Halaman klip menunjuk panelnya dengan nama
 (`.panel-grow`, lalu `.log-panel`); halaman kartu tidak memakai `flex` sama
 sekali.
 
+### Laporan lapangan: empat galat, dan dua di antaranya salah tuduh
+
+**1. "Ollama is unreachable" padahal Ollama JALAN.** Pesan itu keluar untuk dua
+sebab yang sama sekali berbeda — tidak bisa dihubungi, dan **menjawab terlalu
+lambat** — jadi pengguna diarahkan memeriksa hal yang sudah benar
+(`ollama serve`). Yang sebenarnya terjadi: model sedang dimuat ke memori dan
+belum mengirim satu header pun.
+
+`dialError` sekarang membedakannya, dan batas waktunya dinaikkan **5 → 12 menit**:
+yang dihitung bukan waktu berpikir melainkan waktu MEMUAT, dan model 8B di mesin
+tanpa GPU bisa perlu belasan menit pada permintaan pertama.
+
+**Pelajarannya bisa dipakai ulang: satu kalimat galat untuk dua sebab yang beda
+penanganannya lebih buruk daripada tidak ada kalimat sama sekali.**
+
+**2. Uji LLM lokal** (`POST /api/ollama/ping`, tombol "Uji model"). "Terpasang"
+tidak sama dengan "bisa dipakai" — model bisa terdaftar di `ollama list` tapi
+gagal dimuat karena RAM kurang. Tombol ini menyapa modelnya dan menampilkan
+balasannya. Terukur di mesin ini: **llama3.1:latest menjawab "Glowing!" dalam
+7,7 detik**; model yang tidak ada memberi petunjuk `ollama pull`.
+
+Gunanya yang kedua justru yang menentukan: **ia MEMUAT modelnya**. Sesudah uji
+ini berhasil, job berikutnya tidak lagi menanggung waktu muat panjang itu
+diam-diam di dalam batas waktunya.
+
+**3. Pemilih berkas membuka path yang mustahil** (`…\bin\whisper-cli.exe`).
+Sebabnya bukan di engine — `openableDir` sudah menurunkan berkas ke foldernya —
+melainkan di GUI: **`onDoubleClick` memilih berkas APA PUN, mengabaikan
+`pickable()` yang dipatuhi klik biasa.** Klik-ganda pada `whisper-cli.exe`
+menetapkannya sebagai "video sumber", dan pemilih berikutnya dibuka dari sana.
+Sekarang keduanya memakai penyaring yang sama.
+
+**4. "Check again" — DIPERIKSA, dan ternyata bekerja.** Tes pertama saya
+melaporkannya hilang; yang salah tesnya, bukan tombolnya (ia mencari teks
+Inggris sementara bahasanya sedang Indonesia). Diverifikasi ulang: menekannya
+memanggil `/api/requirements`. Setelan bahasa juga diuji — mengganti ke
+Indonesia langsung mengubah label rail.
+
+### Kartu: lebih besar, dan bisa dilihat penuh layar
+
+Panel kartu sekarang memakai SISA tinggi kolomnya (`flex: 1`), bukan tinggi
+setelan di sebelahnya — panel isi artikel di atasnya sudah setinggi isinya, jadi
+apa pun yang tersisa memang milik kartu. Terukur: **380 → 423 px** di 1600×1000.
+
+Diklik, kartunya terbuka **penuh layar** (857 px). Tiga jalan keluar: tombol X,
+Esc, atau klik di mana pun — yang mana pun yang dicoba orang harus berhasil.
+
+### Redundansi yang dibereskan
+
+Diminta sekalian, dan disisir dengan alat, bukan mata:
+
+- **`usePopup`** — `<Popover>` dan `<Select>` menulis sendiri-sendiri logika yang
+  sama: hitung letak dari `getBoundingClientRect`, tutup saat Esc/klik-luar/
+  gulir/ubah-ukuran. Disatukan, sebab satu aturannya mudah salah dan mahal
+  (`fixed`, bukan `absolute`) — ditulis dua kali berarti dua tempat untuk salah.
+- **`tsc --noUnusedLocals --noUnusedParameters`** dijalankan: nol variabel,
+  impor, dan parameter yang menganggur.
+- **Empat kelas CSS mati** dibuang (`.tabs`, `.tiny-select`, `.popover-head`),
+  disisir dengan membandingkan seluruh kelas terhadap semua `.tsx`.
+- Nol kunci i18n mati.
+
 ### Placeholder `data/<job>` diganti
 
 `outputDirPlaceholder` berbunyi `Default: data/<job>`. Itu jargon: pengguna awam

@@ -205,26 +205,27 @@ Ollama / 25 mnt Claude); momen yang terbelah batas disambung lewat tanda
 `"continues"`. Transkrip di-cache di `data/cache/transcripts` (kunci = sidik
 jari isi video + model + bahasa).
 
-## Sasaran: DESKTOP. Web hanya untuk menguji.
+## Sasaran: DESKTOP. Titik.
 
-Diperbarui 6 Agustus 2026, sesudah aplikasinya benar-benar jalan sebagai
-desktop. Ini **melonggarkan** keputusan 3 Agustus ("mode web DITOLAK"), bukan
-membalikkannya:
+Ditegaskan ulang 6 Agustus 2026 setelah sempat saya longgarkan. **Web bukan
+sasaran, bukan sasaran cadangan, dan bukan "nanti mungkin".**
 
-- **Yang dioptimalkan tetap mode desktop.** Tiap keputusan tampilan, kinerja,
-  dan pemasangan diambil untuk jendela aplikasi — bukan untuk tab browser.
-- **Membuka lewat browser sekarang sah, TAPI untuk menguji saja.** Ia memang
-  jalan (engine menyajikan GUI di alamatnya sendiri), dan itu yang memungkinkan
-  pengukuran tampilan lewat Chrome headless. Bukan bentuk yang dikirim ke
-  pengguna.
-- **Yang TETAP di luar cakupan:** deploy ke server, multi-pengguna, autentikasi
-  antar-pengguna, dan alamat publik. Kunci sesi di `notes/26`/`30` dirancang
-  untuk satu mesin satu pengguna, dan tidak boleh dilebarkan tanpa membaca
-  ulang kedua catatan itu.
+Yang boleh: **membuka GUI lewat browser sebagai ALAT UKUR** — itu yang
+memungkinkan `scripts/measure-ui.mjs` memotret dan mengukur tinggi kolom lewat
+Chrome headless. Itu perkakas pengembangan, bukan bentuk produk.
 
-Akibatnya untuk kode baru: **kalau harus memilih antara enak di jendela desktop
-dan enak di tab browser, pilih desktop.** Ukuran jendela acuan 900×600 (batas
-terkecil `tauri.conf.json`) dan 1240×860 (bawaan) — bukan lebar layar penuh.
+Yang TIDAK boleh, dan jangan ditawarkan lagi:
+
+- deploy ke server, hosting, atau alamat publik;
+- multi-pengguna, akun antar-pengguna, autentikasi antar-pengguna;
+- responsif untuk ponsel/tablet;
+- keputusan tampilan yang mengorbankan jendela desktop demi tab browser.
+
+Ukuran acuan tetap **900×600** (batas terkecil `tauri.conf.json`) dan
+**1240×860** (bawaan) — bukan lebar layar penuh, bukan lebar ponsel.
+
+Kunci sesi di `notes/26`/`30` dirancang untuk **satu mesin, satu pengguna**.
+Jangan dilebarkan tanpa membaca ulang kedua catatan itu.
 
 ## Tampilan: dua aturan yang TIDAK bisa ditawar
 

@@ -88,6 +88,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/settings/folders", s.postFolders)
 	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)
 	mux.HandleFunc("POST /api/ollama/pull", s.ollamaPull)
+	mux.HandleFunc("POST /api/ollama/ping", s.ollamaPing)
 	mux.HandleFunc("GET /api/fonts", s.listFonts)
 	mux.HandleFunc("GET /api/font-file", s.fontFile)
 	mux.HandleFunc("GET /api/font-check", s.fontCheck)
@@ -105,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
 	mux.HandleFunc("GET /api/jobs/{id}/clips", s.jobClips)
 	mux.HandleFunc("GET /api/jobs/{id}/clips/{clip}/file", s.clipFile)
+	mux.HandleFunc("DELETE /api/jobs/{id}/clips/{clip}", s.deleteClip)
 	// Kartu berita (tab kedua di GUI).
 	mux.HandleFunc("GET /api/news/feeds", s.newsFeeds)
 	mux.HandleFunc("GET /api/news/list", s.newsList)
@@ -114,6 +116,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
+	mux.HandleFunc("GET /api/cards", s.listCards)
+	mux.HandleFunc("DELETE /api/cards/{id}", s.deleteCard)
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.
 	if ui := webUI(s.layout.GUIDir); ui != nil {
@@ -1176,4 +1180,143 @@ func readJSON(r *http.Request, v any) error {
 func writeSSE(w http.ResponseWriter, event string, data any) {
 	b, _ := json.Marshal(data)
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
+}
+
+// ollamaPing menyapa model dengan satu kata dan mengembalikan balasannya.
+//
+// Bukan sekadar "terpasang atau tidak" — itu sudah dijawab /api/ollama/status
+// dari `ollama list`. Yang ini membuktikan model benar-benar BISA MENJAWAB, dan
+// sekaligus memuatnya ke memori supaya pekerjaan sungguhan berikutnya tidak
+// menanggung waktu muat panjang itu diam-diam di dalam batas waktunya.
+func (s *Server) ollamaPing(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model string `json:"model"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	model := strings.TrimSpace(body.Model)
+	if model == "" {
+		writeErr(w, 400, "model is required")
+		return
+	}
+	reply, took, err := ollama.New("", model).Ping(r.Context())
+	if err != nil {
+		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "ms": took.Milliseconds()})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "reply": reply, "ms": took.Milliseconds()})
+}
+
+// deleteClip membuang SEMUA berkas milik satu klip: video berjenis apa pun,
+// .srt, dan .txt pendampingnya.
+//
+// Berkas pendampingnya ikut dibuang, dan itu disengaja: menyisakan .srt tanpa
+// videonya berarti folder keluaran penuh yatim yang tidak bisa dipakai siapa
+// pun — dan pengguna yang menekan "hapus" bermaksud membuang klipnya, bukan
+// sebagian dari klipnya.
+func (s *Server) deleteClip(w http.ResponseWriter, r *http.Request) {
+	j, ok := s.mgr.Get(r.PathValue("id"))
+	if !ok {
+		writeErr(w, 404, "job not found")
+		return
+	}
+	clipID := r.PathValue("clip")
+	snap := j.Snapshot()
+	for _, cl := range snap.Clips {
+		if cl.ID != clipID {
+			continue
+		}
+		removed := 0
+		for _, p := range []string{cl.VideoPath, cl.VideoPathRaw, cl.SubtitleSRT, cl.TranscriptTXT} {
+			if p == "" {
+				continue
+			}
+			if err := os.Remove(p); err == nil {
+				removed++
+			} else if !os.IsNotExist(err) {
+				writeErr(w, 500, "could not delete "+filepath.Base(p)+": "+err.Error())
+				return
+			}
+		}
+		j.ForgetClip(clipID)
+		writeJSON(w, 200, map[string]any{"ok": true, "removed": removed})
+		return
+	}
+	writeErr(w, 404, "clip not found")
+}
+
+// cardEntry adalah satu kartu yang pernah disimpan.
+type cardEntry struct {
+	ID      string `json:"id"`
+	Made    string `json:"made"` // RFC3339
+	Bytes   int64  `json:"bytes"`
+	File    string `json:"file"`
+	Zip     string `json:"zip"`
+	Caption string `json:"caption,omitempty"`
+}
+
+// listCards membaca folder kartu apa adanya, terbaru dulu.
+//
+// Tidak ada basis data: kartu memang HANYA berkas di disk, dan menyimpan indeks
+// terpisah berarti dua kebenaran yang bisa berbeda begitu pengguna menghapus
+// sesuatu lewat file manager.
+func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
+	root := filepath.Join(s.paths.DataDir, "cards")
+	dirs, err := os.ReadDir(root)
+	if err != nil {
+		writeJSON(w, 200, []cardEntry{}) // belum pernah menyimpan satu pun
+		return
+	}
+	out := make([]cardEntry, 0, len(dirs))
+	for _, d := range dirs {
+		if !d.IsDir() || d.Name() == "card-preview" {
+			continue
+		}
+		png := filepath.Join(root, d.Name(), "card.png")
+		st, err := os.Stat(png)
+		if err != nil {
+			continue
+		}
+		e := cardEntry{
+			ID:    d.Name(),
+			Made:  st.ModTime().UTC().Format(time.RFC3339),
+			Bytes: st.Size(),
+			File:  "/api/card/" + d.Name() + "/file",
+			Zip:   "/api/card/" + d.Name() + "/zip",
+		}
+		if b, err := os.ReadFile(filepath.Join(root, d.Name(), "caption.txt")); err == nil {
+			e.Caption = trimLine(string(b))
+		}
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Made > out[j].Made })
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	// Nama folder kartu dibuat engine sendiri, tapi ia tetap datang dari alamat
+	// permintaan — jadi diperiksa, bukan dipercaya.
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		writeErr(w, 400, "invalid card id")
+		return
+	}
+	dir := filepath.Join(s.paths.DataDir, "cards", id)
+	if err := os.RemoveAll(dir); err != nil {
+		writeErr(w, 500, "could not delete the card: "+err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+// trimLine mengambil baris pertama yang tidak kosong, dipendekkan.
+func trimLine(s string) string {
+	for _, ln := range strings.Split(s, "\n") {
+		if t := strings.TrimSpace(ln); t != "" {
+			if len(t) > 160 {
+				return t[:160] + "…"
+			}
+			return t
+		}
+	}
+	return ""
 }

@@ -1,7 +1,8 @@
 "use client";
 
 import { ChevronDown, Check } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { usePopup } from "./use-popup";
 
 export type Option = {
   value: string;
@@ -38,10 +39,17 @@ export default function Select({
   id?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number; width: number; maxH: number } | null>(null);
   const [cursor, setCursor] = useState(0);
   const btn = useRef<HTMLButtonElement>(null);
   const list = useRef<HTMLDivElement>(null);
+
+  // Daftar boleh lebih lebar daripada pemicunya: nama model tidak muat di kotak
+  // selebar 172 px, dan daftar memang boleh melampaui kotaknya.
+  const { pos, place } = usePopup({
+    open, setOpen, anchor: btn, maxHeight: 280,
+    width: (r) => Math.max(r.width, 280),
+    selectors: [".sel-list", ".sel-anchor"],
+  });
 
   // Kalau nilainya belum cocok dengan satu pun pilihan — misalnya model Ollama
   // bawaan "qwen2.5" sementara yang terpasang "llama3.1:latest" — tampilkan
@@ -49,46 +57,12 @@ export default function Select({
   // KOSONG sampai efek auto-pilih selesai berjalan, dan itu terbaca seperti bug.
   const current = options.find((o) => o.value === value) ?? options[0];
 
-  const place = useCallback(() => {
-    const r = btn.current?.getBoundingClientRect();
-    if (!r) return;
-    // Buka ke ATAS bila ruang di bawahnya lebih sempit — daftar yang menembus
-    // tepi bawah jendela adalah daftar yang separuhnya tidak bisa dilihat.
-    const below = window.innerHeight - r.bottom - 12;
-    const above = r.top - 12;
-    const down = below >= Math.min(240, above);
-    const maxH = Math.max(120, Math.min(280, down ? below : above));
-    setPos({
-      top: down ? r.bottom + 4 : Math.max(8, r.top - maxH - 4),
-      left: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
-      width: Math.max(r.width, Math.min(280, window.innerWidth - 32)),
-      maxH,
-    });
-  }, []);
-
   const openList = () => {
     if (disabled) return;
     place();
     setCursor(Math.max(0, options.findIndex((o) => o.value === value)));
     setOpen(true);
   };
-
-  useEffect(() => {
-    if (!open) return;
-    const away = (e: MouseEvent) => {
-      const el = e.target as HTMLElement;
-      if (!el.closest(".sel-list") && !el.closest(".sel-anchor")) setOpen(false);
-    };
-    const scroll = () => setOpen(false);
-    window.addEventListener("mousedown", away);
-    window.addEventListener("resize", place);
-    window.addEventListener("scroll", scroll, true);
-    return () => {
-      window.removeEventListener("mousedown", away);
-      window.removeEventListener("resize", place);
-      window.removeEventListener("scroll", scroll, true);
-    };
-  }, [open, place]);
 
   // Baris terpilih digulir ke dalam pandangan begitu daftarnya terbuka —
   // tanpa ini, daftar panjang (model Ollama, durasi klip) selalu terbuka di

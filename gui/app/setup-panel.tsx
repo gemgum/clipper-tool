@@ -1,7 +1,7 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Download, Info } from "lucide-react";
+import { Download, Info, Plug } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "./i18n";
@@ -66,6 +66,9 @@ export default function SetupPanel({
   const [hasKey, setHasKey] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [pulling, setPulling] = useState(false);
+  // Hasil sapaan ke model: null = belum dicoba.
+  const [ping, setPing] = useState<{ ok: boolean; reply?: string; error?: string; ms: number } | null>(null);
+  const [pinging, setPinging] = useState(false);
 
   // Status API key.
   useEffect(() => {
@@ -131,6 +134,30 @@ export default function SetupPanel({
       if (data.has_key) setApiKey("");
     } catch { addLog(t("logKeyFailed")); }
   }, [apiKey, addLog, t]);
+
+  // "Terpasang" tidak sama dengan "bisa dipakai": model bisa terdaftar di
+  // `ollama list` tapi gagal dimuat karena RAM kurang, atau perlu belasan menit
+  // untuk masuk memori. Tombol ini membuktikannya dengan menyapa modelnya —
+  // sekaligus memuatnya, jadi job berikutnya tidak lagi menunggu diam-diam.
+  const pingModel = useCallback(async () => {
+    setPinging(true);
+    setPing(null);
+    addLog(t("logPingStart", { model: ollamaModel }));
+    try {
+      const res = await fetch(eng(`/api/ollama/ping`), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: ollamaModel }),
+      });
+      const data = await res.json();
+      setPing(data);
+      addLog(data.ok
+        ? t("logPingOk", { model: ollamaModel, ms: data.ms, reply: data.reply })
+        : `⚠ ${data.error}`);
+    } catch (e: any) {
+      setPing({ ok: false, error: e.message, ms: 0 });
+      addLog(`⚠ ${e.message}`);
+    } finally { setPinging(false); }
+  }, [ollamaModel, addLog, t]);
 
   const pullModel = useCallback(async () => {
     setPulling(true);
@@ -218,6 +245,15 @@ export default function SetupPanel({
                 {/* Hanya KEADAAN yang ditulis di sini — "siap" tidak perlu
                     kalimat, cuma lampu hijau. Yang butuh tindakan tetap lengkap
                     dengan tombolnya. */}
+                <div className="ping-row">
+                  <button className="ghost tiny" onClick={pingModel}
+                    disabled={pinging || !ollamaStatus?.running}>
+                    {pinging ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
+                  </button>
+                  {ping && (ping.ok
+                    ? <span className="ok">{t("pingOk", { ms: ping.ms })}</span>
+                    : <span className="warn">⚠ {ping.error}</span>)}
+                </div>
                 {ollamaStatus !== null && !ollamaStatus.running ? (
                   <div className="warn">⚠ {t("ollamaNotDetected")} <code>ollama serve</code> <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button></div>
                 ) : ollamaStatus?.running && !selectedOllama ? (

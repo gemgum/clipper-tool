@@ -10,7 +10,7 @@ user-friendly, mudah maintain, mungkin diunggah ke GitHub.
 | Engine | **Go** + C/C++ via subprocess | Skill dikuasai; single binary; whisper.cpp/ffmpeg ramah-CPU |
 | GUI | **Next.js**, web lokal (browser) | Skill dikuasai; tanpa tool baru; bisa upgrade ke Tauri nanti |
 | Koneksi | Engine expose HTTP API di localhost | GUI panggil via API |
-| Arsitektur | **Terpisah** (engine ↔ GUI) | Mudah maintain/test; engine reusable (CLI/web/desktop) |
+| Arsitektur | **Terpisah** (engine ↔ GUI) | Mudah maintain/test; engine dipakai ulang CLI & desktop (web BUKAN sasaran — CLAUDE.md) |
 
 ## Hybrid Go + C/C++ — level penggabungan
 

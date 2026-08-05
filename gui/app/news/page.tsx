@@ -1,7 +1,7 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Link2, Download, RotateCw } from "lucide-react";
+import { Link2, Download, RotateCw, X } from "lucide-react";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
@@ -16,6 +16,8 @@ import Section from "../section";
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
 // tiap arah dari ukuran standar.
 const FONT_STEPS = 10;
+// Berapa artikel ditambahkan tiap kali daftar digulir sampai dekat dasarnya.
+const PAGE = 24;
 // Harus sama dengan card.HeaderMax di engine: sejauh mana isi boleh digeser turun.
 const HEADER_MAX = 400;
 // Harus sama dengan card.CardTopMax di engine: setinggi apa pita kosong di atas
@@ -92,6 +94,10 @@ export default function News() {
   // Kata kunci yang SUDAH dikirim. Dipisah dari isi kotak ketik supaya daftar
   // tidak memuat ulang di setiap huruf yang diketik.
   const [query, setQuery] = useState("");
+  // Berapa artikel yang diminta sekarang; naik tiap kali digulir ke dasar.
+  const [limit, setLimit] = useState(PAGE);
+  // false = feednya sudah habis, jangan minta lagi.
+  const [more, setMore] = useState(true);
   const [typed, setTyped] = useState("");
   const [items, setItems] = useState<Article[]>([]);
   const [listBusy, setListBusy] = useState(false);
@@ -186,20 +192,25 @@ export default function News() {
     setZoom(1);
   }, []);
 
-  const loadList = useCallback(async (feedId: string, search: string) => {
+  const loadList = useCallback(async (feedId: string, search: string, max: number) => {
     setListBusy(true);
     setError("");
     try {
       const param = search
         ? `q=${encodeURIComponent(search)}`
         : `feed=${encodeURIComponent(feedId)}`;
-      const res = await fetch(eng(`/api/news/list?${param}&max=24&lang=${lang}`));
+      const res = await fetch(eng(`/api/news/list?${param}&max=${max}&lang=${lang}`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errLoadNews"));
       setItems(data);
+      // Kalau engine mengembalikan lebih sedikit daripada yang diminta, feednya
+      // memang sudah habis — berhenti meminta lagi, kalau tidak menggulir ke
+      // dasar akan memicu permintaan tak berujung yang selalu menjawab sama.
+      setMore(Array.isArray(data) && data.length >= max);
     } catch (e: any) {
       setItems([]);
       setError(e.message);
+      setMore(false);
     } finally {
       setListBusy(false);
     }
@@ -208,11 +219,33 @@ export default function News() {
   // Daftar ditarik sekali saat halaman dibuka, dan tiap kunci pencarian
   // berubah. Tidak lagi menunggu popup dibuka — daftarnya sekarang memang
   // selalu terlihat.
-  useEffect(() => { loadList("all", query); }, [query, loadList]);
+  useEffect(() => { loadList("all", query, limit); }, [query, limit, loadList]);
+
+  // Gulir sampai dekat dasar → minta lebih banyak.
+  //
+  // Diminta pada 400 px SEBELUM dasarnya, bukan tepat di dasar: permintaan
+  // butuh waktu, dan menunggu sampai benar-benar mentok berarti pengguna selalu
+  // melihat daftar berhenti sebentar. Dijaga `more` dan `listBusy` supaya satu
+  // gerakan gulir tidak menembakkan lima permintaan sekaligus.
+  const asking = useRef(false);
+  const onListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (!more || listBusy || asking.current) return;
+    const el = e.currentTarget;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) {
+      // Penjaga lewat ref, bukan lewat `listBusy`: satu gerakan gulir memicu
+      // puluhan peristiwa dalam satu frame, dan semuanya membaca `listBusy`
+      // yang masih false — terukur, satu gerakan menambah TIGA halaman.
+      asking.current = true;
+      setLimit((n) => n + PAGE);
+    }
+  }, [more, listBusy]);
+
+  // Dilepas begitu permintaannya selesai, bukan saat dikirim.
+  useEffect(() => { if (!listBusy) asking.current = false; }, [listBusy]);
 
   // Mencari cukup menyetel kuncinya; daftarnya sendiri ditarik oleh efek di
   // atas begitu popupnya terbuka.
-  const runSearch = useCallback(() => setQuery(typed.trim()), [typed]);
+  const runSearch = useCallback(() => { setLimit(PAGE); setMore(true); setQuery(typed.trim()); }, [typed]);
 
   // Menyalin tautan artikel supaya bisa dicek silang di tab lain.
   //
@@ -527,6 +560,17 @@ export default function News() {
     return () => ro.disconnect();
   });
 
+  // Kartu dilihat penuh layar. Ditutup dengan Esc, tombol X, atau mengklik
+  // gambarnya lagi — tiga jalan keluar, sebab yang mana pun yang dicoba orang
+  // harus berhasil.
+  const [zoom0, setZoom0] = useState(false);
+  useEffect(() => {
+    if (!zoom0) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setZoom0(false); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [zoom0]);
+
   const ready = article.title.trim().length > 0;
 
   return (
@@ -668,7 +712,9 @@ export default function News() {
           <div className="panel">
             <div className="sub-layout" ref={layoutRef}>
               <div className="sub-preview">
-                <div className="card-view">
+                <div className={"card-view" + (result ? " clickable" : "")}
+                  onClick={() => result && setZoom0(true)}
+                  title={result ? t("cardFullscreen") : undefined}>
                   {result ? (
                     /* eslint-disable-next-line @next/next/no-img-element */
                     <img src={result.file} alt="" />
@@ -846,7 +892,7 @@ export default function News() {
               <span>{t("groupSource")}</span>
               <button className="ghost tiny icon-only" disabled={listBusy}
                 title={t("reloadFeeds")} aria-label={t("reloadFeeds")}
-                onClick={() => loadList("all", query)}>
+                onClick={() => { setLimit(PAGE); setMore(true); loadList("all", query, PAGE); }}>
                 <RotateCw className="ico" aria-hidden="true" />
               </button>
             </div>
@@ -888,7 +934,7 @@ export default function News() {
             {listBusy ? (
               <p className="stage">{t("loadingNews")}</p>
             ) : (
-              <div className="news-list">
+              <div className="news-list" onScroll={onListScroll}>
                 {items.map((a) => (
                   <div key={a.url}
                     className={"news-item" + (article.url === a.url ? " active" : "")}
@@ -915,11 +961,25 @@ export default function News() {
                     </div>
                   </div>
                 ))}
+                {listBusy && items.length > 0 && <div className="meta feed-more">{t("loadingNews")}</div>}
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Layar penuh: gambarnya sendiri yang mengisi layar, latarnya gelap pekat
+          supaya warna kartu terbaca apa adanya — bukan dibandingkan dengan
+          panel di sekelilingnya. */}
+      {zoom0 && result && (
+        <div className="lightbox" onClick={() => setZoom0(false)} role="dialog" aria-modal="true">
+          {/* eslint-disable-next-line @next/next/no-img-element */
+          }<img src={result.file} alt="" />
+          <button className="lightbox-x" aria-label={t("close")} onClick={() => setZoom0(false)}>
+            <X className="ico" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

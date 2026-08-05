@@ -14,11 +14,11 @@ pekerjaan pengembang; besok ia harus jadi pekerjaan aplikasi.
 ## Yang sudah diputuskan, jangan dibuka lagi
 
 - Desktop tiga OS. `.exe` Windows sasaran utama, AppImage Linux untuk uji cepat,
-  macOS menyusul. **Mode web ter-deploy ditolak** — dilonggarkan 6 Agustus 2026:
-  membuka lewat browser sah untuk MENGUJI (dan itu yang memungkinkan pengukuran
-  tampilan lewat Chrome headless), tapi yang dioptimalkan tetap mode desktop.
-  Deploy ke server, multi-pengguna, dan alamat publik tetap di luar cakupan.
-  Lihat CLAUDE.md bagian "Sasaran".
+  macOS menyusul. **Mode web ter-deploy ditolak.** Ditegaskan ulang 6 Agustus
+  2026: membuka lewat browser hanya sah sebagai ALAT UKUR pengembangan
+  (`scripts/measure-ui.mjs`), bukan bentuk produk. Deploy, multi-pengguna,
+  alamat publik, dan tata letak ponsel tetap di luar cakupan. Lihat CLAUDE.md
+  bagian "Sasaran: DESKTOP. Titik."
 - Engine tetap Go, UI tetap Next.js, komunikasi tetap REST + SSE.
 - Worker C++ sudah dibuang (selesai 4 Agustus 2026, lihat `20-buang-worker-cpp.md`).
   Build tiga OS sekarang cukup `go build`.

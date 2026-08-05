@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"strconv"
@@ -43,6 +45,14 @@ type Client struct {
 // defaultTemperature dipakai bila Client.Temperature tidak diisi.
 const defaultTemperature = 0.4
 
+// chatTimeout: 12 menit, bukan 5.
+//
+// Yang dihitung bukan waktu berpikirnya melainkan waktu MEMUAT: model 8B di
+// mesin tanpa GPU bisa perlu belasan menit untuk masuk memori pada permintaan
+// pertama, dan selama itu Ollama belum mengirim satu header pun. Dilaporkan
+// sebagai kegagalan di lapangan; 5 menit terlalu ketat.
+const chatTimeout = 12 * time.Minute
+
 func New(url, model string) *Client {
 	if url == "" {
 		url = defaultURL
@@ -50,7 +60,7 @@ func New(url, model string) *Client {
 	if model == "" {
 		model = "qwen2.5"
 	}
-	return &Client{URL: strings.TrimRight(url, "/"), Model: model, HTTP: &http.Client{Timeout: 5 * time.Minute}}
+	return &Client{URL: strings.TrimRight(url, "/"), Model: model, HTTP: &http.Client{Timeout: chatTimeout}}
 }
 
 type chatMsg struct {
@@ -103,7 +113,7 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Ollama is unreachable at %s — make sure it is installed and run `ollama serve`: %w", c.URL, err)
+		return "", dialError(c.URL, c.Model, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
@@ -116,6 +126,39 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 		return "", ollamaError(c.Model, cr.Error)
 	}
 	return cr.Message.Content, nil
+}
+
+// dialError membedakan "tidak bisa dihubungi" dari "menjawab terlalu lambat".
+//
+// Keduanya dulu memakai kalimat yang sama — "Ollama is unreachable, run `ollama
+// serve`" — dan itu menyesatkan: pada laporan yang memicu perbaikan ini, Ollama
+// JALAN, ia cuma butuh lebih lama daripada batas waktunya untuk memuat model ke
+// memori. Pengguna diarahkan memeriksa hal yang sudah benar.
+func dialError(url, model string, err error) error {
+	if isTimeout(err) {
+		return fmt.Errorf("Ollama at %s did not answer within %s. It is running, but the model %q is probably still being loaded into memory — that is normal on the first request after starting. Wait and try again, or pick a smaller model", url, chatTimeout, model)
+	}
+	return fmt.Errorf("Ollama is unreachable at %s — make sure it is installed and run `ollama serve`: %w", url, err)
+}
+
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// Ping menyapa model dengan satu kata dan mengembalikan balasannya.
+//
+// Gunanya dua, dan yang kedua yang menentukan: ia MEMBUKTIKAN model benar-benar
+// bisa menjawab (bukan sekadar terdaftar di `ollama list`), DAN ia memuat model
+// itu ke memori. Sesudah Ping berhasil, pekerjaan sungguhan tidak lagi
+// menanggung waktu muat yang panjang itu diam-diam di dalam batas waktunya.
+func (c *Client) Ping(ctx context.Context) (string, time.Duration, error) {
+	start := time.Now()
+	out, err := c.Complete(ctx, "Reply with one short word.", "halo", nil, 16)
+	return strings.TrimSpace(out), time.Since(start), err
 }
 
 // ollamaError menerjemahkan pesan Ollama jadi petunjuk yang bisa ditindaklanjuti.

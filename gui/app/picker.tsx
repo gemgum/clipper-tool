@@ -133,11 +133,15 @@ export default function Picker({
             {error && <div className="err">{error}</div>}
             {busy && !listing && <div className="meta">{t("loading")}</div>}
             {listing?.entries.length === 0 && <div className="meta">{t("pickerEmpty")}</div>}
+            {/* Klik-ganda tunduk pada penyaring yang SAMA dengan klik biasa.
+                Dulu tidak, jadi klik-ganda pada berkas apa pun — termasuk
+                whisper-cli.exe — menetapkannya sebagai "video sumber", dan
+                pemilih berikutnya lalu dibuka dari path yang mustahil. */}
             {listing?.entries.map((e) => (
               <div
                 key={e.path}
                 className={`picker-row ${pickable(e) ? "" : "dim"} ${e.video ? "video" : ""}`}
-                onDoubleClick={() => (e.dir ? load(e.path) : onPick(e.path))}
+                onDoubleClick={() => (e.dir ? load(e.path) : pickable(e) && onPick(e.path))}
                 onClick={() => (e.dir ? load(e.path) : pickable(e) && onPick(e.path))}
                 title={e.path}
               >

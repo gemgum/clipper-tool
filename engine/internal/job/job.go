@@ -309,6 +309,22 @@ type JobView struct {
 }
 
 // Snapshot mengembalikan salinan aman untuk serialisasi JSON.
+// ForgetClip membuang satu klip dari daftar job.
+//
+// Dipanggil sesudah berkasnya dihapus: daftar yang masih menyebut klip yang
+// tidak ada lagi akan menawarkan tombol unduh yang pasti gagal.
+func (j *Job) ForgetClip(id string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	out := j.Clips[:0]
+	for _, c := range j.Clips {
+		if c.ID != id {
+			out = append(out, c)
+		}
+	}
+	j.Clips = out
+}
+
 func (j *Job) Snapshot() JobView {
 	j.mu.Lock()
 	defer j.mu.Unlock()
