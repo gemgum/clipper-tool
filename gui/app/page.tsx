@@ -578,7 +578,12 @@ export default function Home() {
   const cancel = useCallback(async () => {
     if (!jobId) return;
     addLog(t("logCancelling"));
-    await fetch(eng(`/api/jobs/${jobId}/cancel`), { method: "POST" }).catch(() => {});
+    // Tanpa badan, tapi jenisnya tetap disebut: engine menolak POST yang bukan
+    // JSON, dan itulah yang memaksa halaman asing melewati preflight lebih dulu.
+    await fetch(eng(`/api/jobs/${jobId}/cancel`), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    }).catch(() => {});
   }, [jobId, addLog, t]);
 
   useEffect(() => {

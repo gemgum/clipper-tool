@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +18,25 @@ import (
 
 	"github.com/gemgum/clipper/engine/internal/config"
 )
+
+// sum menghitung sidik jari isi yang akan disajikan server uji.
+func sum(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// resumable menulis .part beserta penanda asalnya — bentuk yang sah untuk
+// dilanjutkan. Penandanya tidak boleh dilewatkan: tanpa itu, potongannya memang
+// SENGAJA dibuang (lihat TestAPartFromAnotherMirror…).
+func resumable(t *testing.T, dest, url string, part []byte) {
+	t.Helper()
+	if err := os.WriteFile(dest+".part", part, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dest+".part.from", []byte(url), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // makeZip menulis arsip zip berisi nama→isi.
 func makeZip(t *testing.T, path string, files map[string]string) {
@@ -160,7 +181,7 @@ func TestARejectedDownloadLeavesNothingBehind(t *testing.T) {
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "model.bin")
 
-	err := download(context.Background(), srv.URL, dest, nil)
+	err := download(context.Background(), source{srv.URL, sum([]byte("apa pun"))}, dest, nil)
 
 	if err == nil {
 		t.Fatal("unduhan gagal tidak dilaporkan")
@@ -183,10 +204,12 @@ func TestDownloadReportsProgress(t *testing.T) {
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "model.bin")
 
-	var last Progress
+	var biggest Progress
 	seen := 0
-	if err := download(context.Background(), srv.URL, dest, func(p Progress) {
-		last = p
+	if err := download(context.Background(), source{srv.URL, sum([]byte(payload))}, dest, func(p Progress) {
+		if p.Bytes > biggest.Bytes {
+			biggest = p
+		}
 		seen++
 	}); err != nil {
 		t.Fatal(err)
@@ -195,8 +218,8 @@ func TestDownloadReportsProgress(t *testing.T) {
 	if seen == 0 {
 		t.Fatal("tidak ada laporan progres")
 	}
-	if last.Total != 4096 || last.Bytes != 4096 {
-		t.Errorf("progres terakhir = %d/%d, mau 4096/4096", last.Bytes, last.Total)
+	if biggest.Total != 4096 || biggest.Bytes != 4096 {
+		t.Errorf("progres terbesar = %d/%d, mau 4096/4096", biggest.Bytes, biggest.Total)
 	}
 	raw, err := os.ReadFile(dest)
 	if err != nil || len(raw) != 4096 {
@@ -297,12 +320,10 @@ func TestDownloadResumesFromWhatIsAlreadyThere(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "berkas.bin")
-	// Separuh sudah terunduh dari percobaan sebelumnya.
-	if err := os.WriteFile(dest+".part", full[:4000], 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Separuh sudah terunduh dari percobaan sebelumnya, dari alamat yang sama.
+	resumable(t, dest, srv.URL, full[:4000])
 
-	if err := download(context.Background(), srv.URL, dest, nil); err != nil {
+	if err := download(context.Background(), source{srv.URL, sum(full)}, dest, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -328,11 +349,9 @@ func TestDownloadStartsOverWhenTheServerIgnoresRange(t *testing.T) {
 	defer srv.Close()
 
 	dest := filepath.Join(t.TempDir(), "berkas.bin")
-	if err := os.WriteFile(dest+".part", []byte(strings.Repeat("y", 2000)), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	resumable(t, dest, srv.URL, []byte(strings.Repeat("y", 2000)))
 
-	if err := download(context.Background(), srv.URL, dest, nil); err != nil {
+	if err := download(context.Background(), source{srv.URL, sum(full)}, dest, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -342,6 +361,86 @@ func TestDownloadStartsOverWhenTheServerIgnoresRange(t *testing.T) {
 	}
 	if !bytes.Equal(got, full) {
 		t.Errorf("berkas rusak: %d byte, mau %d byte berisi 'x'", len(got), len(full))
+	}
+}
+
+// Berkas yang sampai dengan isi berbeda dari yang dipaku TIDAK dipakai — dan
+// tidak disimpan untuk dilanjutkan. Ini pagar terakhir sebelum sebuah berkas
+// bernama seperti biner yang siap dijalankan: proxy yang membongkar TLS, cermin
+// yang diretas, dan rilis yang dibajak semuanya berhenti di sini.
+func TestADownloadThatFailsItsChecksumIsThrownAway(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("biner orang lain"))
+	}))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "whisper-cli.exe")
+
+	err := download(context.Background(), source{srv.URL, sum([]byte("biner yang benar"))}, dest, nil)
+
+	if err == nil {
+		t.Fatal("berkas dengan sidik jari salah diterima")
+	}
+	if !strings.Contains(err.Error(), "checksum") {
+		t.Errorf("pesan galat = %q, mau menyebut checksum", err)
+	}
+	if _, err := os.Stat(dest); err == nil {
+		t.Error("berkas tujuan tetap dibuat padahal sidik jarinya salah")
+	}
+	if _, err := os.Stat(dest + ".part"); err == nil {
+		t.Error(".part ditinggalkan — percobaan berikutnya akan mewarisi isi yang rusak")
+	}
+}
+
+// Potongan dari cermin LAIN tidak boleh dilanjutkan. Cermin yang berbeda
+// menyajikan build yang berbeda; menyambung separuh yang satu dengan separuh
+// yang lain menghasilkan berkas yang ukurannya wajar tapi isinya rusak.
+//
+// Sidik jari memang akan menangkapnya juga, tapi baru setelah seluruh sisanya
+// diunduh. Ini yang membuat perbaikannya berhenti di byte pertama.
+func TestAPartFromAnotherMirrorIsNotResumed(t *testing.T) {
+	full := []byte(strings.Repeat("benar", 1000)) // 5.000 byte
+	var gotRange string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Header.Get("Range")
+		_, _ = w.Write(full)
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "berkas.bin")
+	// Separuh berkas dari cermin yang berbeda.
+	resumable(t, dest, "https://cermin-lain.example/berkas.bin", []byte(strings.Repeat("salah", 400)))
+
+	if err := download(context.Background(), source{srv.URL, sum(full)}, dest, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if gotRange != "" {
+		t.Errorf("header Range = %q, mau kosong — potongan cermin lain seharusnya dibuang", gotRange)
+	}
+	if got, _ := os.ReadFile(dest); !bytes.Equal(got, full) {
+		t.Errorf("berkas rusak: %d byte, mau %d byte", len(got), len(full))
+	}
+}
+
+// Sumber tanpa sidik jari ditolak sebelum satu byte pun diunduh. Penjaga ini ada
+// supaya menambah cermin baru dan lupa memakukan sidik jarinya gagal seketika,
+// bukan diam-diam melewati verifikasi.
+func TestASourceWithoutAChecksumIsRefused(t *testing.T) {
+	dilarang := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dilarang = false
+		_, _ = w.Write([]byte("isi"))
+	}))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "berkas.bin")
+
+	err := downloadAny(context.Background(), []source{{srv.URL, ""}}, dest, nil)
+
+	if err == nil {
+		t.Fatal("sumber tanpa sidik jari tidak ditolak")
+	}
+	if !dilarang {
+		t.Error("servernya tetap dihubungi padahal sumbernya tidak sah")
 	}
 }
 
@@ -360,7 +459,8 @@ func TestDownloadFallsBackToTheNextMirror(t *testing.T) {
 
 	dest := filepath.Join(t.TempDir(), "berkas.bin")
 
-	if err := downloadAny(context.Background(), []string{mati.URL, hidup.URL}, dest, nil); err != nil {
+	srcs := []source{{mati.URL, sum([]byte("isi"))}, {hidup.URL, sum([]byte("isi"))}}
+	if err := downloadAny(context.Background(), srcs, dest, nil); err != nil {
 		t.Fatal(err)
 	}
 

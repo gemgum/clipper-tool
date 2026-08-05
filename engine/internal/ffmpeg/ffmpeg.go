@@ -23,13 +23,36 @@ func New(ffmpeg, ffprobe string) *Client {
 	return &Client{FFmpeg: ffmpeg, FFprobe: ffprobe}
 }
 
+// CLIPath menyiapkan sebuah path untuk diserahkan sebagai argumen program lain.
+//
+// Tidak ada shell di mana pun di engine ini (os/exec tanpa "sh -c"), jadi
+// injeksi shell memang tidak berlaku. Yang masih berlaku: ffmpeg membaca
+// argumen yang diawali "-" sebagai FLAG-nya sendiri. Sebuah path bernama
+// "-report" atau "-loglevel" karenanya berhenti jadi nama berkas dan mulai jadi
+// perintah — dan path itu datang dari klien (mis. /api/probe?path=…).
+//
+// ffmpeg tidak mengenal "--" sebagai penanda akhir flag, jadi yang dipakai
+// adalah bentuk yang selalu dipahami: path mutlak. "-report" jadi
+// "/folder/kerja/-report", yang tidak lagi diawali tanda hubung namun menunjuk
+// berkas yang sama persis. Path yang tidak diawali "-" tidak disentuh sama
+// sekali.
+func CLIPath(p string) string {
+	if !strings.HasPrefix(p, "-") {
+		return p
+	}
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs
+	}
+	return "." + string(filepath.Separator) + p
+}
+
 // Duration mengembalikan durasi video (detik) via ffprobe.
 func (c *Client) Duration(ctx context.Context, input string) (float64, error) {
 	args := []string{
 		"-v", "error",
 		"-show_entries", "format=duration",
 		"-of", "default=noprint_wrappers=1:nokey=1",
-		input,
+		CLIPath(input),
 	}
 	out, err := exec.CommandContext(ctx, c.FFprobe, args...).Output()
 	if err != nil {
@@ -50,7 +73,7 @@ func (c *Client) Dimensions(ctx context.Context, input string) (w, h int, err er
 		"-select_streams", "v:0",
 		"-show_entries", "stream=width,height",
 		"-of", "json",
-		input,
+		CLIPath(input),
 	}
 	out, err := exec.CommandContext(ctx, c.FFprobe, args...).Output()
 	if err != nil {
@@ -76,12 +99,12 @@ func (c *Client) Dimensions(ctx context.Context, input string) (w, h int, err er
 func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string) error {
 	args := []string{
 		"-y",
-		"-i", input,
+		"-i", CLIPath(input),
 		"-vn",
 		"-ac", "1",
 		"-ar", "16000",
 		"-c:a", "pcm_s16le",
-		outWAV,
+		CLIPath(outWAV),
 	}
 	return c.run(ctx, "extract audio", args)
 }
@@ -286,7 +309,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 	args := []string{
 		"-y",
 		"-ss", fmt.Sprintf("%.3f", start),
-		"-i", input,
+		"-i", CLIPath(input),
 		"-t", fmt.Sprintf("%.3f", dur),
 		"-map", "0:v:0", // ambil video pertama
 		"-map", "0:a:0?", // ambil audio pertama bila ada (? = opsional)
@@ -299,7 +322,7 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		"-b:a", "160k",
 		"-ac", "2", // paksa stereo (kompatibel semua pemutar)
 		"-movflags", "+faststart",
-		out,
+		CLIPath(out),
 	}
 	return c.run(ctx, "clip+reframe", args)
 }
@@ -313,7 +336,7 @@ func (c *Client) ExtractFrame(ctx context.Context, input string, t float64, targ
 	args := []string{
 		"-y",
 		"-ss", fmt.Sprintf("%.3f", t),
-		"-i", input,
+		"-i", CLIPath(input),
 		"-frames:v", "1",
 		"-vf", vf,
 		"-f", "image2pipe",

@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +18,21 @@ import (
 	"time"
 )
 
+// source = satu alamat unduhan beserta sidik jari isi yang diharapkan.
+//
+// sha256 WAJIB terisi, dan itulah seluruh gunanya tipe ini. Engine mengunduh
+// program lalu MENJALANKANNYA; kalau yang menjaga cuma HTTPS, maka proxy kantor
+// yang membongkar TLS, cermin yang diretas, atau rilis yang dibajak cukup untuk
+// membuat engine menjalankan biner orang lain di komputer pengguna.
+//
+// Karena sidik jari wajib, alamat yang isinya bisa berubah sendiri tidak bisa
+// dipakai lagi — "rilis terbaru" tanpa nomor versi berarti sidik jarinya berubah
+// tanpa kita tahu. Semua sumber di berkas ini menunjuk satu rilis yang dipaku.
+type source struct {
+	url    string
+	sha256 string
+}
+
 // recipe = satu unduhan yang menghasilkan biner siap pakai.
 //
 // Semua isi arsip diratakan ke satu folder (ToolsDir): whisper.cpp membawa
@@ -23,14 +40,15 @@ import (
 // LD_LIBRARY_PATH ke folder biner itu. Struktur folder di dalam arsip tidak
 // membawa arti apa pun bagi kita.
 type recipe struct {
-	// urls dicoba berurutan. Cermin pertama yang menjawab dipakai.
+	// sources dicoba berurutan. Cermin pertama yang menjawab DAN cocok sidik
+	// jarinya dipakai.
 	//
 	// Bukan kemewahan: gyan.dev — sumber ffmpeg Windows yang lazim — adalah
 	// satu server kecil yang dari sebagian jaringan tidak terjangkau sama
 	// sekali (terbukti: TLS handshake timeout dari Indonesia). Satu alamat mati
 	// berarti komponen wajib tidak bisa dipasang, dan pengguna tidak punya
 	// jalan lain di dalam aplikasi.
-	urls []string
+	sources []source
 	// kind: "zip" atau "tar.gz". Keduanya ada di pustaka standar Go — itu
 	// sebabnya rilis .tar.xz (mis. ffmpeg statis untuk Linux) tidak dipakai:
 	// menambah dependensi eksternal hanya untuk membongkarnya melanggar aturan
@@ -78,17 +96,36 @@ const whisperVersion = "v1.9.1"
 // hasil unduhan bisa diulang persis.
 const ffmpegVersion = "9.0"
 
+// Cermin kedua ffmpeg Windows. Bukan build yang sama dengan yang pertama —
+// pengunggah yang berbeda memang tidak menerbitkan berkas yang identik — dan
+// itu justru maksudnya: cermin yang bisa hilang bersama pengunggah pertama
+// tidak menolong siapa pun.
+//
+// Ditunjuk ke satu tag autobuild, bukan ke tag "latest" yang isinya berganti
+// tiap hari: yang berganti isinya tidak bisa dipaku sidik jarinya.
+const btbnBuild = "autobuild-2026-08-04-21-26"
+const btbnFile = "ffmpeg-n8.1.2-34-g9b6c8969e0-win64-gpl-8.1.zip"
+
 func whisperRecipe() *recipe {
 	base := "https://github.com/ggml-org/whisper.cpp/releases/download/" + whisperVersion + "/"
 	switch runtime.GOOS {
 	case "windows":
 		// Berisi whisper-cli.exe + DLL pendampingnya.
-		return &recipe{urls: []string{base + "whisper-bin-x64.zip"}, kind: "zip"}
+		return &recipe{kind: "zip", sources: []source{{
+			base + "whisper-bin-x64.zip",
+			"7d8be46ecd31828e1eb7a2ecdd0d6b314feafd82163038ab6092594b0a063539",
+		}}}
 	case "linux":
 		if runtime.GOARCH == "arm64" {
-			return &recipe{urls: []string{base + "whisper-bin-ubuntu-arm64.tar.gz"}, kind: "tar.gz"}
+			return &recipe{kind: "tar.gz", sources: []source{{
+				base + "whisper-bin-ubuntu-arm64.tar.gz",
+				"e0b66cd551ff6f2a28fabe3c6e89691eea037bb76833493abb9a71ca788994b3",
+			}}}
 		}
-		return &recipe{urls: []string{base + "whisper-bin-ubuntu-x64.tar.gz"}, kind: "tar.gz"}
+		return &recipe{kind: "tar.gz", sources: []source{{
+			base + "whisper-bin-ubuntu-x64.tar.gz",
+			"f3bf3b4369a99b54665b0f19b88483b30de27f25963b0414235dea03198515c5",
+		}}}
 	}
 	// macOS: rilis resminya hanya xcframework, bukan biner baris perintah.
 	return nil
@@ -115,15 +152,24 @@ func ffmpegRecipe() *recipe {
 	switch runtime.GOOS {
 	case "windows":
 		return &recipe{
-			urls: []string{
-				// Cermin GitHub dari build yang sama — CDN GitHub terjangkau
-				// dari mana pun aplikasi ini bisa diunduh, jadi ia didahulukan.
-				"https://github.com/GyanD/codexffmpeg/releases/download/" + ffmpegVersion +
-					"/ffmpeg-" + ffmpegVersion + "-essentials_build.zip",
-				// Sumber aslinya, sebagai cadangan.
-				"https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-				// Build pihak lain, kalau dua di atas mati.
-				"https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+			sources: []source{
+				// Cermin GitHub dari build gyan.dev — CDN GitHub terjangkau dari
+				// mana pun aplikasi ini bisa diunduh, jadi ia didahulukan.
+				{
+					"https://github.com/GyanD/codexffmpeg/releases/download/" + ffmpegVersion +
+						"/ffmpeg-" + ffmpegVersion + "-essentials_build.zip",
+					"e6b54767a6065919048f1a098eb27211ca4e12b4348a05d88777a5855d0b6e71",
+				},
+				// Build pihak lain, kalau yang pertama hilang.
+				{
+					"https://github.com/BtbN/FFmpeg-Builds/releases/download/" + btbnBuild + "/" + btbnFile,
+					"b7f08f5b4975e6ceecb9785584e559cfed0968fae701db92abd968e7a2ae0402",
+				},
+				// Sumber asli gyan.dev sengaja TIDAK dipakai lagi: alamatnya
+				// selalu menunjuk "rilis terbaru" tanpa nomor versi, jadi isinya
+				// berganti sendiri dan sidik jarinya mustahil dipaku. Cermin
+				// pertama di atas adalah build yang sama, dari pengunggah yang
+				// sama, hanya saja bernomor.
 			},
 			kind: "zip",
 			want: []string{"ffmpeg.exe", "ffprobe.exe"},
@@ -164,14 +210,21 @@ func ffmpegHint() string {
 // Galat terakhir yang dilaporkan, bukan yang pertama: yang pertama biasanya
 // cermin yang memang sudah lama mati, sedangkan yang terakhir lebih mungkin
 // menggambarkan keadaan jaringan pengguna.
-func downloadAny(ctx context.Context, urls []string, dest string, onProgress func(Progress)) error {
+func downloadAny(ctx context.Context, srcs []source, dest string, onProgress func(Progress)) error {
 	onProgress = orNoop(onProgress)
 	var last error
-	for i, url := range urls {
-		if i > 0 {
-			onProgress(Progress{Message: fmt.Sprintf("Trying another source (%d of %d)…", i+1, len(urls))})
+	for i, src := range srcs {
+		// Sumber tanpa sidik jari ditolak di sini, bukan diunduh lalu dipercaya.
+		// Penjaganya di jalur pemakaian — bukan hanya di uji — supaya sumber baru
+		// yang lupa dipaku gagal seketika alih-alih diam-diam melewati verifikasi.
+		if src.sha256 == "" {
+			last = fmt.Errorf("refusing to download %s: no checksum is pinned for it", src.url)
+			continue
 		}
-		err := download(ctx, url, dest, onProgress)
+		if i > 0 {
+			onProgress(Progress{Message: fmt.Sprintf("Trying another source (%d of %d)…", i+1, len(srcs))})
+		}
+		err := download(ctx, src, dest, onProgress)
 		if err == nil {
 			return nil
 		}
@@ -207,17 +260,30 @@ func orNoop(fn func(Progress)) func(Progress) {
 // Berkas .part TIDAK dihapus saat gagal — justru itu yang membuat percobaan
 // berikutnya bisa meminta sisanya saja lewat header Range. Di sambungan yang
 // putus-nyambung, gagal di 100 MB tidak lagi berarti mengulang 111 MB.
-func download(ctx context.Context, url, dest string, onProgress func(Progress)) error {
+//
+// Tapi .part hanya boleh dilanjutkan oleh alamat yang MEMBUATNYA. Cermin yang
+// berbeda menyajikan build yang berbeda, jadi melanjutkan potongan cermin
+// pertama dengan potongan cermin kedua menghasilkan dua berkas berbeda yang
+// disambung jadi satu: ukurannya wajar, isinya rusak. Karena itu alamat asalnya
+// dicatat di berkas pendamping, dan berpindah cermin berarti mulai dari nol.
+func download(ctx context.Context, src source, dest string, onProgress func(Progress)) error {
 	onProgress = orNoop(onProgress)
 	tmp := dest + ".part"
+	from := tmp + ".from"
 
-	// Berapa byte yang sudah ada dari percobaan sebelumnya.
+	// Berapa byte yang sudah ada dari percobaan sebelumnya — dan apakah byte itu
+	// memang datang dari alamat yang sedang dicoba sekarang.
 	var have int64
 	if st, err := os.Stat(tmp); err == nil {
-		have = st.Size()
+		if prev, err := os.ReadFile(from); err == nil && string(prev) == src.url {
+			have = st.Size()
+		} else {
+			os.Remove(tmp)
+			os.Remove(from)
+		}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.url, nil)
 	if err != nil {
 		return err
 	}
@@ -240,7 +306,7 @@ func download(ctx context.Context, url, dest string, onProgress func(Progress)) 
 	case res.StatusCode == http.StatusOK:
 		have = 0
 	default:
-		return fmt.Errorf("download failed: %s said %s", url, res.Status)
+		return fmt.Errorf("download failed: %s said %s", src.url, res.Status)
 	}
 
 	flag := os.O_CREATE | os.O_WRONLY
@@ -251,6 +317,12 @@ func download(ctx context.Context, url, dest string, onProgress func(Progress)) 
 	}
 	f, err := os.OpenFile(tmp, flag, 0o644)
 	if err != nil {
+		return err
+	}
+	// Ditulis setelah berkasnya benar-benar dibuka: penanda tanpa .part hanya
+	// akan membuat percobaan berikutnya mengira ada yang bisa dilanjutkan.
+	if err := os.WriteFile(from, []byte(src.url), 0o644); err != nil {
+		f.Close()
 		return err
 	}
 
@@ -267,7 +339,47 @@ func download(ctx context.Context, url, dest string, onProgress func(Progress)) 
 	if closeErr != nil {
 		return closeErr
 	}
-	return os.Rename(tmp, dest)
+
+	// Diperiksa SEBELUM berkasnya bernama seperti berkas jadi: begitu namanya
+	// benar, langkah berikutnya menganggapnya terpasang dan menjalankannya.
+	onProgress(Progress{Value: -1, Message: "Checking the download…"})
+	sum, err := fileSum(tmp)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(sum, src.sha256) {
+		// Dibuang, bukan disimpan untuk dilanjutkan: isi yang salah tidak akan
+		// menjadi benar dengan ditambahi byte berikutnya, dan .part yang tertinggal
+		// justru membuat percobaan berikutnya mewarisi kerusakan yang sama.
+		os.Remove(tmp)
+		os.Remove(from)
+		return fmt.Errorf("%s does not match its known checksum — the file was rejected (expected %s, got %s)",
+			src.url, src.sha256, sum)
+	}
+
+	if err := os.Rename(tmp, dest); err != nil {
+		return err
+	}
+	os.Remove(from)
+	return nil
+}
+
+// fileSum menghitung sha256 sebuah berkas.
+//
+// Dibaca ulang dari disk, bukan dihitung sambil mengunduh: unduhan yang
+// dilanjutkan hanya melewatkan sisanya, jadi hitungan yang berjalan tidak pernah
+// melihat bagian yang diunduh percobaan sebelumnya.
+func fileSum(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // progressReader melaporkan kemajuan salinan, dibatasi sekali per 200 ms supaya

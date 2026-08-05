@@ -266,6 +266,13 @@ func cmdServe(layout config.Layout, args []string) {
 		os.Exit(1)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
+	// Engine hanya menjawab alamatnya sendiri (lihat guard.go). Bila pengguna
+	// menyebut -addr sendiri, alamat itu ikut diterima — mengikat ke alamat lain
+	// adalah keputusan sadar, dan menolaknya di sini berarti flagnya diam-diam
+	// tidak berfungsi.
+	if host, _, err := net.SplitHostPort(listenAddr); err == nil {
+		srv.AllowHost(host)
+	}
 
 	token := ""
 	if *tokenMode == "on" || (*tokenMode == "auto" && !layout.Dev) {

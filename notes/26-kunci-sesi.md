@@ -2,6 +2,13 @@
 
 Selesai 4 Agustus 2026. Penghalang nomor 2 di `23-aplikasi-desktop.md`.
 
+> **Sudah dilewati sebagian, 5 Agustus 2026.** Kunci tidak lagi dititipkan di
+> query maupun `sessionStorage`: ia tinggal di cookie `HttpOnly; SameSite=Strict`
+> yang dipasang engine saat halaman pertama dibuka, dan `/api/` **menolak**
+> `?token=`. Alasan & akibatnya di `30-pengerasan-dikerjakan.md` nomor 3.
+> Bagian "port acak", "engine.json 0600", dan "asal permintaan" di bawah tetap
+> berlaku apa adanya.
+
 ## Soalnya
 
 Engine mendengar di `127.0.0.1:8787` dengan CORS `*` dan tanpa kunci. Di mesin

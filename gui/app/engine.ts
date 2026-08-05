@@ -17,10 +17,7 @@ const DEV_ENGINE = "http://127.0.0.1:8787";
 // dari engine, jadi hanya dalam keadaan itulah alamat engine perlu ditebak.
 const DEV_PORT = "3000";
 
-const KEY = "clipper.token";
-
 let base: string | null = null;
-let token = "";
 let ready = false;
 
 /** engineBase menentukan ke mana permintaan API dikirim. */
@@ -52,39 +49,36 @@ function init() {
   if (ready || typeof window === "undefined") return;
   ready = true;
   try {
-    const fromURL = new URLSearchParams(window.location.search).get("token");
-    if (fromURL) {
-      token = fromURL;
-      sessionStorage.setItem(KEY, fromURL);
-      // Kunci dibersihkan dari bilah alamat setelah dibaca: ia tidak perlu
-      // terlihat, dan tidak perlu ikut tersalin saat pengguna menyalin URL.
-      const clean = new URL(window.location.href);
-      clean.searchParams.delete("token");
-      window.history.replaceState({}, "", clean.toString());
-      return;
+    // Kunci dibersihkan dari bilah alamat setelah halaman termuat. Ia sudah
+    // ditukar jadi cookie oleh engine SEBELUM skrip ini jalan (lihat token.go),
+    // jadi yang tersisa di sini hanya membereskan jejaknya: tidak perlu
+    // terlihat, dan tidak boleh ikut tersalin saat pengguna menyalin URL.
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("token")) {
+      url.searchParams.delete("token");
+      window.history.replaceState({}, "", url.toString());
     }
-    // sessionStorage, bukan localStorage: kunci berganti tiap engine
-    // dijalankan, jadi menyimpannya lebih lama dari satu tab hanya membuat
-    // kunci basi terkirim dan permintaan ditolak tanpa sebab yang jelas.
-    token = sessionStorage.getItem(KEY) || process.env.NEXT_PUBLIC_ENGINE_TOKEN || "";
   } catch {
-    token = "";
+    // Bilah alamat yang tidak bisa disentuh bukan alasan menghentikan apa pun.
   }
 }
 
 /**
- * eng membentuk URL lengkap ke engine, lengkap dengan kunci sesi bila ada.
+ * eng membentuk URL lengkap ke engine.
  *
- * Kuncinya dititipkan di query, bukan di header, karena tidak semua permintaan
- * dibuat oleh kode kita: <video src>, tautan unduh, dan EventSource dibentuk
- * browser dan tidak bisa membawa header. Satu jalur untuk semuanya lebih baik
- * daripada dua yang harus diingat mana dipakai di mana.
+ * Kunci sesi TIDAK ikut di sini. Ia tinggal di cookie HttpOnly yang dipasang
+ * engine saat halaman pertama dibuka, dan cookie ikut terkirim sendiri oleh
+ * semua bentuk permintaan — termasuk yang dibuat browser, bukan oleh kode kita:
+ * EventSource, <video src>, dan tautan unduh. Itu justru yang dulu memaksa
+ * kuncinya ditaruh di query, tempat paling mudah bocor (Referer, riwayat,
+ * tangkapan layar).
+ *
+ * Tetap dipakai di SEMUA pemanggilan engine: alamatnya sendiri baru diketahui
+ * saat halaman dibuka, sebab port engine acak begitu aplikasinya terpasang.
  */
 export function eng(path: string): string {
   init();
-  const url = engineBase() + path;
-  if (!token) return url;
-  return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+  return engineBase() + path;
 }
 
 /** ENGINE = alamat engine yang sedang dipakai. Untuk ditampilkan, bukan disusun. */

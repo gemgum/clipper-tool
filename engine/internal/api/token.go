@@ -81,42 +81,87 @@ func (s *Server) SetToken(t string) { s.token = t }
 // pun selain kata "ok".
 var openPaths = map[string]bool{"/api/health": true}
 
+// CookieName = nama cookie tempat kunci sesi tinggal.
+const CookieName = "clipper_session"
+
+// Kenapa cookie, bukan query.
+//
+// Dulu kuncinya dititipkan di "?token=" pada setiap alamat, sebab tidak semua
+// permintaan dibuat oleh kode kita: EventSource (progres job), <video src>, dan
+// tautan unduh dibentuk browser dan tidak bisa membawa header. Satu jalur untuk
+// semuanya memang lebih sederhana — tapi query adalah tempat paling mudah bocor:
+// ia ikut ke Referer, riwayat browser, tangkapan layar, dan salin-tempel.
+//
+// Sejak GUI disajikan engine sendiri, ketiganya SATU ASAL dengan engine, dan
+// cookie ikut terkirim otomatis oleh ketiga-tiganya. Jadi query tinggal dipakai
+// sekali — saat halaman pertama dibuka shell — untuk ditukar jadi cookie:
+//
+//	HttpOnly    JavaScript di halaman tidak bisa membacanya, jadi satu skrip
+//	            yang tersusup tidak bisa membawa kuncinya keluar;
+//	SameSite    Strict — halaman lain tidak bisa memancing browser mengirimkannya;
+//	tanpa masa  cookie sesi: hilang saat jendela ditutup, sama seperti kuncinya
+//	berlaku     sendiri yang dibuat baru tiap engine dijalankan.
+//
+// Akibatnya /api/ TIDAK lagi menerima kunci dari query sama sekali.
+
 // requestToken mengambil kunci dari permintaan.
 //
-// Query ikut diterima karena tidak semua permintaan bisa membawa header:
-// EventSource (progres job), <video src>, dan tautan unduh dibuat oleh browser,
-// bukan oleh kode kita.
+// Query sengaja tidak ada di sini: itulah inti perpindahan ke cookie.
 func requestToken(r *http.Request) string {
+	if c, err := r.Cookie(CookieName); err == nil && c.Value != "" {
+		return c.Value
+	}
 	if v := r.Header.Get("X-Clipper-Token"); v != "" {
 		return v
 	}
 	if v := r.Header.Get("Authorization"); strings.HasPrefix(v, "Bearer ") {
 		return strings.TrimPrefix(v, "Bearer ")
 	}
-	return r.URL.Query().Get("token")
+	return ""
 }
 
 // withToken menolak permintaan tanpa kunci yang benar.
 func (s *Server) withToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Hanya /api/ yang dijaga. Berkas GUI-nya sendiri tidak rahasia, dan
-		// halaman itu harus bisa dimuat LEBIH DULU — kuncinya baru dibaca oleh
-		// JavaScript di dalamnya, dari "?token=" pada alamat yang dibuka shell.
-		if s.token == "" || !strings.HasPrefix(r.URL.Path, "/api/") ||
-			openPaths[r.URL.Path] || r.Method == http.MethodOptions {
+		if s.token == "" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		got := requestToken(r)
-		// Perbandingan waktu-tetap: token dibandingkan pada setiap permintaan
-		// dari sumber mana pun, jadi lama perbandingannya tidak boleh
-		// membocorkan berapa karakter awal yang sudah benar.
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+		// Halaman & berkas GUI tidak dijaga — isinya tidak rahasia, dan halaman
+		// itu harus bisa dimuat LEBIH DULU. Di sinilah satu-satunya tempat
+		// "?token=" masih dibaca: alamat yang dibuka shell ditukar jadi cookie,
+		// dan sesudah itu tidak ada lagi kunci yang lewat bilah alamat.
+		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			if q := r.URL.Query().Get("token"); sameToken(q, s.token) {
+				http.SetCookie(w, &http.Cookie{
+					Name:     CookieName,
+					Value:    s.token,
+					Path:     "/",
+					HttpOnly: true,
+					SameSite: http.SameSiteStrictMode,
+				})
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+		if openPaths[r.URL.Path] || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !sameToken(requestToken(r), s.token) {
 			writeErr(w, 401, "missing or wrong session key — open the app window again")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// sameToken membandingkan dua kunci dalam waktu tetap.
+//
+// Token dibandingkan pada setiap permintaan dari sumber mana pun, jadi lama
+// perbandingannya tidak boleh membocorkan berapa karakter awal yang sudah benar.
+func sameToken(got, want string) bool {
+	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
 
 // localOrigin melaporkan apakah sebuah Origin datang dari mesin ini sendiri.

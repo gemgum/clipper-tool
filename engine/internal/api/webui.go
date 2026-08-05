@@ -34,9 +34,44 @@ func webUI(dir string) http.Handler {
 		if !strings.HasPrefix(r.URL.Path, "/_next/") {
 			w.Header().Set("Cache-Control", "no-cache")
 		}
+		w.Header().Set("Content-Security-Policy", csp)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "no-referrer")
 		fs.ServeHTTP(w, r)
 	})
 }
+
+// csp membatasi dari mana halaman boleh memuat apa pun.
+//
+// Aturan proyek sudah menyebut "nol alamat luar di antarmuka" (notes/29), tapi
+// aturan hanya berlaku selama ada yang mengingatnya. Header ini menjadikannya
+// hal yang tidak bisa dilanggar tanpa ketahuan: satu tautan CDN yang tak sengaja
+// ikut akan langsung gagal memuat, bukan diam-diam bekerja di mesin yang punya
+// internet lalu putus di mesin yang tidak.
+//
+//	img-src   http/https ikut: gambar artikel di tab kartu memang datang dari
+//	          medianya. Itu ISI, bukan tampilan — pengecualian yang disebut
+//	          notes/29 secara khusus.
+//	style-src 'unsafe-inline' terpaksa: React menulis style pada elemen.
+//	script-src 'unsafe-inline' juga terpaksa, dan ini diperiksa bukan dikira:
+//	          `next build` menaruh tujuh <script> inline di index.html untuk
+//	          data hidrasinya. Nonce tidak bisa dipakai (berkasnya statis,
+//	          engine tidak menyusun HTML-nya), dan hash berganti tiap build.
+//	          Yang tetap didapat: skrip dari HOST LUAR tetap ditolak, dan
+//	          'unsafe-eval' tetap tidak ada.
+//	frame-ancestors 'none' menutup clickjacking; base-uri 'none' menutup
+//	          pengalihan seluruh path relatif lewat satu tag <base>.
+const csp = "default-src 'self'; " +
+	"img-src 'self' data: blob: https: http:; " +
+	"media-src 'self' blob:; " +
+	"font-src 'self' data:; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"script-src 'self' 'unsafe-inline'; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'none'; " +
+	"form-action 'none'; " +
+	"frame-ancestors 'none'"
 
 // guiMissingPage menjelaskan cara membangun GUI, alih-alih 404 kosong.
 //

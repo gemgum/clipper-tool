@@ -130,9 +130,18 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
   `desktop/` cuma membuka satu alamat yang dicetak `clipper serve -shell`
   (notes/27).
 - **Kunci sesi.** Saat terpasang, engine memakai port acak + kunci yang wajib
-  ada di setiap permintaan, ditulis ke `<DataDir>/engine.json`. Di GUI, SEMUA
-  URL engine dibentuk lewat `eng()` di `gui/app/engine.ts` — jangan menyusun
-  `${ENGINE}/api/...` sendiri, kuncinya tidak akan ikut (notes/26).
+  ada di setiap permintaan, ditulis ke `<DataDir>/engine.json`. Kuncinya tinggal
+  di cookie `HttpOnly` yang dipasang engine saat halaman pertama dibuka; `/api/`
+  **menolak** `?token=` (notes/30). Di GUI, SEMUA URL engine tetap dibentuk lewat
+  `eng()` di `gui/app/engine.ts` — jangan menyusun `${ENGINE}/api/...` sendiri,
+  sebab alamat engine baru diketahui saat halaman dibuka (portnya acak).
+- **Unduhan wajib dipaku sidik jarinya.** Tiap alamat di `internal/setup` punya
+  sha256; sumber tanpa itu ditolak sebelum diunduh. Menaikkan `whisperVersion`,
+  `ffmpegVersion`, `btbnBuild`, atau `modelRevision` berarti menghitung ulang
+  sha256-nya — satu paket, jangan dipisah (notes/30).
+- **POST ke engine wajib `application/json`**, dan engine hanya menjawab
+  alamatnya sendiri. Penjaganya di `internal/api/guard.go`; path yang diteruskan
+  ke ffmpeg lewat `ffmpeg.CLIPath` (notes/30).
 
 ## Mode & mesin skor
 

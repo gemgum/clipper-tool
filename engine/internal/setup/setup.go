@@ -46,18 +46,26 @@ type Component struct {
 	URL         string `json:"url"`  // halaman unduh untuk pemasangan manual
 }
 
-// Model whisper yang dikenal, beserta perkiraan ukurannya. Satu-satunya daftar
-// model di engine — /api/models ikut membacanya dari sini.
+// modelRevision = commit repo HuggingFace tempat model diambil.
+//
+// Bukan "main": cabang bisa dipindahkan kapan saja oleh pemilik repo, dan berkas
+// yang isinya boleh berubah tidak bisa dipaku sidik jarinya. Menaikkan angka ini
+// berarti memeriksa ulang sha256 di bawah — keduanya satu paket.
+const modelRevision = "5359861c739e955e79d9a303bcbc70fb988958b1"
+
+// Model whisper yang dikenal, beserta perkiraan ukuran & sidik jarinya.
+// Satu-satunya daftar model di engine — /api/models ikut membacanya dari sini.
 var Models = []struct {
-	Name string
-	Size string
+	Name   string
+	Size   string
+	SHA256 string
 }{
-	{"tiny", "~75 MB"},
-	{"base", "~142 MB"},
-	{"small", "~466 MB"},
-	{"medium", "~1.5 GB"},
-	{"large-v3", "~2.9 GB"},
-	{"large-v3-turbo", "~1.5 GB"},
+	{"tiny", "~75 MB", "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21"},
+	{"base", "~142 MB", "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe"},
+	{"small", "~466 MB", "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b"},
+	{"medium", "~1.5 GB", "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208"},
+	{"large-v3", "~2.9 GB", "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2"},
+	{"large-v3-turbo", "~1.5 GB", "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69"},
 }
 
 // ModelID membentuk id komponen untuk sebuah model.
@@ -245,14 +253,14 @@ func Install(ctx context.Context, l config.Layout, id string, onProgress func(Pr
 
 // installModel mengunduh satu berkas model dari HuggingFace.
 func installModel(ctx context.Context, l config.Layout, name string, onProgress func(Progress)) error {
-	known := false
+	sum := ""
 	for _, m := range Models {
 		if m.Name == name {
-			known = true
+			sum = m.SHA256
 			break
 		}
 	}
-	if !known {
+	if sum == "" {
 		return fmt.Errorf("unknown whisper model %q", name)
 	}
 	if err := os.MkdirAll(l.ModelsDir, 0o755); err != nil {
@@ -262,12 +270,16 @@ func installModel(ctx context.Context, l config.Layout, name string, onProgress 
 	// Dua cermin: HuggingFace resmi, lalu cermin komunitas. Model "small" 466 MB
 	// dan "large-v3" 2,9 GB — unduhan sebesar itu di sambungan yang tidak
 	// stabil butuh lebih dari satu pintu.
-	urls := []string{
-		"https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-" + name + ".bin",
-		"https://hf-mirror.com/ggerganov/whisper.cpp/resolve/main/ggml-" + name + ".bin",
+	//
+	// Sidik jarinya satu untuk keduanya: cermin yang menyajikan isi berbeda dari
+	// aslinya bukan cermin, dan justru itu yang ingin ketahuan di sini.
+	tail := "/ggerganov/whisper.cpp/resolve/" + modelRevision + "/ggml-" + name + ".bin"
+	srcs := []source{
+		{"https://huggingface.co" + tail, sum},
+		{"https://hf-mirror.com" + tail, sum},
 	}
 	onProgress(Progress{Message: "Downloading model " + name + "…"})
-	if err := downloadAny(ctx, urls, dest, onProgress); err != nil {
+	if err := downloadAny(ctx, srcs, dest, onProgress); err != nil {
 		return err
 	}
 	onProgress(Progress{Value: 1, Message: "Model " + name + " is ready."})
@@ -290,7 +302,7 @@ func installRecipe(ctx context.Context, l config.Layout, r *recipe, what, hint s
 
 	archive := filepath.Join(tmp, "download"+r.ext())
 	onProgress(Progress{Message: "Downloading " + what + "…"})
-	if err := downloadAny(ctx, r.urls, archive, onProgress); err != nil {
+	if err := downloadAny(ctx, r.sources, archive, onProgress); err != nil {
 		return err
 	}
 	onProgress(Progress{Value: 1, Message: "Unpacking " + what + "…"})

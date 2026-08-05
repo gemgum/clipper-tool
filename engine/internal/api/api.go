@@ -39,6 +39,9 @@ type Server struct {
 	installs installs
 	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
 	token string
+	// hosts = nama host tambahan yang boleh dipakai menghubungi engine, di luar
+	// keluarga loopback yang selalu diterima (lihat guard.go).
+	hosts []string
 }
 
 func NewServer(mgr *job.Manager, l config.Layout) *Server {
@@ -118,7 +121,10 @@ func (s *Server) Handler() http.Handler {
 	} else {
 		mux.HandleFunc("/", guiMissingPage)
 	}
-	return withCORS(s.withToken(mux))
+	// Urutannya dari yang paling murah & paling luas ke yang paling sempit:
+	// penjaga menolak bentuk permintaan yang mustahil datang dari GUI ini, CORS
+	// menolak halaman dari luar mesin, kunci menolak sisanya.
+	return s.withGuard(withCORS(s.withToken(mux)))
 }
 
 // --- kartu berita ---
@@ -217,8 +223,8 @@ func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
 		URL  string `json:"url"`
 		Lang string `json:"lang"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body")
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	a, err := news.FetchArticle(r.Context(), req.URL, firstNonEmpty(req.Lang, lang(r)))
@@ -236,8 +242,8 @@ func (s *Server) newsResolve(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		URL string `json:"url"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body")
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	original, err := news.Resolve(r.Context(), req.URL, s.browser(), s.paths.DataDir)
@@ -263,8 +269,8 @@ func (s *Server) newsAnalyze(w http.ResponseWriter, r *http.Request) {
 		OllamaURL   string `json:"ollama_url"`
 		Lang        string `json:"lang"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body")
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	content, err := news.FetchContent(r.Context(), req.URL, s.browser(), s.paths.DataDir, firstNonEmpty(req.Lang, lang(r)))
@@ -332,8 +338,8 @@ func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 		// percobaan meninggalkan satu folder permanen.
 		Preview bool `json:"preview"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body: "+err.Error())
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	req.Lang = firstNonEmpty(req.Lang, lang(r))
@@ -644,8 +650,8 @@ func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AnthropicAPIKey string `json:"anthropic_api_key"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body")
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	key := strings.TrimSpace(req.AnthropicAPIKey)
@@ -668,8 +674,8 @@ func (s *Server) ollamaPull(w http.ResponseWriter, r *http.Request) {
 		URL   string `json:"url"`
 		Model string `json:"model"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, 400, "invalid JSON body")
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
 		return
 	}
 	if req.Model == "" {
