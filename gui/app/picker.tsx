@@ -1,5 +1,8 @@
 "use client";
 
+// Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
+import { Folder, Film, File } from "lucide-react";
+
 // Pemilih berkas milik sendiri, dilayani engine lewat /api/browse.
 //
 // Alasannya bukan estetika: pemilih bawaan browser hanya memberi ISI berkas,
@@ -138,7 +141,9 @@ export default function Picker({
                 onClick={() => (e.dir ? load(e.path) : pickable(e) && onPick(e.path))}
                 title={e.path}
               >
-                <span className="picker-icon">{e.dir ? "📁" : e.video ? "🎬" : "📄"}</span>
+                <span className="picker-icon" aria-hidden="true">
+                  {e.dir ? <Folder className="ico" /> : e.video ? <Film className="ico" /> : <File className="ico" />}
+                </span>
                 <span className="picker-name">{e.name}</span>
                 {!e.dir && <span className="meta">{humanSize(e.size)}</span>}
               </div>

@@ -1,5 +1,19 @@
 "use client";
 
+// Ikon: lucide-react (ISC). Emoji dibuang bukan karena selera — gunting dan
+// folder tampil sebagai KOTAK KOSONG di jendela Tauri Linux yang tidak punya
+// font emoji, dan emoji memang bergantung pada font sistem: persis hal yang
+// tidak boleh diandalkan aplikasi yang harus tampil sama di mana-mana
+// (notes/29). Karena itu berkas ini juga tidak memuat satu emoji pun, termasuk
+// di komentarnya: greplah, dan hasil kosong berarti aturannya masih dipegang.
+//
+// Lambang yang TIDAK diganti: ⚠ ✓ ✕ → ↗ ↓ ↑ ✗. Semuanya simbol teks biasa yang
+// ada di font mana pun, dan sebagiannya berada di tempat yang tidak bisa memuat
+// komponen sama sekali (isi <option>).
+import {
+  Scissors, FolderOpen, Download, Eye, RotateCw, CircleCheck, OctagonX,
+} from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng, engineURL } from "./engine";
@@ -16,14 +30,26 @@ type Clip = {
   transcript_txt?: string;
 };
 type WhisperModel = { name: string; size: string; downloaded: boolean };
-type Font = { name: string };
+// scale = piksel CSS per satuan "size" subtitle. WAJIB dipakai pratinjau: .ass
+// mengartikan ukuran sebagai tinggi kotak font, CSS mengartikannya sebagai em,
+// dan selisihnya berbeda tiap font (Montserrat 0,725 · Anton 0,577). Engine yang
+// menghitungnya dari berkas fontnya — lihat engine/internal/api/fontmetrics.go.
+type Font = { name: string; scale: number };
 // Hasil /api/font-check: valid = font benar-benar ada (bawaan atau sistem).
-type FontCheck = { valid: boolean; name: string; family: string; source: string; error: string };
+type FontCheck = { valid: boolean; name: string; family: string; source: string; error: string; scale: number };
 
 // Titik tengah bidang 9:16 + toleransi magnet (dalam koordinat 1080×1920).
 // 20 ≈ 5 piksel layar pada preview 270 px, cukup terasa tanpa bikin susah
 // menaruh subtitle sedikit di luar tengah.
 const CENTER_X = 540, CENTER_Y = 960, MAGNET = 20;
+// Pilihan kerapatan grid di ruang 1080×1920. 0 = mati.
+//
+// 20 jadi bawaan: 54×96 kotak — cukup kasar untuk membuat penempatan bisa
+// diulang, cukup halus untuk tidak terasa seperti pagar. Yang lain disediakan
+// karena "rasa" grid hanya bisa dinilai dengan mencoba, bukan dari angka.
+const GRIDS = [0, 10, 20, 24, 40] as const;
+// snap membulatkan ke kelipatan terdekat. g = 0 berarti tidak menempel.
+const snap = (v: number, g: number) => (g > 0 ? Math.round(v / g) * g : v);
 // Baris contoh di preview — panjangnya sengaja mendekati batas nyata satu baris
 // (~22 karakter pada ukuran font bawaan).
 const SAMPLE_LINES = ["sampleLine1", "sampleLine2", "sampleLine3"] as const;
@@ -121,6 +147,7 @@ export default function Home() {
   const [previewOn, setPreviewOn] = useState(false);
   const [isDragging, setIsDragging] = useState(false); // sedang menggeser subtitle
   const [alwaysGuides, setAlwaysGuides] = useState(false); // paksa grid tetap tampil
+  const [grid, setGrid] = useState<number>(20);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [duration, setDuration] = useState(0);
   const [previewTime, setPreviewTime] = useState(5);
@@ -183,7 +210,7 @@ export default function Home() {
     const timer = setTimeout(() => {
       fetch(eng(`/api/font-check?name=${encodeURIComponent(name)}`))
         .then((r) => r.json()).then(setFontCheck)
-        .catch(() => setFontCheck({ valid: false, name, family: "", source: "", error: "engine unreachable" }))
+        .catch(() => setFontCheck({ valid: false, name, family: "", source: "", error: "engine unreachable", scale: 0 }))
         .finally(() => setFontChecking(false));
     }, 400);
     return () => { clearTimeout(timer); setFontChecking(false); };
@@ -406,9 +433,18 @@ export default function Home() {
   // Berapa baris yang mungkin muncul sekaligus — harus sama dengan Pacing() di
   // engine (lambat/normal 2, padat 3; mode word selalu 1 kata per layar).
   const maxLines = subMode === "word" ? 1 : subSpeed === "dense" ? 3 : 2;
-  // Tinggi blok di ruang 1080x1920. Faktor 1,17 diukur dari render libass yang
-  // sebenarnya (jarak antarbaris pada ukuran font 72 = 84 px).
-  const blockH = Math.round(subSize * 1.17 * maxLines);
+  // Piksel CSS per satuan ukuran subtitle, dari engine. 0 = belum tahu (daftar
+  // font belum sampai, atau font manual belum lolos cek) — dalam keadaan itu
+  // dipakai 1, yang berarti pratinjau menggambar seperti sebelumnya.
+  const fontScale =
+    (fontManual ? fontCheck?.scale : fonts.find((f) => f.name === subFont)?.scale) || 1;
+  // Tinggi blok di ruang 1080x1920.
+  //
+  // Jarak antarbaris libass PERSIS sebesar ukuran fontnya, berapa pun fontnya —
+  // diukur: dua baris pada ukuran 72 berjarak 72 px. Faktor 1,17 yang dulu ada
+  // di sini diukur saat font bawaan tidak pernah benar-benar dipakai libass
+  // (lihat notes/29), jadi ia mengukur font cadangan sistem, bukan Montserrat.
+  const blockH = Math.round(subSize * maxLines);
   // Jangkar ada di tepi atas blok, jadi supaya blok terlihat di tengah bidang
   // titiknya harus setengah tinggi blok di atas garis tengah.
   const centerAnchorY = Math.round(CENTER_Y - blockH / 2);
@@ -428,14 +464,36 @@ export default function Home() {
     const p = previewPoint(e);
     let nx = p.x + grab.current.dx;
     let ny = p.y + grab.current.dy;
-    // Magnet ke garis tengah — inilah rasa "berhenti" saat melewati tengah.
-    if (Math.abs(nx - CENTER_X) < MAGNET) nx = CENTER_X;
-    if (Math.abs(ny - centerAnchorY) < MAGNET) ny = centerAnchorY;
+    // Alt = abaikan grid. Grid adalah bawaan, bukan pagar: harus selalu ada
+    // jalan menaruh subtitle satu piksel di luar kotaknya.
+    const g = e.altKey ? 0 : grid;
+    // Magnet MENANG atas grid, dan itu bukan selera: titik tengahnya sering
+    // bukan kelipatan grid (pada grid 24, X tengah 540 tidak terjangkau sama
+    // sekali), jadi menempelkan ke grid lebih dulu akan membuat "tepat di
+    // tengah" mustahil dicapai — persis kemampuan yang tidak boleh hilang.
+    nx = Math.abs(nx - CENTER_X) < MAGNET ? CENTER_X : snap(nx, g);
+    ny = Math.abs(ny - centerAnchorY) < MAGNET ? centerAnchorY : snap(ny, g);
     setSubX(Math.round(Math.max(0, Math.min(PLAY_W, nx))));
     // Batas bawah dikurangi tinggi blok: yang harus tetap di dalam bingkai
     // adalah seluruh blok, bukan cuma titik jangkarnya.
     setSubY(Math.round(Math.max(0, Math.min(PLAY_H - blockH, ny))));
-  }, [previewPoint, blockH, centerAnchorY]);
+  }, [previewPoint, blockH, centerAnchorY, grid]);
+
+  // Tombol panah menggeser 1 piksel (Shift = 10) — penempatan halus tanpa harus
+  // mematikan grid, dan satu-satunya cara menaruh subtitle dengan angka yang
+  // benar-benar bisa diulang.
+  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
+    const step = e.shiftKey ? 10 : 1;
+    const move: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0], ArrowRight: [step, 0],
+      ArrowUp: [0, -step], ArrowDown: [0, step],
+    };
+    const d = move[e.key];
+    if (!d) return;
+    e.preventDefault();
+    setSubX((v) => Math.round(Math.max(0, Math.min(PLAY_W, v + d[0]))));
+    setSubY((v) => Math.round(Math.max(0, Math.min(PLAY_H - blockH, v + d[1]))));
+  }, [blockH]);
 
   const endDrag = useCallback(() => {
     draggingRef.current = false;
@@ -666,11 +724,20 @@ export default function Home() {
 
   return (
     <div className="wrap">
-      {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek */}
-      <style dangerouslySetInnerHTML={{ __html: previewFonts.map((n) =>
-        `@font-face{font-family:"${n}";src:url("${eng(`/api/font-file?name=${encodeURIComponent(n)}`)}");font-display:swap;}`
-      ).join("") }} />
-      <h1>✂️ Clipper</h1>
+      {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek.
+          DUA aturan per font, tegak dan tebal: kalau hanya satu yang dipasang,
+          browser menebalkan sendiri face tegaknya, dan penebalan buatan itu tidak
+          sama dengan face tebal sungguhan yang dipakai libass saat merender.
+          Font satu-bobot (Anton, Bebas Neue) dilayani berkas yang sama untuk
+          kedua aturan — engine yang menentukan, GUI tidak perlu tahu. */}
+      <style dangerouslySetInnerHTML={{ __html: previewFonts.flatMap((n) => {
+        const src = (w: string) => eng(`/api/font-file?name=${encodeURIComponent(n)}&weight=${w}`);
+        return [
+          `@font-face{font-family:"${n}";font-weight:400;src:url("${src("400")}");font-display:swap;}`,
+          `@font-face{font-family:"${n}";font-weight:700;src:url("${src("700")}");font-display:swap;}`,
+        ];
+      }).join("") }} />
+      <h1><Scissors className="ico" aria-hidden="true" /> Clipper</h1>
       <p className="sub">{t("brandTagline")}</p>
 
       {/* 1. Sumber */}
@@ -704,7 +771,7 @@ export default function Home() {
           )}
         </div>
         <div className="source-actions">
-          <button className="ghost" onClick={() => setPicker("video")}>{t("browseButton")}</button>
+          <button className="ghost" onClick={() => setPicker("video")}><FolderOpen className="ico" aria-hidden="true" /> {t("browseButton")}</button>
         </div>
         <div className="field">
           <label>{t("videoPath")}</label>
@@ -851,11 +918,11 @@ export default function Home() {
                     : !ollamaStatus.running ? (
                       <span className="warn">{t("ollamaNotDetected")} <code>ollama serve</code>. <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button></span>
                     ) : !selectedOllama ? (
-                      <span className="warn">{t("ollamaModelMissing", { model: ollamaModel })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : t("downloadModel")}</button></span>
+                      <span className="warn">{t("ollamaModelMissing", { model: ollamaModel })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}</button></span>
                     ) : selectedOllama.ready ? (
                       <span className="ok">{t("ollamaReady", { model: selectedOllama.name })}{selectedOllama.params ? ` (${selectedOllama.params})` : ""}</span>
                     ) : (
-                      <span className="warn">{t("ollamaModelWeak", { model: selectedOllama.name, note: selectedOllama.note })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : t("downloadSelected")}</button></span>
+                      <span className="warn">{t("ollamaModelWeak", { model: selectedOllama.name, note: selectedOllama.note })} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}</button></span>
                     )}
                   {ollamaStatus?.running && !ollamaInstalled.length && t("noModelsInstalled")}
                 </div>
@@ -930,6 +997,19 @@ export default function Home() {
             )}
             {/* Garis tengah: muncul saat digeser (atau dikunci lewat centang).
                 Kelas "on" = subtitle sedang menempel di garis itu. */}
+            {guidesVisible && grid >= 20 && (
+              /* Kotak grid digambar sebagai latar berulang, bukan puluhan elemen:
+                 pada grid 10 itu 108×192 kotak, dan menggambarnya satu per satu
+                 berarti 300 elemen yang harus dihitung ulang tiap seretan.
+
+                 Di bawah 20 meshnya TIDAK digambar: pratinjau selebar 270 px
+                 berarti kotak grid 10 hanya 2,5 px di layar, dan yang terlihat
+                 bukan grid melainkan kabut kelabu di atas frame videonya. Yang
+                 menempel tetap menempel — cuma gambarnya yang tidak menolong. */
+              <div className="gridmesh" style={{
+                backgroundSize: `${(grid / PLAY_W) * 100}% ${(grid / PLAY_H) * 100}%`,
+              }} />
+            )}
             {guidesVisible && (
               <>
                 <div className={`guide v${atCenterX ? " on" : ""}`} />
@@ -937,11 +1017,25 @@ export default function Home() {
                 {atCenterX && atCenterY && <div className="guide xy" />}
               </>
             )}
+            {/* Sumbu pada posisi subtitle SEKARANG, berikut angkanya. Tanpa angka,
+                "pasti" hanya terasa — tidak bisa diulang di klip berikutnya. */}
+            {isDragging && (
+              <>
+                <div className="axis v" style={{ left: `${(subX / PLAY_W) * 100}%` }} />
+                <div className="axis h" style={{ top: `${(subY / PLAY_H) * 100}%` }} />
+                <div className="axis-read" style={{
+                  left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
+                }}>{subX} · {subY}</div>
+              </>
+            )}
             <div className="suboverlay"
               style={{
                 left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
                 fontFamily: `"${subFont}", sans-serif`,
-                fontSize: `calc(${subSize / PLAY_H} * var(--pvh))`,
+                fontSize: `calc(${(subSize * fontScale) / PLAY_H} * var(--pvh))`,
+                // Kotak baris harus setinggi ukuran .ass, sedangkan font-size di
+                // atas sudah dikecilkan jadi em-nya. 1/scale mengembalikannya.
+                lineHeight: 1 / fontScale,
                 color: colorHex,
                 background: subBox ? "rgba(0,0,0,0.6)" : "transparent",
                 borderRadius: subBox ? 8 : 0,
@@ -950,6 +1044,8 @@ export default function Home() {
                   ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
                   : "none"),
               }}
+              tabIndex={0}
+              onKeyDown={onKeyDown}
               onPointerDown={startDrag}
               onPointerMove={onPointerMove}
               onPointerUp={endDrag}
@@ -984,7 +1080,7 @@ export default function Home() {
             {!previewOn ? (
               <>
                 <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
-                  {previewBusy ? t("loadingPreview") : t("loadPreview")}
+                  {previewBusy ? t("loadingPreview") : <><Eye className="ico" aria-hidden="true" /> {t("loadPreview")}</>}
                 </button>
                 <p className="meta" style={{ margin: 0 }}>
                   {path ? t("previewHintVideo") : t("previewHintNoVideo")}
@@ -993,11 +1089,19 @@ export default function Home() {
             ) : (
               <>
                 <button className="ghost tiny" disabled={previewBusy} onClick={() => loadPreview()}>
-                  {previewBusy ? t("loading") : t("reloadPreview")}
+                  {previewBusy ? t("loading") : <><RotateCw className="ico" aria-hidden="true" /> {t("reloadPreview")}</>}
                 </button>
                 <button className="ghost tiny" onClick={resetPreview}>{t("resetPreview")}</button>
                 <label className="chk"><input type="checkbox" checked={alwaysGuides}
                   onChange={(e) => setAlwaysGuides(e.target.checked)} /> {t("guidesAlways")}</label>
+                <label className="chk">{t("grid")}
+                  <select className="tiny-select" value={grid}
+                    onChange={(e) => setGrid(Number(e.target.value))}>
+                    {GRIDS.map((g) => (
+                      <option key={g} value={g}>{g === 0 ? t("gridOff") : g}</option>
+                    ))}
+                  </select>
+                </label>
               </>
             )}
           </div>
@@ -1012,6 +1116,7 @@ export default function Home() {
               <div className="meta">
                 {t("previewNote", { zoom })}
               </div>
+              {grid > 0 && <div className="meta">{t("gridHint")}</div>}
             </>
           )}
         </div>
@@ -1162,7 +1267,11 @@ export default function Home() {
       {((status && status !== "queued") || busy) && (
         <div className="panel">
           <div className="progress-outer"><div className="progress-inner" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
-          <div className="stage">{status === "done" ? t("statusDone") : status === "error" ? t("statusStopped") : `${stage} — ${message}`} ({Math.round(progress * 100)}%)</div>
+          <div className="stage">
+            {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")}</>
+              : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
+              : `${stage} — ${message}`} ({Math.round(progress * 100)}%)
+          </div>
           {error && <div className="err">⚠ {error}</div>}
         </div>
       )}
@@ -1191,17 +1300,17 @@ export default function Home() {
                   {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
                   <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file`)} download>
-                      ⬇ {c.video_path_raw && c.video_path_raw !== c.video_path ? t("downloadWithSubs") : t("downloadPlain")}
+                      <Download className="ico" aria-hidden="true" /> {c.video_path_raw && c.video_path_raw !== c.video_path ? t("downloadWithSubs") : t("downloadPlain")}
                     </a>
                     {c.video_path_raw && c.video_path_raw !== c.video_path && (
-                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`)} download>⬇ {t("downloadClean")}</a>
+                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=clean`)} download><Download className="ico" aria-hidden="true" /> {t("downloadClean")}</a>
                     )}
                     {c.transcript_txt && (
                       <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=txt`)}
-                         download title={t("downloadTxtTip")}>⬇ .txt</a>
+                         download title={t("downloadTxtTip")}><Download className="ico" aria-hidden="true" /> .txt</a>
                     )}
                     {c.subtitle_srt && (
-                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`)} download>⬇ .srt</a>
+                      <a className="dl" href={eng(`/api/jobs/${c.job_id}/clips/${c.id}/file?variant=srt`)} download><Download className="ico" aria-hidden="true" /> .srt</a>
                     )}
                   </div>
                 </div>

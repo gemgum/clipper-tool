@@ -1,13 +1,59 @@
+/* Tailwind diimpor TANPA preflight.
+ *
+ * `@import "tailwindcss"` yang biasa ikut membawa preflight — reset yang
+ * mengubah tombol, heading, dan margin bawaan browser. Diuji: memasangnya
+ * menggeser 12,4% piksel halaman ini (tombol kehilangan tebalnya, seluruh
+ * kolom turun ~12 px). Itu bertentangan dengan maksud langkah ini, yang justru
+ * "pindahkan warnanya dulu, jangan ubah tampilannya".
+ *
+ * Preflight dinyalakan nanti bersama perombakan tampilan, ketika markupnya
+ * memang ditulis ulang dan pergeseran itu tidak jadi kejutan. Sampai saat itu
+ * yang diambil cuma token @theme dan kelas utilitasnya. */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Warna antarmuka sebagai token @theme.
+ *
+ * Ini SATU-SATUNYA bagian Tailwind yang dipasang lebih dulu, dan itu disengaja
+ * (notes/29): CSS di bawah tidak diubah jadi kelas Tailwind sekarang, sebab
+ * perombakan tampilan toh akan menulis ulang markupnya — menerjemahkan gaya
+ * yang sebentar lagi dibuang adalah pekerjaan yang hangus dua kali.
+ *
+ * Yang dikerjakan sekarang hanyalah membuat kedua sistem BICARA WARNA YANG
+ * SAMA, supaya halaman lama dan halaman baru tidak terlihat seperti dua
+ * aplikasi selama masa peralihan.
+ *
+ * @theme mendaftarkan warnanya ke Tailwind (bg-panel, text-muted, …) DAN
+ * menerbitkan variabel CSS-nya sekaligus, jadi tidak ada nilai yang ditulis dua
+ * kali. Nilainya persis seperti sebelumnya — perpindahan ini tidak boleh
+ * mengubah satu piksel pun. Angka dari Figma nanti tinggal menimpa di sini.
+ */
+@theme {
+  --color-bg: #0f1115;
+  --color-panel: #171a21;
+  --color-panel2: #1e222b;
+  --color-border: #2a2f3a;
+  --color-text: #e6e9ef;
+  --color-muted: #9aa4b2;
+  --color-accent: #4f8cff;
+  --color-good: #3ecf8e;
+  --color-warn: #f5a623;
+  --color-bad: #ff6b6b;
+}
+
+/* Nama pendek yang dipakai seluruh CSS tulisan tangan di bawah. Dipetakan ke
+ * token di atas, bukan diberi nilai sendiri — satu tempat, satu kebenaran. */
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --panel2: #1e222b;
-  --border: #2a2f3a;
-  --text: #e6e9ef;
-  --muted: #9aa4b2;
-  --accent: #4f8cff;
-  --good: #3ecf8e;
-  --warn: #f5a623;
+  --bg: var(--color-bg);
+  --panel: var(--color-panel);
+  --panel2: var(--color-panel2);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-muted);
+  --accent: var(--color-accent);
+  --good: var(--color-good);
+  --warn: var(--color-warn);
 }
 
 * { box-sizing: border-box; }
@@ -147,9 +193,15 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
 .suboverlay {
   position: absolute;
   transform: translate(-50%, 0);
-  font-weight: 800;
+  /* 700, bukan 800: engine menulis Bold=1 ke .ass, dan itu berarti bobot 700.
+     Meminta 800 membuat browser boleh menebalkan sendiri face 700 — penebalan
+     yang tidak dilakukan libass, jadi pratinjau lagi-lagi berbeda dari render. */
+  font-weight: 700;
   text-align: center;
-  line-height: 1.17;
+  /* line-height sesungguhnya disetel per font dari JSX (1/scale) — jarak
+     antarbaris libass persis sebesar ukuran fontnya, dan em tiap font berbeda.
+     Nilai di sini hanya cadangan sebelum daftar font sampai. */
+  line-height: 1.38;
   white-space: nowrap;
   padding: 2px 8px;
   cursor: grab;
@@ -173,6 +225,56 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
 }
 .guide.v.on { width: 2px; }
 .guide.h.on { height: 2px; }
+/* Kotak grid — satu elemen dengan latar berulang, bukan puluhan garis. */
+.gridmesh {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.09) 1px, transparent 1px);
+}
+
+/* Sumbu pada posisi subtitle sekarang — dibedakan dari garis tengah (.guide)
+   dengan warna aksen, sebab keduanya bisa muncul bersamaan dan artinya beda:
+   .guide = tengah bidang, .axis = di mana subtitle ini berada. */
+.axis {
+  position: absolute;
+  pointer-events: none;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.axis.v { top: 0; bottom: 0; width: 1px; }
+.axis.h { left: 0; right: 0; height: 1px; }
+.axis-read {
+  position: absolute;
+  transform: translate(-50%, -140%);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Ikon sebaris. Ukurannya mengikuti huruf di sekitarnya (1em), bukan angka
+   tetap, supaya ia ikut mengecil di teks kecil dan tidak perlu satu kelas per
+   ukuran. vertical-align menurunkannya ke garis dasar teks. */
+.ico {
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+}
+
+.tiny-select {
+  margin-left: 6px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+
 .guide.xy {
   left: 50%; top: 50%;
   width: 12px; height: 12px;

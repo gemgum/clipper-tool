@@ -1,5 +1,8 @@
 "use client";
 
+// Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
+import { Link2, Eye, Download } from "lucide-react";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
@@ -663,7 +666,7 @@ export default function News() {
                         >
                           {copyBusy === a.url ? t("copyOpening")
                             : copied === a.url ? t("copied")
-                            : t("copyLink")}
+                            : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
                         </button>
                       </div>
                     </div>
@@ -800,7 +803,7 @@ export default function News() {
                   aria-label={t("copyLinkTitle")}
                   onClick={() => copyLink(article.url)}
                 >
-                  {copied === article.url ? t("copied") : t("copyLink")}
+                  {copied === article.url ? t("copied") : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
                 </button>
               </div>
             </div>
@@ -1067,7 +1070,7 @@ export default function News() {
           <div className="row">
             <button onClick={() => buildCard(true)}
               disabled={previewBusy || buildBusy || !config?.has_browser}>
-              {previewBusy ? t("rendering") : t("previewCard")}
+              {previewBusy ? t("rendering") : <><Eye className="ico" aria-hidden="true" /> {t("previewCard")}</>}
             </button>
             <button onClick={() => buildCard(false)}
               disabled={previewBusy || buildBusy || !config?.has_browser}>
@@ -1091,8 +1094,8 @@ export default function News() {
                 <p className="meta">{t("previewNotSaved")}</p>
               ) : (
                 <>
-                  <p><a className="dl" href={result.zip}>{t("downloadZip")}</a></p>
-                  <p><a className="dl" href={result.file} download="card.png">{t("downloadImage")}</a></p>
+                  <p><a className="dl" href={result.zip}><Download className="ico" aria-hidden="true" /> {t("downloadZip")}</a></p>
+                  <p><a className="dl" href={result.file} download="card.png"><Download className="ico" aria-hidden="true" /> {t("downloadImage")}</a></p>
                 </>
               )}
               {article.url && (
