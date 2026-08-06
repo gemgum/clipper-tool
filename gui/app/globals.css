@@ -173,19 +173,11 @@ body:has(.screen) {
   padding: 16px 16px 0;
   gap: 12px;
 }
-/* Baris kepala: judul di kiri, aksi di kanan. Tombol yang memulai pekerjaan
-   panjang harus selalu terjangkau — bukan tenggelam di bawah setelan. */
-.head-progress { margin-top: 8px; }
-.head-progress .stage { margin-top: 4px; }
-
-/* Kepala dipadatkan: di kerangka yang tingginya tetap, tiap piksel yang dipakai
-   judul adalah piksel yang hilang dari daftar. */
-.screen-head { flex: none; }
-.screen-head h1 { font-size: 19px; margin: 0; }
-.screen-head .sub { margin: 2px 0 0; }
-.screen-head .warnbox,
-.screen-head .okbox,
-.screen-head .err { margin-top: 10px; }
+/* `.screen-head` & `.head-progress` DIBUANG 6 Agustus 2026. Kepala halaman
+   hanya pernah berisi galat, peringatan, dan kemajuan job — ketiganya muncul
+   dan hilang, dan tiap kali itu terjadi seluruh isi halaman bergeser. Galat &
+   peringatan kini melayang (.alerts), kemajuan job duduk permanen di panel
+   Start. Jangan dihidupkan lagi tanpa membaca alasan ini. */
 /* Di kerangka berzona, jarak antarpanel diatur `gap` kolomnya. Margin bawaan
    .panel ikut dijumlahkan di atas gap itu — 24 px terpakai untuk memisahkan dua
    kotak yang cukup dipisah 12. Tinggi itu yang membuat kolom harus digulir. */
@@ -315,8 +307,19 @@ body:has(.screen) {
 }
 
 /* Dua kelompok setara yang dibaca berdampingan. */
-.start-panel { display: flex; gap: 10px; }
+.start-panel { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 .start-panel button { flex: 1; }
+/* Kemajuan job: satu baris bar + satu baris teks, keduanya SELALU ada supaya
+   panel ini tidak pernah berubah tinggi. Teksnya dipotong elipsis, bukan
+   dibungkus — pesan tahap yang panjang akan menambah baris, dan itu berarti
+   panelnya bergerak tiap kali pesannya berganti. */
+.run-progress { flex: 1 0 100%; }
+.run-progress .stage {
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Di jendela sempit panel samping turun ke bawah, dan keduanya berbagi tinggi
    yang sama — bukan menumpuk lalu memaksa halaman bergulir. */
@@ -520,6 +523,56 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   border-radius: 4px;
   color: var(--good-text);
 }
+
+/* Notifikasi melayang (lihat alerts.tsx). Fixed, jadi munculnya tidak menggeser
+   satu piksel pun dari halaman di belakangnya — itu seluruh alasan lapisan ini
+   ada. Menempel di kanan-bawah: rail berdiri di kiri, dan sudut itu satu-satunya
+   yang tidak pernah ditempati kendali. */
+.alerts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(380px, calc(100vw - 32px));
+  pointer-events: none;
+}
+.alert {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+.alert.error { border-color: var(--bad); color: var(--bad-text); }
+.alert.warn { border-color: var(--warn); color: var(--warn-text); }
+.alert > .ico { flex: none; margin-top: 1px; }
+.alert-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.alert-text code {
+  background: var(--panel2);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.alert-x {
+  flex: none;
+  padding: 2px;
+  margin-left: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.7;
+  cursor: pointer;
+}
+.alert-x:hover { opacity: 1; background: none; }
 
 /* Log */
 .logbox {
@@ -981,7 +1034,11 @@ label em { font-style: normal; opacity: 0.7; }
 .par-text { font-size: 13px; line-height: 1.5; }
 .par-reason { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
 .par-actions { display: flex; gap: 8px; margin-top: 10px; }
-.par-actions button { margin-left: 0; }
+/* Dua tombol SAMA LEBAR. Labelnya berganti saat dipilih ("Use on card" →
+   "On card"), jadi tombol yang melebar mengikuti teksnya berubah ukuran tiap
+   diklik dan pasangannya ikut bergeser — dua tombol sejajar yang tidak pernah
+   sejajar. Lebar dibagi rata, isinya rata tengah. */
+.par-actions button { margin-left: 0; flex: 1; justify-content: center; text-align: center; }
 .par-score.auto { color: var(--muted); }
 .par-auto { display: block; font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
 
@@ -1050,14 +1107,24 @@ label em { font-style: normal; opacity: 0.7; }
  *
  * Lebar kolom DITURUNKAN dari tingginya (9:16), jadi tidak mungkin lagi
  * bingkainya melimpah keluar kolomnya seperti dulu. */
+/* UKURANNYA HANYA BOLEH BERGANTUNG PADA JENDELA. Tidak pada isi apa pun.
+ *
+ * Sampai 6 Agustus 2026 tingginya diukur dari kolom setelan di sebelahnya
+ * (ResizeObserver → --pv-h), sementara LEBAR KOLOM itu diturunkan dari tinggi
+ * tersebut. Itu lingkaran: setelan lebih tinggi → bingkai melebar → kolom
+ * setelan menyempit → isinya melipat → lebih tinggi lagi. Yang terlihat persis
+ * seperti laporannya: pratinjau "mendadak besar sendiri" begitu bilah kendali
+ * muncul, dan huruf contohnya (dihitung dari --pvh) ikut membesar.
+ *
+ * Sekarang satu angka, dari tinggi jendela saja. 300px = semua yang bukan
+ * pratinjau di kolom kiri, DIUKUR: 64 baris sumber + 32 padding panel + 100
+ * kotak log + 12 jarak + 60 bilah kendali & baris waktu + 30 padding halaman.
+ * Kalau salah satunya berubah, ubah di sini — dan UKUR ULANG dengan
+ * scripts/measure-ui.mjs, jangan ditebak. */
 .sub-layout {
-  /* Nilai awal saja — ResizeObserver di preview-panel.tsx menimpanya dengan
-     tinggi kolom setelan yang sebenarnya, supaya dasar keduanya sejajar.
-     Tanpa nilai awal ini, bingkainya berkedip selebar nol pada gambar pertama. */
-  --pv-h: clamp(240px, calc(100dvh - 380px), 900px);
-  --pv-w: calc(var(--pv-h) * 9 / 16);
+  --pv-w: clamp(150px, calc((100dvh - 300px) * 9 / 16), 506px);
 }
-.sub-preview .preview9x16 { --pvh: var(--pv-h); height: var(--pvh); }
+.sub-preview .preview9x16 { --pvh: calc(var(--pv-w) * 16 / 9); height: var(--pvh); }
 .sub-preview .field { margin-top: 10px; margin-bottom: 0; }
 
 /* Sumber: dua kolom path di kepala panel pratinjau. Seluruh baris ini jadi
@@ -1097,6 +1164,13 @@ label em { font-style: normal; opacity: 0.7; }
 /* Tombol ikon tanpa teks: labelnya di tooltip. Teksnya yang membuat bilah ini
    melipat jadi empat baris di kolom selebar 190 px. */
 .preview-actions button.icon-only { padding: 5px 7px; display: inline-flex; }
+/* Satu kendali + satu tombol saklar dalam SATU baris sel. Dipakai kisi & garis
+   tengah: menumpuknya jadi dua baris membuat sel ini lebih tinggi daripada
+   tetangganya, dan seluruh baris kisi ikut tinggi. */
+.field-inline { display: flex; gap: 6px; align-items: stretch; }
+.field-inline > *:first-child { flex: 1; min-width: 0; }
+.field-inline > button { flex: none; margin-left: 0; padding: 5px 8px; display: inline-flex; align-items: center; }
+.field-inline > button.active { color: var(--accent); border-color: var(--accent); }
 .preview-actions .chk { margin-bottom: 0; gap: 4px; }
 /* Waktu frame: penggeser + angkanya dalam satu baris. */
 .frame-time { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
@@ -1445,12 +1519,17 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   border: 1px solid var(--border);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
 }
-/* Bingkai kosong tetap perlu bentuk, kalau tidak panelnya terlihat rusak. */
+/* Bingkai kosong berbentuk KARTUNYA, bukan kotak setinggi kolom.
+   --card-ar datang dari rasio yang sedang dipilih (news/page.tsx). Sebelumnya
+   100%x100% membuatnya nyaris persegi, lalu berubah jadi ramping begitu gambar
+   pertama datang — pratinjau yang bentuknya berubah sendiri. */
 .card-view .preview-empty {
   border: 1px dashed var(--border);
   border-radius: 10px;
-  width: 100%;
+  aspect-ratio: var(--card-ar, 9 / 16);
   height: 100%;
+  width: auto;
+  max-width: 100%;
 }
 /* Penanda "sedang dirender" melayang di atas gambar lama, bukan menggantikannya:
    kartu dirender ulang tiap setelan disentuh, dan mengosongkan kotaknya tiap
@@ -1538,6 +1617,10 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .sub-stack { display: flex; flex-direction: column; }
 .save-row { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .sub-layout:has(.card-view) .sub-stack { flex: 1; min-height: 0; }
+/* Tombol simpan didorong ke DASAR kolom setelan kartu: setelannya jauh lebih
+   pendek daripada pratinjau di sebelahnya, dan tombol yang menggantung di
+   tengah menyisakan kotak kosong sebesar setengah panel. */
+.sub-layout:has(.card-view) .save-row { margin-top: auto; }
 .save-row > button { width: 100%; }
 .sub-layout:has(.card-view) .sub-settings { display: flex; flex-direction: column; }
 /* Tautan unduh berjajar, bukan satu per baris. */

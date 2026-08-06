@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import Picker from "../picker";
+import Alerts from "../alerts";
 
 type Component = {
   id: string;
@@ -220,17 +221,16 @@ export default function RequirementsPage() {
         />
       )}
 
-      {/* Kepala: judul + satu baris keadaan. Tetap diam di tempatnya, jadi
-          "apa yang kurang" tidak pernah hilang saat daftarnya digulir. */}
-      <div className="screen-head">
-        {error && <div className="err">{error}</div>}
-        {missing.length > 0 && (
-          <div className="warnbox">{t("reqMissing", { list: missing.join(", ") })}</div>
-        )}
-        {req && missing.length === 0 && !busy && (
-          <div className="okbox">{t("reqAllReady")}</div>
-        )}
-      </div>
+      {/* Galat & "ada yang kurang" melayang di atas halaman (alerts.tsx), jadi
+          munculnya tidak pernah menggeser daftar komponen yang sedang dibaca.
+          "Semuanya siap" tidak lagi ditampilkan sebagai kotak: titik hijau di
+          tiap baris sudah mengatakannya, dan kabar baik tidak perlu menyita
+          tempat. */}
+      <Alerts items={[
+        error && { kind: "error" as const, text: error },
+        missing.length > 0 && { kind: "warn" as const, key: `missing-${missing.join(",")}`,
+          text: t("reqMissing", { list: missing.join(", ") }) },
+      ]} />
 
       <div className="screen-body">
       {/* Kiri: yang ditindaklanjuti. Bergulir di dalam kotaknya sendiri. */}

@@ -468,3 +468,20 @@ func TestDownloadFallsBackToTheNextMirror(t *testing.T) {
 		t.Errorf("isi = %q, mau %q", got, "isi")
 	}
 }
+
+// Berkas yang ADA tapi tidak bisa dijalankan harus dilaporkan TIDAK terpasang,
+// bukan hijau — itu seluruh alasan checkRuns ada (notes/31).
+func TestCheckRunsRejectsBrokenBinary(t *testing.T) {
+	dir := t.TempDir()
+	broken := filepath.Join(dir, "ffmpeg")
+	if err := os.WriteFile(broken, []byte("not a program"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c := checkRuns(Component{Name: "ffmpeg", Path: broken, Installed: true})
+	if c.Installed {
+		t.Fatal("berkas rusak dilaporkan terpasang")
+	}
+	if !strings.Contains(c.Detail, broken) {
+		t.Fatalf("Detail tidak menyebut pathnya: %q", c.Detail)
+	}
+}

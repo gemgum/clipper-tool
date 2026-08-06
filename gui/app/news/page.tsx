@@ -11,6 +11,7 @@ import Stepper from "../stepper";
 import Popover from "../popover";
 import Select from "../select";
 import Section from "../section";
+import Alerts from "../alerts";
 
 
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
@@ -545,20 +546,10 @@ export default function News() {
     right: t("alignRight"), justify: t("alignJustify"),
   };
 
-  // Tinggi kartu = tinggi tumpukan setelan di sebelahnya, supaya dasar keduanya
-  // sejajar dan ruang menganga di bawah setelan hilang. Sama seperti halaman
-  // klip; diukur karena tinggi isi tidak bisa dibaca CSS.
-  const layoutRef = useRef<HTMLDivElement | null>(null);
-  const stackRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = stackRef.current, host = layoutRef.current;
-    if (!el || !host) return;
-    const apply = () => host.style.setProperty("--pv-h", `${Math.round(el.getBoundingClientRect().height)}px`);
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  });
+  // Pengukuran tinggi tumpukan setelan (--pv-h) DIBUANG 6 Agustus 2026: tidak
+  // ada satu aturan CSS pun yang masih memakainya sejak pratinjau kartu memakai
+  // sisa tinggi kolomnya, sementara efeknya berjalan tiap render (tanpa daftar
+  // dependensi) dan menulis ke style elemen — kerja yang tidak pernah dibaca.
 
   // Kartu dilihat penuh layar. Ditutup dengan Esc, tombol X, atau mengklik
   // gambarnya lagi — tiga jalan keluar, sebab yang mana pun yang dicoba orang
@@ -575,16 +566,12 @@ export default function News() {
 
   return (
     <div className="screen">
-      {(error || (config && !config.has_browser)) && (
-        <div className="screen-head">
-          {config && !config.has_browser && (
-            <div className="warnbox">
-              {t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}
-            </div>
-          )}
-          {error && <div className="warnbox err">{error}</div>}
-        </div>
-      )}
+      {/* Melayang, bukan kepala halaman — lihat alerts.tsx. */}
+      <Alerts items={[
+        error && { kind: "error" as const, text: error },
+        config && !config.has_browser && { kind: "warn" as const, key: "browser",
+          text: <>{t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}</> },
+      ]} />
 
       <div className="screen-body two">
         {/* --- KIRI: isi kartu, lalu rupanya --- */}
@@ -710,9 +697,14 @@ export default function News() {
           )}
 
           <div className="panel">
-            <div className="sub-layout" ref={layoutRef}>
+            <div className="sub-layout">
               <div className="sub-preview">
+                {/* Rasio kartu yang SEDANG dipilih diteruskan ke CSS: bingkai
+                    kosongnya mengikuti bentuk kartu, bukan kotak persegi
+                    setinggi kolom. Kotak persegi berbohong soal apa yang akan
+                    keluar, dan bentuknya berubah begitu gambarnya datang. */}
                 <div className={"card-view" + (result ? " clickable" : "")}
+                  style={{ "--card-ar": ratio.replace(":", " / ") } as React.CSSProperties}
                   onClick={() => result && setZoom0(true)}
                   title={result ? t("cardFullscreen") : undefined}>
                   {result ? (
@@ -729,7 +721,7 @@ export default function News() {
               </div>
 
               <div className="sub-settings">
-                <div className="sub-stack" ref={stackRef}>
+                <div className="sub-stack">
                 <Section title={t("groupDesign")}>
                   <div className="grid3">
                     <div className="field">
@@ -931,7 +923,12 @@ export default function News() {
               </div>
             )}
 
-            {listBusy ? (
+            {/* Daftar TIDAK PERNAH diganti teks "memuat" selama masih ada isi.
+                Dulu iya, dan itu mematahkan gulir tak terbatas: menggulir ke
+                dasar menaikkan `limit`, seluruh daftar lenyap sekejap, posisi
+                gulir kembali ke atas, lalu daftar baru muncul. Sekarang kabar
+                "memuat" hanya baris kecil di dasar daftar yang sudah ada. */}
+            {listBusy && items.length === 0 ? (
               <p className="stage">{t("loadingNews")}</p>
             ) : (
               <div className="news-list" onScroll={onListScroll}>

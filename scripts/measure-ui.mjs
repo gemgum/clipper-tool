@@ -19,9 +19,12 @@
 // Yang dicetak: scrollHeight vs clientHeight untuk <html>, .screen-main, dan
 // .screen-col, di dua ukuran jendela dan dua tema. Angka "over" > 0 berarti
 // kotak itu bergulir. Halaman yang bergulir dicap GAGAL.
+import { mkdirSync, writeFileSync } from "node:fs";
+
 const PORT = 9333;
 const BASE = process.argv[2] || "http://127.0.0.1:8787";
 const OUT = process.argv[3] || ".";
+mkdirSync(OUT, { recursive: true });
 
 const pages = [
   ["clips", "/"],

@@ -106,6 +106,9 @@ func NewManager(l config.Layout, paths config.Paths, concurrency int) *Manager {
 		jobs:   map[string]*Job{},
 		queue:  make(chan *Job, 256),
 	}
+	// Riwayat yang tersimpan di disk dibaca lebih dulu, sebelum permintaan
+	// pertama dilayani — lihat store.go.
+	m.load()
 	for i := 0; i < concurrency; i++ {
 		go m.worker()
 	}
@@ -218,6 +221,10 @@ func (m *Manager) run(j *Job) {
 		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": len(clips)}})
 	}
 	j.closeSubs()
+	// Dicatat ke disk hanya SETELAH selesai: job yang mati bersama aplikasi
+	// tidak akan pernah dilanjutkan, jadi menyimpan keadaan tengahnya cuma
+	// menaruh baris "0%" abadi di riwayat.
+	m.Persist(j.ID)
 }
 
 // Get mengembalikan job.

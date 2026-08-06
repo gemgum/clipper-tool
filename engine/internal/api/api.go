@@ -1238,6 +1238,9 @@ func (s *Server) deleteClip(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		j.ForgetClip(clipID)
+		// Riwayat di disk ikut diperbarui, kalau tidak klip yang barusan
+		// dihapus muncul lagi begitu aplikasi dibuka ulang.
+		s.mgr.Persist(j.ID)
 		writeJSON(w, 200, map[string]any{"ok": true, "removed": removed})
 		return
 	}

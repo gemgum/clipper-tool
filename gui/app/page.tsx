@@ -19,10 +19,9 @@
 //
 // Lambang yang TIDAK diganti: ⚠ ✓ ✕ → ↗ ↓ ↑ ✗. Semuanya simbol teks biasa yang
 // ada di font mana pun.
-import { CircleCheck, OctagonX } from "lucide-react";
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
+import Alerts from "./alerts";
 import { eng, engineURL } from "./engine";
 import Picker from "./picker";
 import { useKeep, useRestore } from "./persist";
@@ -419,9 +418,6 @@ export default function Home() {
     setSubY(zone ? Math.round(PLAY_H * (1 - zone.bottom) - blockH - 40) : centerAnchorY);
   };
 
-  // Kepala hanya dirender bila ia punya isi — lihat komentarnya di bawah.
-  const showHead = (status && status !== "queued") || busy || !!error || !!modelMissing;
-
   return (
     <div className="screen">
       {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek.
@@ -438,30 +434,15 @@ export default function Home() {
         ];
       }).join("") }} />
 
-      {/* Kepala: HANYA kemajuan dan peringatan, dan hanya bila ada. Judul
-          "Video clips" dibuang 6 Agustus 2026 — nama halaman sudah tertulis di
-          rail kiri dalam keadaan terpilih, jadi mengulangnya di sini memakan
-          satu baris penuh tanpa memberi tahu apa pun. Kepala yang kosong tidak
-          dirender sama sekali: `.screen` kolom flex ber-gap, jadi div kosong
-          pun tetap menyisakan 12 px. */}
-      {showHead && (
-        <div className="screen-head">
-          {((status && status !== "queued") || busy) && (
-            <div className="head-progress">
-              <div className="progress-outer"><div className="progress-inner" style={{ width: `${Math.round(progress * 100)}%` }} /></div>
-              <div className="stage">
-                {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")}</>
-                  : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
-                  : `${stage} — ${message}`} ({Math.round(progress * 100)}%)
-              </div>
-            </div>
-          )}
-          {error && <div className="err">⚠ {error}</div>}
-          {modelMissing && (
-            <div className="warnbox">{t("modelMissingWarn", { model })} <code> ./setup.sh {model}</code> {t("modelMissingWarnTail")}</div>
-          )}
-        </div>
-      )}
+      {/* Galat & peringatan MELAYANG (alerts.tsx), tidak lagi disisipkan sebagai
+          kepala halaman: kepala yang muncul-hilang menggeser seluruh isi di
+          bawahnya, dan itu terjadi persis saat pengguna sedang menekan sesuatu.
+          Kemajuan job pindah ke panel Start, yang tempatnya selalu ada. */}
+      <Alerts items={[
+        error && { kind: "error" as const, text: error },
+        modelMissing && { kind: "warn" as const, key: `model-${model}`,
+          text: <>{t("modelMissingWarn", { model })} <code>./setup.sh {model}</code> {t("modelMissingWarnTail")}</> },
+      ]} />
 
       {/* Pemilih berkas: modal, jadi ia berdiri di luar grid kolom. */}
       {picker && (
@@ -536,6 +517,7 @@ export default function Home() {
           <RunPanel
             busy={busy} disabled={busy || !path || !!modelMissing}
             cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
+            status={status} stage={stage} message={message} progress={progress}
           />
         </div>
       </div>

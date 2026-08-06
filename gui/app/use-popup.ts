@@ -65,7 +65,15 @@ export function usePopup({
       const el = e.target as HTMLElement;
       if (!el.closest(inPop) && !el.closest(inAnchor)) setOpen(false);
     };
-    const onScroll = () => setOpen(false);
+    // Gulir DI DALAM popup bukan alasan menutupnya — dan itu bukan kehalusan:
+    // listener ini memakai capture, jadi menggulir daftar paragraf memicunya dan
+    // popupnya menutup pada gerakan roda pertama. Yang harus menutup popup
+    // hanyalah gulir yang MEMINDAHKAN tombolnya, yaitu gulir di luar popup.
+    const onScroll = (e: Event) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.(inPop)) return;
+      setOpen(false);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("mousedown", onDown);
     window.addEventListener("resize", place);

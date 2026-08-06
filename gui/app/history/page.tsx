@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CheckSquare, Square, Trash2, Download } from "lucide-react";
 import { eng, engineURL } from "../engine";
+import Alerts from "../alerts";
 import { useI18n } from "../i18n";
 import ClipCard, { type Clip } from "../clip-card";
 import DragRow from "../drag-row";
@@ -104,7 +105,7 @@ export default function HistoryPage() {
 
   return (
     <div className="screen">
-      {error && <div className="screen-head"><div className="err">{error}</div></div>}
+      <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
       <div className="screen-body one">
         <div className="screen-main">

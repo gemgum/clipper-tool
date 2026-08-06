@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { eng, engineURL } from "../engine";
 import { useI18n } from "../i18n";
 import ClipCard, { type Clip } from "../clip-card";
+import Alerts from "../alerts";
 
 // Hasil job TERAKHIR, halaman sendiri.
 //
@@ -37,9 +38,7 @@ export default function ClipsPage() {
 
   return (
     <div className="screen">
-      {/* Kepala hanya untuk galat. Judul halaman sudah ada di rail kiri
-          dalam keadaan terpilih (notes/29). */}
-      {error && <div className="screen-head"><div className="err">{error}</div></div>}
+      <Alerts items={[error && { kind: "error" as const, text: error }]} />
       <div className="screen-body one">
         <div className="screen-main">
           {busy ? (

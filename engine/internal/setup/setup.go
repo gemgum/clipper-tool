@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/gemgum/clipper/engine/internal/capture"
 	"github.com/gemgum/clipper/engine/internal/config"
@@ -170,12 +171,40 @@ func toolStatus(l config.Layout, id, bin, detail string) Component {
 	local := filepath.Join(l.ToolsDir, exeName(bin))
 	if _, err := os.Stat(local); err == nil {
 		c.Installed, c.Path = true, local
-		return c
+		return checkRuns(c)
 	}
 	if p, err := exec.LookPath(bin); err == nil {
 		c.Installed, c.Path = true, p
 		c.Detail = detail + " Found on this system."
+		return checkRuns(c)
+	}
+	return c
+}
+
+// checkRuns BENAR-BENAR MENJALANKAN binernya, bukan sekadar memeriksa berkasnya
+// ada. Keduanya dulu dilaporkan sama, dan itu menyesatkan: di Windows berkas
+// bisa ada tapi tetap gagal jalan (arsitektur salah, DLL kurang, dibekukan
+// Defender). Pengguna melihat "terpasang" berwarna hijau sementara tiap job
+// berhenti dengan galat ffmpeg — dan tidak ada satu pun tempat yang memberitahu
+// apa galatnya (notes/31).
+//
+// Yang gagal dilaporkan TIDAK terpasang, dengan pesan sistemnya apa adanya di
+// Detail. Itu satu-satunya cara pesan aslinya sampai ke pengguna.
+func checkRuns(c Component) Component {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, c.Path, "-version").CombinedOutput()
+	if err == nil {
 		return c
+	}
+	msg := strings.TrimSpace(string(out))
+	if len(msg) > 300 {
+		msg = msg[:300] + "…"
+	}
+	c.Installed = false
+	c.Detail = fmt.Sprintf("%s is at %s but will not run: %v", c.Name, c.Path, err)
+	if msg != "" {
+		c.Detail += " — " + msg
 	}
 	return c
 }

@@ -104,22 +104,11 @@ export default function PreviewPanel({
   const boxRef = useRef<HTMLDivElement | null>(null);
   const draggingRef = useRef(false);
 
-  // Tinggi bingkai = tinggi kolom setelan di sebelahnya, supaya dasarnya
-  // SEJAJAR. Diukur, bukan dirumuskan: tinggi kolom setelan ditentukan isinya
-  // (berapa baris kendali yang muat pada lebar saat itu), dan CSS tidak punya
-  // cara membacanya. Tidak ada lingkaran umpan balik — kolom setelan sama
-  // sekali tidak bergantung pada tinggi bingkai.
-  const layoutRef = useRef<HTMLDivElement | null>(null);
-  const settingsRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = settingsRef.current, host = layoutRef.current;
-    if (!el || !host) return;
-    const apply = () => host.style.setProperty("--pv-h", `${Math.round(el.getBoundingClientRect().height)}px`);
-    apply();
-    const ro = new ResizeObserver(apply);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+  // Tinggi & lebar bingkai datang dari CSS dan HANYA dari tinggi jendela
+  // (--pv-w di globals.css). Pengukuran kolom setelan yang dulu ada di sini
+  // dibuang: lebar kolom itu sendiri diturunkan dari angka yang diukur, jadi
+  // setiap kendali baru membuat bingkai tumbuh, kolom menyempit, isinya melipat,
+  // dan bingkai tumbuh lagi — pratinjau yang "membesar sendiri".
 
   // reframe ikut dikirim: preview memakai mode yang sama dengan render, jadi
   // koordinat subtitle diatur di atas geometri yang benar (di mode "muat utuh"
@@ -252,7 +241,7 @@ export default function PreviewPanel({
   const highlightHex = hex(subHighlight);
 
   return (
-    <div className="sub-layout" ref={layoutRef}>
+    <div className="sub-layout">
       {/* Kiri: bingkai preview. Bingkainya selalu ada — walau frame video
           belum dimuat — supaya posisi subtitle tetap bisa diatur lebih dulu. */}
       <div className="sub-preview">
@@ -371,7 +360,7 @@ export default function PreviewPanel({
           kanannya bergerigi dan tidak ada satu pun yang sejajar. Dengan kisi,
           kolomnya ditentukan sekali dan semua kendali berdiri di garis yang
           sama, berapa pun isinya. */}
-      <div className="sub-settings" ref={settingsRef}>
+      <div className="sub-settings">
         <div className="group">
         <div className="group-title">{t("groupSubtitle")}</div>
         <div className="grid3">
@@ -435,6 +424,22 @@ export default function PreviewPanel({
             <label className="chk"><input type="checkbox" checked={subBox}
               onChange={(e) => setSubBox(e.target.checked)} /> {t("boxBackground")}</label>
           </div>
+
+          {/* Kisi & garis tengah duduk DI SINI, bukan di bilah bawah gambar:
+              keduanya alat penempatan subtitle, jadi tempatnya bersama setelan
+              subtitle. Dan karena selnya selalu ada — tidak bergantung pada
+              apakah frame sudah dimuat — bilah di bawah gambar tidak lagi
+              tumbuh-susut, yang dulu menggeser seluruh kolom. */}
+          <div className="field"><label>{t("grid")}</label>
+            <div className="field-inline">
+              <Select value={String(grid)} onChange={(v) => setGrid(Number(v))}
+                options={GRIDS.map((g) => ({ value: String(g), label: g === 0 ? t("gridOff") : String(g) }))} />
+              <button className={"ghost tiny icon-only" + (alwaysGuides ? " active" : "")}
+                aria-pressed={alwaysGuides} title={t("guidesAlways")} aria-label={t("guidesAlways")}
+                onClick={() => setAlwaysGuides((v) => !v)}>
+                <Crosshair className="ico" aria-hidden="true" />
+              </button>
+            </div></div>
         </div>
         </div>
 
@@ -491,12 +496,6 @@ export default function PreviewPanel({
                 title={t("resetPreview")} aria-label={t("resetPreview")}>
                 <X className="ico" aria-hidden="true" />
               </button>
-              <label className="chk">{t("grid")}
-                <Select value={String(grid)} onChange={(v) => setGrid(Number(v))}
-                  options={GRIDS.map((g) => ({ value: String(g), label: g === 0 ? t("gridOff") : String(g) }))} />
-              </label>
-              <label className="chk"><input type="checkbox" checked={alwaysGuides}
-                onChange={(e) => setAlwaysGuides(e.target.checked)} /> {t("guidesAlways")}</label>
             </>
           )}
         </div>
