@@ -8,6 +8,7 @@ import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Stepper from "./stepper";
 import Select from "./select";
+import Warn from "./warn";
 
 export const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
 
@@ -450,7 +451,12 @@ export default function PreviewPanel({
         <div className="group">
           <div className="group-title">{t("groupPlacement")}</div>
           <div className="grid3">
-            <div className="field"><label>{t("position")}</label>
+            {/* Peringatan "menabrak zona" jadi LAMBANG di label, bukan baris
+                teks di bawah kisi: baris itu muncul dan hilang tiap kali
+                subtitle digeser, dan tiap kali itu terjadi kelompok Frame di
+                bawahnya melompat. */}
+            <div className="field"><label>{t("position")}
+              {inUnsafe && <Warn>{t("unsafeWarning")}</Warn>}</label>
               <div className="position-value">
                 <span>x {subX} · y {subY}</span>
                 <button className="ghost tiny" title={t("resetCentre")} aria-label={t("resetCentre")}
@@ -469,7 +475,6 @@ export default function PreviewPanel({
               <button className="ghost" disabled={!zone} onClick={onPlaceSafe}>{t("placeSafe")}</button>
             </div>
           </div>
-          {inUnsafe && <div className="warn">⚠ {t("unsafeWarning")}</div>}
         </div>
 
         {children}

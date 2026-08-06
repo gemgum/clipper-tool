@@ -1,8 +1,8 @@
 # UI statis & riwayat yang bertahan — 6 Agustus 2026
 
-Lanjutan `notes/31`. Satu keluhan yang muncul berkali-kali dari pengguna kedua:
+Lanjutan `notes/31`. Satu syarat yang diminta berulang kali oleh pemilik proyek:
 **"UI harus benar-benar statis, tidak bergerak"**. Catatan ini menulis apa yang
-menyebabkannya bergerak, supaya tidak dipasang kembali.
+membuatnya bergerak, supaya tidak dipasang kembali.
 
 ## 1. Pratinjau yang "membesar sendiri" — lingkaran umpan balik
 
@@ -108,3 +108,68 @@ selesai dan setiap kali klipnya dihapus (tulis ke `.tmp` lalu rename).
   naikkan `minWidth`/`minHeight` — keputusan pemilik proyek (`notes/31` butir 3).
 - **Galat ffmpeg di Windows** belum diperbaiki, hanya kini bisa dilihat. Butuh
   teks galat dari mesin itu.
+
+## Putaran kedua — 6 Agustus 2026 (sore)
+
+### 8. Halaman Results dibuang
+
+Ia menampilkan job TERAKHIR saja, sementara halaman Output history menampilkan
+semua job termasuk yang terakhir. Satu rail item untuk bagian dari isi halaman
+lain.
+
+### 9. Riwayat kartu: kisi yang mengalir ke bawah
+
+Deretan mendatar cocok untuk KLIP — mereka dikelompokkan per job, jadi satu job
+= satu baris. Kartu berita tidak dikelompokkan apa pun, jadi barisnya
+menyisakan panel kosong selebar layar dan menyembunyikan sisanya di kanan
+(terlihat pada potret, bukan pada angka). Sekarang `.card-grid`
+(`auto-fill, minmax(150px, 1fr)`).
+
+Kartu klip di deretan riwayat ikut dijinakkan: video dibatasi 240 px (dulu 9:16
+selebar kartu = 391 px), judul & alasan di-clamp, hashtag disembunyikan. Satu
+job kini muat di jendela: melimpah 140 → **0** di 1240×860.
+
+### 10. Memilih: klik, Ctrl+klik, Shift+klik
+
+Klik = pilih ini saja · Ctrl/Cmd+klik = tambah/lepas · Shift+klik = rentang.
+Centang di pojok tiap item tetap ada untuk toggle tunggal. Berlaku sama untuk
+klip dan kartu.
+
+### 11. Unduh massal — satu zip
+
+`GET /api/download?clip=<jobID>/<clipID>&card=<cardID>` (engine/internal/api/
+bulk.go) mengalirkan SATU zip. Bukan sederet tautan `download`: browser bertanya
+"izinkan mengunduh banyak berkas?" pada yang kedua, dan WebView2 kadang
+diam-diam menolak sisanya. Semua berkas dikumpulkan sebelum satu byte terkirim —
+setelah header keluar, id yang salah tidak bisa lagi dijawab 404.
+
+### 12. Peringatan jadi LAMBANG di label (`warn.tsx`)
+
+Baris `<div className="warn">` di bawah kendali menggeser panel setiap kali
+muncul. Sekarang: segitiga 14 px di dalam label (label sudah setinggi satu baris,
+jadi nol pergeseran), isinya — kalimat DAN tombol tindakannya — di popup
+melayang. Dipakai untuk: subtitle menabrak zona, API key kosong, Ollama mati,
+model belum diunduh/tidak mampu, koreksi transkrip tanpa LLM, ping gagal.
+
+Bedanya dengan `alerts.tsx`: Warn menempel pada kendali yang bersalah, Alerts
+untuk galat setingkat halaman (engine tak terjangkau, komponen kurang).
+
+### 13. Popup tombol rail keluar ke SAMPING
+
+`usePopup({ side: "beside" })`: dasar popup sejajar dasar tombolnya (CSS
+`translateY(-100%)`, sebab tingginya belum diketahui saat posisinya dihitung),
+keluar ke kanan rail. Sebelumnya popup Settings membuka ke atas setinggi 460 px
+dan menutupi separuh halaman, terbaca lepas dari tombol yang membukanya.
+
+### 14. Tombol di kisi: satu baris, tinggi sama
+
+`.grid4 > .field-check` sekarang ikut `align-self: stretch` + rata dasar seperti
+`.grid3` (dulu hanya kisi 3 kolom, dan baris "Paragraph" di tab kartu jadi
+satu-satunya yang tombolnya melayang di ketinggian label). Tombol di kisi
+`white-space: nowrap`, dan LABELNYA yang dipendekkan ("Analyse article" →
+"Analyse", "Choose paragraph" → "Paragraphs", "Test the model" → "Test") —
+tombol yang membungkus dua baris berdiri lebih tinggi daripada tetangganya.
+
+Tombol uji model pindah ke kolom ketiga kisi Engine, sejajar dengan dua Select
+di kirinya; hasilnya tidak lagi menambah baris (berhasil → tombol hijau +
+tooltip, gagal → lambang peringatan di label model).

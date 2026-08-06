@@ -30,6 +30,7 @@ const pages = [
   ["clips", "/"],
   ["news", "/news"],
   ["requirements", "/requirements"],
+  ["history", "/history"],
 ];
 // Jendela terkecil yang diizinkan tauri.conf.json, dan ukuran bawaannya.
 // Tinggi VIEWPORT = tinggi jendela dikurangi bilah judul (~95 px terukur).

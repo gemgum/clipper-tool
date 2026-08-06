@@ -18,7 +18,7 @@ import { usePopup } from "./use-popup";
 // pernah keluar layar di jendela terkecil (900 px).
 export default function Popover({
   label, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen,
-  maxHeight = 460, open: openProp, onOpenChange, children,
+  maxHeight = 460, side = "below", open: openProp, onOpenChange, children,
 }: {
   label: React.ReactNode;
   width?: number;
@@ -26,6 +26,8 @@ export default function Popover({
   buttonClass?: string;
   /** Batas atas tinggi popup; isinya bergulir di dalamnya. */
   maxHeight?: number;
+  /** "beside" = keluar ke samping kanan tombolnya (tombol rail kiri). */
+  side?: "below" | "beside";
   disabled?: boolean;
   onOpen?: () => void;
   /** Opsional: kendalikan dari luar, mis. tombol "Cari" yang harus membukanya. */
@@ -39,7 +41,7 @@ export default function Popover({
   const setOpen = (v: boolean) => { if (!controlled) setOpenLocal(v); onOpenChange?.(v); };
   const btn = useRef<HTMLButtonElement>(null);
   const { pos, place } = usePopup({
-    open, setOpen, anchor: btn, width, align, maxHeight,
+    open, setOpen, anchor: btn, width, align, maxHeight, side,
     selectors: [".popover", ".popover-anchor"],
   });
 
@@ -60,7 +62,7 @@ export default function Popover({
         {label}
       </button>
       {open && pos && (
-        <div className="popover" style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxH }}>
+        <div className={"popover" + (pos.up ? " up" : "")} style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxH }}>
           {children(close)}
         </div>
       )}

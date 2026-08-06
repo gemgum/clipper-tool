@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Scissors, Newspaper, Clapperboard, History } from "lucide-react";
+import { Scissors, Newspaper, History } from "lucide-react";
 import { useI18n, type MessageKey } from "./i18n";
 import SettingsMenu from "./settings-menu";
 import ThemeToggle from "./theme-toggle";
@@ -19,7 +19,6 @@ import AccountButton from "./account";
 
 const RAIL: { href: string; label: MessageKey; Icon: typeof Scissors }[] = [
   { href: "/", label: "tabClips", Icon: Scissors },
-  { href: "/clips", label: "tabResults", Icon: Clapperboard },
   { href: "/news", label: "tabNews", Icon: Newspaper },
   { href: "/history", label: "tabHistory", Icon: History },
 ];

@@ -117,6 +117,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
 	mux.HandleFunc("GET /api/cards", s.listCards)
+	// Unduh sekaligus apa pun yang dicentang di halaman riwayat — lihat bulk.go.
+	mux.HandleFunc("GET /api/download", s.bulkZip)
 	mux.HandleFunc("DELETE /api/cards/{id}", s.deleteCard)
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.

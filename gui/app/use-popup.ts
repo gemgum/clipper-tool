@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type PopupPos = { top: number; left: number; width: number; maxH: number };
+export type PopupPos = { top: number; left: number; width: number; maxH: number; up?: boolean };
 
 // Letak & perilaku popup melayang, dipakai bersama <Popover> dan <Select>.
 //
@@ -15,7 +15,7 @@ export type PopupPos = { top: number; left: number; width: number; maxH: number 
 // Karena `fixed` tidak punya induk untuk diukur, letaknya dihitung dari
 // getBoundingClientRect() pemicunya lalu dijepit ke tepi jendela.
 export function usePopup({
-  open, setOpen, anchor, width, align = "left", selectors, maxHeight = 420,
+  open, setOpen, anchor, width, align = "left", selectors, maxHeight = 420, side = "below",
 }: {
   open: boolean;
   setOpen: (v: boolean) => void;
@@ -27,6 +27,13 @@ export function usePopup({
   selectors: [string, string];
   /** Batas atas tinggi popup; isinya bergulir sendiri di dalamnya. */
   maxHeight?: number;
+  /**
+   * "beside" = keluar ke SAMPING KANAN tombolnya, dasar sejajar dasar tombol.
+   * Dipakai tombol di rail kiri: rail itu sempit dan berdiri di tepi jendela,
+   * jadi popup yang membuka ke atas menutupi separuh halaman dan terlihat
+   * melayang lepas dari tombol yang membukanya.
+   */
+  side?: "below" | "beside";
 }) {
   const [pos, setPos] = useState<PopupPos | null>(null);
 
@@ -34,6 +41,20 @@ export function usePopup({
     const r = anchor.current?.getBoundingClientRect();
     if (!r) return;
     const w = Math.min(typeof width === "function" ? width(r) : width, window.innerWidth - 32);
+    if (side === "beside") {
+      // Dasar popup sejajar dasar tombolnya, BERAPA PUN tingginya — itu yang
+      // membuatnya terbaca sebagai milik tombol itu. Tingginya belum diketahui
+      // saat ini dihitung, jadi dikerjakan CSS: top = dasar tombol, lalu
+      // digeser naik setinggi dirinya sendiri (kelas "up").
+      setPos({
+        top: r.bottom,
+        left: Math.min(r.right + 8, window.innerWidth - w - 8),
+        width: w,
+        maxH: Math.max(140, Math.min(maxHeight, r.bottom - 16)),
+        up: true,
+      });
+      return;
+    }
     const below = window.innerHeight - r.bottom - 12;
     const above = r.top - 12;
     // Membuka ke ATAS bila ruang di bawahnya lebih sempit. Ini WAJIB, bukan
@@ -52,7 +73,7 @@ export function usePopup({
       width: w,
       maxH,
     });
-  }, [anchor, width, align, maxHeight]);
+  }, [anchor, width, align, maxHeight, side]);
 
   // Esc, klik di luar, ubah ukuran, dan GULIR. Yang terakhir sering terlupa:
   // popup `fixed` tidak ikut bergerak bersama kolom yang digulir, jadi

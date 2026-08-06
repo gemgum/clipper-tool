@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Select from "./select";
+import Warn from "./warn";
 
 export type WhisperModel = { name: string; size: string; downloaded: boolean };
 
@@ -198,7 +199,8 @@ export default function SetupPanel({
         {mode === "hybrid" ? (
           <div className="row" style={{ marginTop: 12 }}>
             <div className="field">
-              <label>{t("apiKeyClaude")} {hasKey && <span className="ok">{t("keyStored")}</span>}</label>
+              <label>{t("apiKeyClaude")} {hasKey && <span className="ok">{t("keyStored")}</span>}
+                {!hasKey && <Warn>{t("noKeyWarning")}</Warn>}</label>
               <div className="path-row">
                 <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                   placeholder={hasKey ? t("keyPlaceholderStored") : "sk-ant-..."} />
@@ -212,11 +214,14 @@ export default function SetupPanel({
                 { value: "claude-sonnet-5", label: t("claudeSonnet") },
                 { value: "claude-opus-4-8", label: t("claudeOpus") },
               ]} />
-              {!hasKey && <div className="warn">⚠ {t("noKeyWarning")}</div>}
             </div>
           </div>
         ) : (
-          <div className="row" style={{ marginTop: 12 }}>
+          /* Kisi tiga kolom, sama seperti baris di atasnya: mesin, model, dan
+             tombol ujinya berdiri di garis yang sama. Dulu .row membagi lebar
+             sendiri dan tombol Test menggantung di bawah kotak model, jadi tidak
+             ada satu pun tepi yang sejajar. */
+          <div className="grid3" style={{ marginTop: 12 }}>
             <div className="field">
               <label>{t("offlineEngine")}</label>
               <Select value={offlineEngine} onChange={setOfflineEngine} options={[
@@ -225,8 +230,33 @@ export default function SetupPanel({
               ]} />
             </div>
             {offlineEngine === "ollama" && (
+              <>
               <div className="field">
-                <label>{t("localModel")}</label>
+                <label>{t("localModel")}
+                  {/* Keadaan yang butuh tindakan jadi LAMBANG di label, lengkap
+                      dengan tombolnya di dalam popup. Sebagai baris teks, ia
+                      menggeser seluruh kolom tiap kali Ollama dinyalakan atau
+                      model diganti. */}
+                  {ollamaStatus !== null && !ollamaStatus.running ? (
+                    <Warn>{t("ollamaNotDetected")} <code>ollama serve</code>
+                      <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
+                    </Warn>
+                  ) : ollamaStatus?.running && !selectedOllama ? (
+                    <Warn>{t("modelNeedsDownload")}
+                      <button className="ghost tiny" onClick={pullModel} disabled={pulling}>
+                        {pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}
+                      </button>
+                    </Warn>
+                  ) : selectedOllama && !selectedOllama.ready ? (
+                    <Warn>{selectedOllama.note}
+                      <button className="ghost tiny" onClick={pullModel} disabled={pulling}>
+                        {pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}
+                      </button>
+                    </Warn>
+                  ) : ping && !ping.ok ? (
+                    <Warn>{ping.error}</Warn>
+                  ) : null}
+                </label>
                 <Select value={ollamaModel} onChange={setOllamaModel} options={[
                   ...ollamaInstalled.map((m) => ({
                     value: m.name,
@@ -242,26 +272,19 @@ export default function SetupPanel({
                   ...OLLAMA_SUGGESTED.filter((x) => !ollamaInstalled.some((m) => sameModel(m.name, x)))
                     .map((x) => ({ value: x, label: x, note: t("modelNeedsDownload") })),
                 ]} />
-                {/* Hanya KEADAAN yang ditulis di sini — "siap" tidak perlu
-                    kalimat, cuma lampu hijau. Yang butuh tindakan tetap lengkap
-                    dengan tombolnya. */}
-                <div className="ping-row">
-                  <button className="ghost tiny" onClick={pingModel}
-                    disabled={pinging || !ollamaStatus?.running}>
-                    {pinging ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
-                  </button>
-                  {ping && (ping.ok
-                    ? <span className="ok">{t("pingOk", { ms: ping.ms })}</span>
-                    : <span className="warn">⚠ {ping.error}</span>)}
-                </div>
-                {ollamaStatus !== null && !ollamaStatus.running ? (
-                  <div className="warn">⚠ {t("ollamaNotDetected")} <code>ollama serve</code> <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button></div>
-                ) : ollamaStatus?.running && !selectedOllama ? (
-                  <div className="warn">⚠ <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}</button></div>
-                ) : selectedOllama && !selectedOllama.ready ? (
-                  <div className="warn">⚠ {selectedOllama.note} <button className="ghost tiny" onClick={pullModel} disabled={pulling}>{pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}</button></div>
-                ) : null}
               </div>
+              {/* Tombol uji berdiri di kolom KETIGA, sejajar dengan kedua kotak
+                  di kirinya. Hasilnya tidak menambah baris: berhasil → tombol
+                  hijau dengan waktunya di tooltip, gagal → lambang peringatan
+                  di label model. */}
+              <div className="field field-check">
+                <button className={"ghost" + (ping?.ok ? " ok-btn" : "")} onClick={pingModel}
+                  title={ping?.ok ? t("pingOk", { ms: ping.ms }) : t("pingTestTip")}
+                  disabled={pinging || !ollamaStatus?.running}>
+                  {pinging ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
+                </button>
+              </div>
+              </>
             )}
           </div>
         )}
@@ -274,12 +297,12 @@ export default function SetupPanel({
           <label className="chk" title={t("transcriptFixTip")}>
             <input type="checkbox" checked={transcriptFix}
               onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} <Info className="ico hint" aria-hidden="true" />
+            {transcriptFix && mode !== "hybrid" && offlineEngine === "heuristic" && (
+              <Warn>{t("transcriptFixNeedsLLM")}</Warn>
+            )}
           </label>
           {transcriptFix && (
             <>
-              {mode !== "hybrid" && offlineEngine === "heuristic" && (
-                <div className="warn">⚠ {t("transcriptFixNeedsLLM")}</div>
-              )}
               {/* Daftar istilah menempel di bawah koreksi transkrip karena hanya
                   tahap itu yang memakainya — tanpa centang di atas, isian ini
                   tidak berpengaruh apa pun. */}
