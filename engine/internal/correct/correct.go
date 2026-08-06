@@ -79,8 +79,25 @@ type Report struct {
 	Changed  int      `json:"changed"`  // segmen yang teksnya berubah
 	Rejected int      `json:"rejected"` // koreksi yang ditolak pagar pengaman
 	Missing  int      `json:"missing"`  // segmen yang tidak dibalas model
+	Failed   int      `json:"failed"`   // potongan yang balasannya tak bisa dibaca
 	Samples  []Change `json:"samples"`  // beberapa contoh untuk log
 }
+
+// Berapa kali satu potongan dicoba sebelum menyerah, dan berapa banyak potongan
+// yang boleh gagal sebelum seluruh koreksi dinyatakan gagal.
+//
+// Angkanya ada karena satu laporan nyata: transkrip 85 potongan berhenti di
+// potongan ke-25 dengan "unexpected end of JSON input" — balasan model lokal
+// yang kosong atau terpotong. Menggagalkan seluruh job berarti membuang 24
+// potongan yang sudah benar dan setengah jam kerja, padahal kegagalan model
+// lokal semacam ini biasanya sesaat: percobaan kedua berhasil.
+//
+// Batas 1/4 menjaga agar ini tidak berubah jadi "koreksi dilewati diam-diam"
+// (notes/12): kalau modelnya memang tidak sanggup, jobnya tetap berhenti.
+const (
+	chunkAttempts   = 3
+	failedChunkPart = 4 // gagal > total/4 potongan → berhenti
+)
 
 // maxSamples membatasi contoh yang disimpan; laporan ini masuk log, bukan
 // tempat menyimpan seluruh transkrip untuk kedua kalinya.
@@ -371,14 +388,40 @@ func Correct(ctx context.Context, tr types.Transcript, terms []string, complete 
 	chunks := buildChunks(tr, chunkWords)
 
 	for ci, c := range chunks {
-		raw, err := complete(ctx, system, userPrompt(tr, c), SegmentsSchema(len(c.segments)))
-		if err != nil {
-			return types.Transcript{}, report, fmt.Errorf("part %d of %d: %w", ci+1, len(chunks), err)
-		}
+		// Dicoba beberapa kali: model lokal sesekali membalas kosong atau
+		// terpotong, dan percobaan berikutnya biasanya benar. Galat JARINGAN
+		// tidak diulang — Ollama yang mati atau kelewat lambat tidak akan
+		// sembuh dalam sedetik, dan pesannya sudah menjelaskan sebabnya.
 		var r reply
-		if err := json.Unmarshal([]byte(extractJSON(raw)), &r); err != nil {
-			return types.Transcript{}, report, fmt.Errorf("%s returned JSON that could not be read (part %d of %d): %w",
-				engineName, ci+1, len(chunks), err)
+		var readErr error
+		var lastRaw string
+		for attempt := 1; attempt <= chunkAttempts; attempt++ {
+			raw, err := complete(ctx, system, userPrompt(tr, c), SegmentsSchema(len(c.segments)))
+			if err != nil {
+				return types.Transcript{}, report, fmt.Errorf("part %d of %d: %w", ci+1, len(chunks), err)
+			}
+			lastRaw = raw
+			r = reply{}
+			if readErr = json.Unmarshal([]byte(extractJSON(raw)), &r); readErr == nil {
+				break
+			}
+		}
+		if readErr != nil {
+			// Potongan ini dilewati: segmennya tetap memakai teks aslinya, dan
+			// itu DIHITUNG — laporan akhir menyebut berapa yang tidak sempat
+			// dikoreksi, jadi tidak ada yang hilang diam-diam.
+			report.Failed++
+			report.Missing += len(c.segments)
+			if report.Failed*failedChunkPart > len(chunks) {
+				return types.Transcript{}, report, fmt.Errorf(
+					"%s returned JSON that could not be read for %d of %d parts (last failure at part %d: %w) — reply was: %s. "+
+						"An empty or truncated reply usually means the model ran out of room or cannot follow the requested JSON shape; llama3.1 handles this task better than qwen2.5",
+					engineName, report.Failed, len(chunks), ci+1, readErr, describeReply(lastRaw))
+			}
+			if onProgress != nil {
+				onProgress(ci+1, len(chunks))
+			}
+			continue
 		}
 
 		// Balasan dipetakan lewat indeks, bukan urutan: model kadang mengubah
@@ -433,5 +476,24 @@ func (r Report) Summary() string {
 	if r.Missing > 0 {
 		s += fmt.Sprintf("; %d segment(s) not returned by the model", r.Missing)
 	}
+	if r.Failed > 0 {
+		s += fmt.Sprintf("; %d part(s) skipped after unreadable replies", r.Failed)
+	}
 	return s
+}
+
+// describeReply membuat balasan model bisa dibaca di pesan galat.
+//
+// Balasan KOSONG adalah kasus yang paling sering dan paling membingungkan:
+// tanpa keterangan ini pesannya cuma "unexpected end of JSON input", yang
+// terbaca seperti bug engine padahal modelnya memang tidak membalas apa pun.
+func describeReply(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "(empty)"
+	}
+	if len(trimmed) > 200 {
+		return trimmed[:200] + "…"
+	}
+	return trimmed
 }

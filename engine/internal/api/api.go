@@ -328,6 +328,11 @@ func (s *Server) llmEngine(provider, claudeModel, ollamaModel, ollamaURL string)
 			return c.Complete(ctx, system, user, 4096)
 		}, name, nil
 	case "ollama", "":
+		// Alamat kosong = cari sendiri (WSL/Windows/lokal), bukan "pakai
+		// localhost" — lihat score/ollama/discover.go.
+		if ollamaURL == "" {
+			ollamaURL = ollama.Discover(context.Background())
+		}
 		c := ollama.New(ollamaURL, ollamaModel)
 		name := "Ollama (" + c.Model + ")"
 		return func(ctx context.Context, system, user string) (string, error) {
@@ -1200,7 +1205,7 @@ func (s *Server) ollamaPing(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "model is required")
 		return
 	}
-	reply, took, err := ollama.New("", model).Ping(r.Context())
+	reply, took, err := ollama.New(ollama.Discover(r.Context()), model).Ping(r.Context())
 	if err != nil {
 		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "ms": took.Milliseconds()})
 		return

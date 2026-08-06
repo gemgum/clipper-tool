@@ -552,6 +552,21 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
   vertical-align: middle;
 }
 .warn-chip .ico { width: 14px; height: 14px; }
+/* Sel yang isinya hanya tombol (.field-check) tidak punya label untuk
+   ditumpangi, jadi lambangnya MELAYANG di pojok kanan-atas selnya — bukan
+   berdiri sebagai baris sendiri di atas tombol, yang mendorong tombol itu turun
+   beberapa piksel tepat saat peringatannya muncul.
+   Ruang untuk lambang ini disediakan permanen lewat padding-top pada kisi, jadi
+   ia tidak pernah menimpa baris di atasnya. */
+.grid3, .grid4 { padding-top: 8px; }
+.field-check { position: relative; }
+.field-check > .popover-anchor:has(> .warn-chip) {
+  position: absolute;
+  top: -8px;
+  right: 0;
+  z-index: 3;
+}
+.field-check > .popover-anchor > .warn-chip { margin-left: 0; }
 .warn-chip:hover, .warn-chip.active { background: none; color: var(--warn); }
 /* Denyut halus: peringatan yang diam sewarna keterangan biasa, dan yang tidak
    menarik mata sama saja dengan tidak ada. */
@@ -1274,6 +1289,15 @@ label em { font-style: normal; opacity: 0.7; }
 }
 @container (max-width: 560px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .grid3 > .field, .grid4 > .field { margin-bottom: 0; min-width: 0; }
+/* Label di kisi TIDAK boleh melipat: dua baris label menaikkan tinggi seluruh
+   barisnya, jadi menambahkan satu kata saja (mis. sistem asal Ollama) menggeser
+   setiap kendali di baris itu. Yang tidak muat dipotong elipsis; keterangan
+   panjangnya ada di tooltip. */
+.grid3 > .field > label, .grid4 > .field > label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* Judul kelompok yang membawa satu tombol di ujung kanannya. */
 .group-title.with-action {
   display: flex;

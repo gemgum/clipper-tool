@@ -13,6 +13,7 @@ import Select from "../select";
 import Section from "../section";
 import Alerts from "../alerts";
 import Warn from "../warn";
+import { modelOptions, sameModel, useOllama } from "../ollama";
 
 
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
@@ -112,11 +113,10 @@ export default function News() {
 
   // Analisis LLM.
   const [engine, setEngine] = useState("ollama");
-  const [ollamaModel, setOllamaModel] = useState("qwen2.5");
+  const [ollamaModel, setOllamaModel] = useState("llama3.1");
   // Model yang benar-benar terpasang. Sampai kini pengguna harus mengetik
   // namanya dari ingatan — dan satu salah ketik berujung galat dari Ollama
   // yang tidak menyebutkan bahwa masalahnya cuma nama.
-  const [ollamaInstalled, setOllamaInstalled] = useState<string[]>([]);
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([]);
@@ -395,30 +395,23 @@ export default function News() {
   // Pratinjau menimpa satu folder tetap di engine, jadi menyetel kartu berpuluh
   // kali tidak meninggalkan berpuluh folder. Berkas pendamping (caption &
   // keterangan sumber) baru ditulis saat benar-benar disimpan.
-  // Daftar model diambil sekali saat halaman dibuka, lalu setiap kali jendela
-  // kembali aktif — pengguna sering memasang model di terminal sebelah.
+  // Status & daftar model datang dari hook bersama (ollama.ts) — tab ini dan tab
+  // klip menanyakan hal yang sama, jadi jawabannya juga harus sama.
+  const { status: ollamaStatus, installed: ollamaInstalled, check: checkOllama } = useOllama(engine === "ollama");
+
+  // Nama tersimpan disamakan dengan yang TERPASANG ("llama3.1" →
+  // "llama3.1:latest"); yang tidak terpasang sama sekali diganti model pertama
+  // yang siap — lebih baik langsung bisa dipakai daripada gagal saat ditekan.
   useEffect(() => {
-    if (engine !== "ollama") return;
-    const load = () => {
-      fetch(eng(`/api/ollama/status`))
-        .then((r) => r.json())
-        .then((d: { running: boolean; installed?: { name: string }[]; models?: string[] }) => {
-          const names = d.installed?.map((m) => m.name) ?? d.models ?? [];
-          setOllamaInstalled(names);
-          // Kalau yang terpilih tidak ada di daftar, ambil yang pertama —
-          // lebih baik langsung bisa dipakai daripada gagal saat ditekan.
-          setOllamaModel((cur) =>
-            names.length > 0 && !names.some((n) => n === cur || n.split(":")[0] === cur)
-              ? names[0]
-              : cur,
-          );
-        })
-        .catch(() => setOllamaInstalled([]));
-    };
-    load();
-    window.addEventListener("focus", load);
-    return () => window.removeEventListener("focus", load);
-  }, [engine]);
+    if (!ollamaStatus?.running || ollamaInstalled.length === 0) return;
+    const match = ollamaInstalled.find((m) => sameModel(m.name, ollamaModel));
+    if (match) {
+      if (match.name !== ollamaModel) setOllamaModel(match.name);
+      return;
+    }
+    setOllamaModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ollamaInstalled, ollamaStatus?.running]);
 
   // Sidik jari dari SEMUA yang memengaruhi gambar kartu. Dipakai untuk memicu
   // pratinjau ulang: mendaftar satu per satu di dependency effect berarti setiap
@@ -594,15 +587,21 @@ export default function News() {
                     ]} />
                   </div>
                   <div className="field">
-                    <label>{t("model")}</label>
+                    <label title={ollamaStatus?.url
+                      ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
+                      : undefined}>{t("model")}
+                      {engine === "ollama" && ollamaStatus?.os && <span className="meta"> · {ollamaStatus.os}</span>}
+                      {engine === "ollama" && ollamaStatus !== null && !ollamaStatus.running && (
+                        <Warn>{t("ollamaNotDetected")} <code>ollama serve</code>
+                          <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
+                        </Warn>
+                      )}</label>
                     {engine === "ollama" ? (
-                      ollamaInstalled.length > 0 ? (
-                        <Select value={ollamaModel} onChange={setOllamaModel}
-                          options={ollamaInstalled.map((m) => ({ value: m, label: m }))} />
-                      ) : (
-                        <input value={ollamaModel} onChange={(e) => setOllamaModel(e.target.value)}
-                          placeholder="qwen2.5" />
-                      )
+                      <Select value={ollamaModel} onChange={setOllamaModel}
+                        options={modelOptions(ollamaInstalled, {
+                          ready: t("modelReady"), notCapable: t("modelNotCapable"),
+                          needsDownload: t("modelNeedsDownload"),
+                        }, ollamaStatus?.os)} />
                     ) : (
                       <Select value={claudeModel} onChange={setClaudeModel} options={[
                         { value: "claude-haiku-4-5", label: "claude-haiku-4-5" },

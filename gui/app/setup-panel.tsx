@@ -3,31 +3,14 @@
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
 import { Download, Info, Plug } from "lucide-react";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Select from "./select";
 import Warn from "./warn";
+import { modelOptions, sameModel, useOllama } from "./ollama";
 
 export type WhisperModel = { name: string; size: string; downloaded: boolean };
-
-// Satu model Ollama terpasang, sudah dinilai engine (siap/tidak + alasannya).
-type OllamaModel = {
-  name: string; base: string; params: string; quant: string;
-  bytes: number; context: number; ready: boolean; note: string;
-};
-type OllamaStatus = { running: boolean; models?: string[]; installed?: OllamaModel[] };
-
-// Saran model bila belum ada satu pun yang terpasang.
-const OLLAMA_SUGGESTED = ["qwen2.5", "llama3.1", "gemma2"];
-
-// Nama Ollama tanpa tag: "qwen2.5:latest" → "qwen2.5". Perbandingan nama SELALU
-// lewat sini — dulu dropdown membandingkan persis sehingga "qwen2.5" yang sudah
-// terpasang sebagai "qwen2.5:latest" tetap dicap "perlu unduh".
-const baseName = (m: string) => (m.includes(":") ? m.slice(0, m.indexOf(":")) : m);
-const sameModel = (a: string, b: string) => a === b || baseName(a) === baseName(b);
-
-const sizeGB = (b: number) => (b > 0 ? `${(b / 1e9).toFixed(1)} GB` : "");
 
 // Semua yang disetel sebelum menekan Mulai: mesin, mutu, jumlah klip, dan mesin
 // skor. Dulu dua panel terpisah (Render settings + AI engine), digabung 6
@@ -65,7 +48,6 @@ export default function SetupPanel({
 
   const [apiKey, setApiKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [pulling, setPulling] = useState(false);
   // Hasil sapaan ke model: null = belum dicoba.
   const [ping, setPing] = useState<{ ok: boolean; reply?: string; error?: string; ms: number } | null>(null);
@@ -76,38 +58,11 @@ export default function SetupPanel({
     fetch(eng(`/api/settings`)).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
   }, []);
 
-  // silent = pengecekan berkala; jangan kosongkan status agar UI tak berkedip.
-  const checkOllama = useCallback((silent = false) => {
-    if (!silent) setOllamaStatus(null);
-    fetch(eng(`/api/ollama/status`)).then((r) => r.json()).then(setOllamaStatus)
-      .catch(() => setOllamaStatus({ running: false }));
-  }, []);
-
   const ollamaActive = mode === "offline" && offlineEngine === "ollama";
-
-  useEffect(() => {
-    if (ollamaActive) checkOllama();
-  }, [ollamaActive, checkOllama]);
-
-  // Selama panel Ollama terbuka, status disegarkan sendiri: berkala tiap 15 detik
-  // dan tiap jendela kembali fokus — jadi model yang baru di-pull dari terminal
-  // langsung terbaca tanpa perlu menekan "cek ulang".
-  useEffect(() => {
-    if (!ollamaActive) return;
-    const timer = setInterval(() => checkOllama(true), 15000);
-    const onFocus = () => checkOllama(true);
-    window.addEventListener("focus", onFocus);
-    return () => { clearInterval(timer); window.removeEventListener("focus", onFocus); };
-  }, [ollamaActive, checkOllama]);
-
-  const ollamaInstalled = useMemo<OllamaModel[]>(() => {
-    const installed = ollamaStatus?.installed;
-    if (installed?.length) return installed;
-    // Engine versi lama hanya mengirim daftar nama.
-    return (ollamaStatus?.models || []).map((n) => ({
-      name: n, base: baseName(n), params: "", quant: "", bytes: 0, context: 0, ready: true, note: "",
-    }));
-  }, [ollamaStatus]);
+  // Status & daftar model dari hook bersama (ollama.ts): tab kartu memakai yang
+  // sama persis, jadi keduanya tidak bisa lagi menampilkan bentuk berbeda untuk
+  // data yang sama.
+  const { status: ollamaStatus, installed: ollamaInstalled, check: checkOllama } = useOllama(ollamaActive);
 
   const selectedOllama = useMemo(
     () => ollamaInstalled.find((m) => sameModel(m.name, ollamaModel)),
@@ -118,10 +73,40 @@ export default function SetupPanel({
   // yang dinilai siap lebih dulu; kalau tak ada yang siap, ambil yang pertama.
   useEffect(() => {
     if (!ollamaStatus?.running || !ollamaInstalled.length) return;
-    if (ollamaInstalled.some((m) => sameModel(m.name, ollamaModel))) return;
+    const match = ollamaInstalled.find((m) => sameModel(m.name, ollamaModel));
+    if (match) {
+      // Nama disamakan dengan yang TERPASANG ("qwen2.5" → "qwen2.5:latest").
+      // Tanpa ini kotak pilihan menampilkan nilai yang tidak ada di daftarnya,
+      // jadi ia terlihat kosong — dan job tetap berjalan dengan nama tersimpan
+      // yang lama, yang membuat pesan galat menyebut model yang tidak pernah
+      // terasa dipilih.
+      if (match.name !== ollamaModel) setOllamaModel(match.name);
+      return;
+    }
     setOllamaModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ollamaInstalled, ollamaStatus?.running]);
+
+  // Tanpa Ollama, jangan memaksa setelan yang PASTI gagal.
+  //
+  // Bawaannya "offline + Ollama", dan di komputer tanpa Ollama itu berarti job
+  // pertama berhenti dengan galat sebelum satu klip pun jadi — padahal
+  // heuristik ada, gratis, dan tidak butuh apa pun. Diputuskan SEKALI saat
+  // status pertama datang; sesudah itu pilihan pengguna yang berlaku.
+  //
+  // Ini bukan pelanggaran "tanpa fallback" (notes/12): yang dipilih di sini
+  // adalah SETELAN AWAL yang terlihat di layar, bukan penggantian mesin
+  // diam-diam saat job sudah berjalan.
+  const autoPicked = useRef(false);
+  useEffect(() => {
+    if (autoPicked.current || ollamaStatus === null || !ollamaActive) return;
+    autoPicked.current = true;
+    if (!ollamaStatus.running) {
+      setOfflineEngine("heuristic");
+      setTranscriptFix(false);
+      addLog(t("logNoOllama"));
+    }
+  }, [ollamaStatus, ollamaActive, setOfflineEngine, setTranscriptFix, addLog, t]);
 
   const saveKey = useCallback(async () => {
     try {
@@ -223,7 +208,14 @@ export default function SetupPanel({
              ada satu pun tepi yang sejajar. */
           <div className="grid3" style={{ marginTop: 12 }}>
             <div className="field">
-              <label>{t("offlineEngine")}</label>
+              <label title={ollamaStatus?.running && ollamaStatus.url
+                ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
+                : undefined}>{t("offlineEngine")}
+                {ollamaStatus !== null && !ollamaStatus.running && (
+                  <Warn>{t("ollamaMissingHeuristic")}
+                    <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
+                  </Warn>
+                )}</label>
               <Select value={offlineEngine} onChange={setOfflineEngine} options={[
                 { value: "ollama", label: t("offlineOllama") },
                 { value: "heuristic", label: t("offlineHeuristic") },
@@ -232,7 +224,12 @@ export default function SetupPanel({
             {offlineEngine === "ollama" && (
               <>
               <div className="field">
-                <label>{t("localModel")}
+                <label title={ollamaStatus?.url
+                  ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
+                  : undefined}>{t("localModel")}
+                  {/* Sistem asalnya dalam SATU kata, di dalam label — bukan baris
+                      sendiri. Kalimat panjangnya ada di tooltip. */}
+                  {ollamaStatus?.os && <span className="meta"> · {ollamaStatus.os}</span>}
                   {/* Keadaan yang butuh tindakan jadi LAMBANG di label, lengkap
                       dengan tombolnya di dalam popup. Sebagai baris teks, ia
                       menggeser seluruh kolom tiap kali Ollama dinyalakan atau
@@ -257,21 +254,11 @@ export default function SetupPanel({
                     <Warn>{ping.error}</Warn>
                   ) : null}
                 </label>
-                <Select value={ollamaModel} onChange={setOllamaModel} options={[
-                  ...ollamaInstalled.map((m) => ({
-                    value: m.name,
-                    label: m.name,
-                    // Spesifikasi jadi keterangan kecil, bukan sambungan nama:
-                    // "llama3.1:latest — 8.0B · Q4_K_M · 4.9 GB ✓ ready" satu baris
-                    // penuh itu yang membuat daftarnya sesak dan tidak terbaca.
-                    note: [m.params, sizeGB(m.bytes), m.ready ? t("modelReady") : t("modelNotCapable")]
-                      .filter(Boolean).join(" · "),
-                  })),
-                  // Saran hanya muncul bila belum terpasang — dicek per nama dasar
-                  // supaya "qwen2.5" tidak tampil ganda dengan "qwen2.5:latest".
-                  ...OLLAMA_SUGGESTED.filter((x) => !ollamaInstalled.some((m) => sameModel(m.name, x)))
-                    .map((x) => ({ value: x, label: x, note: t("modelNeedsDownload") })),
-                ]} />
+                <Select value={ollamaModel} onChange={setOllamaModel}
+                  options={modelOptions(ollamaInstalled, {
+                    ready: t("modelReady"), notCapable: t("modelNotCapable"),
+                    needsDownload: t("modelNeedsDownload"),
+                  }, ollamaStatus?.os)} />
               </div>
               {/* Tombol uji berdiri di kolom KETIGA, sejajar dengan kedua kotak
                   di kirinya. Hasilnya tidak menambah baris: berhasil → tombol

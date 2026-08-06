@@ -34,7 +34,7 @@ const pages = [
 ];
 // Jendela terkecil yang diizinkan tauri.conf.json, dan ukuran bawaannya.
 // Tinggi VIEWPORT = tinggi jendela dikurangi bilah judul (~95 px terukur).
-const sizes = [["900x600", 900, 505], ["1240x860", 1240, 765]];
+const sizes = (process.env.SIZES ? JSON.parse(process.env.SIZES) : [["900x600", 900, 505], ["1240x860", 1240, 765]]);
 const themes = ["light", "dark"];
 
 const rpc = (ws) => {

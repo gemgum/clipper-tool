@@ -172,8 +172,8 @@ func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 
 // Options untuk satu job clipping.
 type Options struct {
-	Mode           Mode        `json:"mode"`
-	Language       string      `json:"language"`
+	Mode           Mode     `json:"mode"`
+	Language       string   `json:"language"`
 	WhisperModel   string   `json:"whisper_model"`
 	Resolution     string   `json:"resolution"` // 720p | 1080p | 1440p
 	Quality        string   `json:"quality"`    // draft | hd | max
@@ -221,11 +221,21 @@ func DefaultOptions() Options {
 		// Provider sengaja kosong: Validate memilih menurut mode (offline →
 		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
 		// pun ikut memanggil API Claude.
-		Provider:    "",
-		LLMModel:    "claude-haiku-4-5",
-		OllamaModel: "qwen2.5",
-		OllamaURL:   "http://localhost:11434",
-		MinScore:    0,
+		Provider: "",
+		LLMModel: "claude-haiku-4-5",
+		// llama3.1, bukan qwen2.5: keduanya diuji berdampingan untuk koreksi
+		// transkrip + daftar istilah (notes/22), dan qwen2.5 kalah di kedua
+		// hitungan — ia juga gagal membuang tanda hubung dialog Unicode.
+		// Bawaannya sempat tetap qwen2.5 walau catatannya sudah menyarankan
+		// sebaliknya, jadi siapa pun yang tidak menyentuh pilihan model
+		// menjalankan koreksi dengan model yang kita sendiri tahu lebih buruk.
+		OllamaModel: "llama3.1",
+		// KOSONG berarti "temukan sendiri" (score/ollama/discover.go): Ollama
+		// bisa berada di sistem yang sama, di WSL, atau di host Windows di
+		// seberang WSL — dan pengguna tidak punya cara tahu mana yang berlaku.
+		// Alamat yang dipaku di sini benar hanya untuk satu dari tiga susunan.
+		OllamaURL: "",
+		MinScore:  0,
 	}
 }
 
@@ -357,9 +367,8 @@ func (o *Options) Validate() error {
 	if o.OllamaModel == "" {
 		o.OllamaModel = d.OllamaModel
 	}
-	if o.OllamaURL == "" {
-		o.OllamaURL = d.OllamaURL
-	}
+	// OllamaURL sengaja TIDAK diisi bawaan bila kosong: kosong itu artinya
+	// "temukan sendiri", dan mengisinya dengan localhost mematikan pencarian.
 	// Provider default menurut mode (pipeline yang memakainya).
 	if o.Provider == "" {
 		if o.Mode == ModeHybrid {

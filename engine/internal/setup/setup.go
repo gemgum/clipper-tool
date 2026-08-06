@@ -111,7 +111,9 @@ func Status(l config.Layout, ollamaOK bool, ollamaDetail string) []Component {
 		p := ModelPath(l, m.Name)
 		_, err := os.Stat(p)
 		c := Component{
-			ID: ModelID(m.Name), Name: "Whisper model: " + m.Name, Kind: KindModel,
+			// Nama berkasnya, sama seperti baris lain — juga sebelum diunduh,
+			// supaya satu daftar tidak memakai dua gaya penamaan sekaligus.
+			ID: ModelID(m.Name), Name: filepath.Base(p), Kind: KindModel,
 			Size: m.Size, Installable: true,
 			Detail: "Speech recognition. " + modelNote(m.Name),
 		}
@@ -145,6 +147,19 @@ func Status(l config.Layout, ollamaOK bool, ollamaDetail string) []Component {
 		chrome.Installed, chrome.Path = true, p
 	}
 	out = append(out, chrome)
+
+	// NAMA BARIS = BERKAS YANG BENAR-BENAR DIPAKAI, bukan nama proyeknya.
+	//
+	// "whisper.cpp" adalah nama proyek; yang dijalankan engine bernama
+	// `whisper-cli.exe`, dan itu yang harus dicari pengguna kalau ia mau
+	// memeriksanya sendiri atau mengizinkannya di antivirus. Nama proyek yang
+	// tidak cocok dengan nama berkas di baris di bawahnya membuat halaman ini
+	// terbaca seperti menyebut dua hal berbeda.
+	for i := range out {
+		if out[i].Installed && out[i].Path != "" {
+			out[i].Name = filepath.Base(out[i].Path)
+		}
+	}
 
 	return out
 }

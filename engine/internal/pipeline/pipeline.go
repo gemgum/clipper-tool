@@ -19,7 +19,6 @@ import (
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/score/heuristic"
 	"github.com/gemgum/clipper/engine/internal/score/llm"
-	"github.com/gemgum/clipper/engine/internal/score/ollama"
 	"github.com/gemgum/clipper/engine/internal/segment"
 	"github.com/gemgum/clipper/engine/internal/subtitle"
 	"github.com/gemgum/clipper/engine/internal/transcribe"
@@ -199,8 +198,12 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		sel = llm.New(p.Paths.APIKey, p.Opts.LLMModel)
 		engineName = "Claude (" + p.Opts.LLMModel + ")"
 	case "ollama":
-		sel = ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
-		engineName = "Ollama (" + p.Opts.OllamaModel + ")"
+		// Alamat & model dipastikan dulu — lihat ollama_resolve.go.
+		c, name, err := resolveOllama(ctx, p.Opts.OllamaURL, p.Opts.OllamaModel)
+		if err != nil {
+			return nil, err
+		}
+		sel, engineName = c, name
 	case "heuristic":
 		engineName = "heuristic"
 	default:
@@ -382,9 +385,12 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 			return c.Complete(ctx, system, user, 8192)
 		}
 	default:
-		c := ollama.New(p.Opts.OllamaURL, p.Opts.OllamaModel)
+		c, name, err := resolveOllama(ctx, p.Opts.OllamaURL, p.Opts.OllamaModel)
+		if err != nil {
+			return types.Transcript{}, err
+		}
 		c.Temperature = correctionTemperature
-		engineName = "Ollama (" + c.Model + ")"
+		engineName = name
 		complete = func(ctx context.Context, system, user string, schema any) (string, error) {
 			return c.Complete(ctx, system, user, schema, 4096)
 		}

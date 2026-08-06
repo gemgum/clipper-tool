@@ -53,7 +53,7 @@ export default function Home() {
   // tersimpan — kunci API dan status Ollama dipegang <AiEnginePanel> sendiri.
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
   const [offlineEngine, setOfflineEngine] = useState("ollama"); // ollama | heuristic
-  const [ollamaModel, setOllamaModel] = useState("qwen2.5");
+  const [ollamaModel, setOllamaModel] = useState("llama3.1");
   const [transcriptFix, setTranscriptFix] = useState(true);
   const [terms, setTerms] = useState("");
   const [durationPreset, setDurationPreset] = useState("auto");

@@ -199,6 +199,13 @@ type ModelInfo struct {
 // StatusInfo hasil pengecekan Ollama.
 type StatusInfo struct {
 	Running bool `json:"running"`
+	// URL yang benar-benar menjawab, dan penjelasannya dalam satu kalimat.
+	// Keduanya ditampilkan GUI: "Ollama jalan" tanpa menyebut DI MANA membuat
+	// susunan Windows+WSL mustahil didiagnosis.
+	URL   string `json:"url"`
+	Where string `json:"where"`
+	// OS = satu kata: "Windows", "WSL", "Linux", "macOS", "remote".
+	OS string `json:"os"`
 	// Models = daftar nama lengkap; dipertahankan agar pemakai lama tetap jalan.
 	Models    []string    `json:"models"`
 	Installed []ModelInfo `json:"installed"`
@@ -207,8 +214,14 @@ type StatusInfo struct {
 // Status memeriksa apakah Ollama jalan & daftar model terpasang, lengkap dengan
 // penilaian siap/tidaknya tiap model.
 func Status(ctx context.Context, url string) StatusInfo {
+	// Alamat kosong berarti "cari sendiri" — bukan "pakai localhost". Localhost
+	// hanya benar bila Ollama ada di sistem yang sama, dan itu justru susunan
+	// yang paling sering TIDAK berlaku di Windows (lihat discover.go).
 	if url == "" {
-		url = defaultURL
+		url = Discover(ctx)
+	}
+	if url == "" {
+		return StatusInfo{Running: false, Where: Where("")}
 	}
 	url = strings.TrimRight(url, "/")
 	cl := &http.Client{Timeout: 3 * time.Second}
@@ -232,7 +245,7 @@ func Status(ctx context.Context, url string) StatusInfo {
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &parsed)
-	info := StatusInfo{Running: true}
+	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url)}
 	for _, m := range parsed.Models {
 		mi := ModelInfo{
 			Name:    m.Name,

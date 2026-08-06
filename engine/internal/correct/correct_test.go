@@ -280,3 +280,42 @@ func TestCorrectRejectsDroppedQuotationMarks(t *testing.T) {
 		t.Errorf("koreksi sah tertolak: changed=%d rejected=%d", report.Changed, report.Rejected)
 	}
 }
+
+// Satu potongan yang balasannya tak terbaca TIDAK boleh membuang seluruh
+// pekerjaan — dicoba ulang dulu, dan yang tetap gagal dilewati serta dihitung.
+func TestCorrectRetriesThenSkipsUnreadableChunk(t *testing.T) {
+	tr := types.Transcript{Language: "id", Segments: []types.TranscriptSegment{
+		{Start: 0, End: 2, Text: "halo dunia"},
+		{Start: 2, End: 4, Text: "apa kabar"},
+	}}
+	calls := 0
+	// Dua percobaan pertama membalas kosong, ketiga benar.
+	complete := func(ctx context.Context, system, user string, schema any) (string, error) {
+		calls++
+		if calls < 3 {
+			return "", nil
+		}
+		return `{"segments":[{"index":0,"text":"Halo dunia."},{"index":1,"text":"Apa kabar?"}]}`, nil
+	}
+	out, rep, err := Correct(context.Background(), tr, nil, complete, "uji", nil)
+	if err != nil {
+		t.Fatalf("gagal padahal percobaan ketiga benar: %v", err)
+	}
+	if calls != 3 {
+		t.Fatalf("percobaan = %d, mau 3", calls)
+	}
+	if rep.Failed != 0 || out.Segments[0].Text != "Halo dunia." {
+		t.Fatalf("hasil = %+v / %q", rep, out.Segments[0].Text)
+	}
+
+	// Selalu kosong: satu-satunya potongan gagal, dan itu lebih dari
+	// seperempat — jobnya harus berhenti, dengan pesan yang menyebut balasannya.
+	always := func(ctx context.Context, system, user string, schema any) (string, error) { return "", nil }
+	_, _, err = Correct(context.Background(), tr, nil, always, "uji", nil)
+	if err == nil {
+		t.Fatal("balasan kosong terus-menerus harus menggagalkan koreksi")
+	}
+	if !strings.Contains(err.Error(), "(empty)") {
+		t.Fatalf("pesan tidak menyebut balasan kosongnya: %v", err)
+	}
+}

@@ -38,6 +38,15 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 	}
 
 	comps := setup.Status(s.layout, oll.Running, detail)
+	// Ollama bukan berkas yang engine pasang, jadi ia tidak punya path. Yang
+	// setara — dan yang justru dicari orang saat susunannya Windows+WSL — adalah
+	// ALAMAT dan DI SISTEM MANA ia berjalan.
+	for i := range comps {
+		if comps[i].ID == "ollama" && oll.Running {
+			comps[i].Name = "Ollama — " + oll.Where
+			comps[i].Path = oll.URL
+		}
+	}
 	writeJSON(w, 200, map[string]any{
 		"components": comps,
 		"missing":    setup.Missing(comps),

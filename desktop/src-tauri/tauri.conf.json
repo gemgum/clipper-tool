@@ -13,8 +13,8 @@
         "title": "Clipper",
         "width": 1240,
         "height": 860,
-        "minWidth": 900,
-        "minHeight": 600,
+        "minWidth": 1240,
+        "minHeight": 860,
         "resizable": true,
         "center": true
       }
