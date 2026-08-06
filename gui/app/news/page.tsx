@@ -295,6 +295,44 @@ export default function News() {
     }
   }, [copyBusy, t]);
 
+  // Mengklik satu berita di daftar = MENGAMBIL artikelnya, bukan memakai
+  // ringkasan RSS-nya.
+  //
+  // Sebelum ini `onClick` menyerahkan objek daftar apa adanya ke kartu. Objek
+  // itu berasal dari RSS, dan RSS tidak membawa gambar — jadi kartu selalu jadi
+  // tanpa foto. Yang bekerja cuma jalur memutar: tekan copy (yang diam-diam
+  // meresolusi tautannya), tempel ke kotak Fetch, baru gambarnya muncul.
+  // Dilaporkan 7 Agustus 2026 persis dengan kalimat itu.
+  //
+  // Ringkasan RSS-nya tetap dipasang LEBIH DULU supaya klik terasa langsung
+  // menjawab — judul & sumber sudah benar dari daftar — lalu ditimpa artikel
+  // lengkapnya begitu terbaca.
+  const openItem = useCallback(async (a: Article) => {
+    useArticle(a);
+    setFetching(true);
+    setError("");
+    try {
+      const res = await fetch(eng(`/api/news/article`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: a.url, lang }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || t("errReadArticle"));
+      useArticle(data);
+      // Alamat yang sudah diresolusi disimpan ke daftarnya: baris yang sama
+      // tidak perlu dibuka ulang lewat browser, dan sorotan "sedang dipilih"
+      // tetap cocok sesudah alamatnya berubah.
+      if (data.url && data.url !== a.url) {
+        setItems((list) => list.map((x) => (x.url === a.url ? { ...x, url: data.url } : x)));
+      }
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setFetching(false);
+    }
+  }, [useArticle, lang, t]);
+
   const fetchLink = useCallback(async () => {
     if (!link.trim()) return;
     setFetching(true);
@@ -942,9 +980,9 @@ export default function News() {
                   <div key={a.url}
                     className={"news-item" + (article.url === a.url ? " active" : "")}
                     role="button" tabIndex={0}
-                    onClick={() => useArticle(a)}
+                    onClick={() => openItem(a)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); useArticle(a); }
+                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openItem(a); }
                     }}>
                     {a.image && <img src={a.image} alt="" loading="lazy" />}
                     <div className="news-text">

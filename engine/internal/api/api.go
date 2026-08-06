@@ -242,7 +242,27 @@ func (s *Server) newsArticle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	a, err := news.FetchArticle(r.Context(), req.URL, firstNonEmpty(req.Lang, lang(r)))
+	// Pengalih hasil pencarian DIBUKA lebih dulu, di sini — bukan diserahkan ke
+	// pemanggilnya.
+	//
+	// Tautan dari daftar berita menunjuk `news.google.com/rss/articles/CBMi…`,
+	// dan mengambilnya apa adanya berarti yang terbaca halaman Google sendiri:
+	// judul "Google Berita", gambar logo Google, nol paragraf. Dilaporkan
+	// 7 Agustus 2026 sebagai "kartunya tidak ada gambar".
+	//
+	// Langkah ini sudah ada sebelumnya, tapi HANYA di tombol salin-tautan di
+	// GUI — jadi menyalin lalu menempel berhasil sementara menekan Fetch pada
+	// tautan yang sama gagal. Satu langkah yang hidup di satu tombol saja adalah
+	// langkah yang pasti terlewat di tombol berikutnya; tempatnya di engine.
+	//
+	// Murah untuk tautan biasa: Resolve mengembalikannya apa adanya bila bukan
+	// tautan Google, dan hasil yang sudah pernah dibuka diambil dari cache.
+	link, err := news.Resolve(r.Context(), req.URL, s.browser(), s.paths.DataDir)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	a, err := news.FetchArticle(r.Context(), link, firstNonEmpty(req.Lang, lang(r)))
 	if err != nil {
 		writeErr(w, 502, err.Error())
 		return
@@ -746,11 +766,43 @@ func (s *Server) ollamaPull(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "the 'model' field is required")
 		return
 	}
-	if err := ollama.Pull(r.Context(), req.URL, req.Model); err != nil {
-		writeErr(w, 502, err.Error())
+	// Unduhan model DIPERLAKUKAN SEPERTI PEMASANGAN KOMPONEN: dijalankan di
+	// latar, kemajuannya disiarkan lewat SSE yang sudah ada
+	// (/api/requirements/events). Sebelum ini ia dijalankan di dalam
+	// `r.Context()` — persis pelanggaran yang notes/25 larang — dan akibatnya
+	// terlihat 7 Agustus 2026: gemma2 berhenti di 5,44 GB dari 5,4 GB, berkas
+	// parsialnya tergeletak 14 menit, dan tidak ada satu pun tempat yang
+	// memberitahu bahwa unduhannya sudah mati.
+	id := "llm-model:" + req.Model
+	if !s.installs.start(id) {
+		writeErr(w, 409, "that model is already being downloaded")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true})
+	url, model := req.URL, req.Model
+	go func() {
+		err := ollama.Pull(context.Background(), url, model, func(p ollama.PullProgress) {
+			s.installs.update(id, func(st *InstallState) {
+				st.Message = p.Status
+				st.Bytes, st.Total = p.Completed, p.Total
+				// -1 = besarnya belum diketahui; itu yang membuat GUI
+				// menampilkan bilah tak tentu alih-alih 0% yang membeku.
+				if p.Total > 0 {
+					st.Value = float64(p.Completed) / float64(p.Total)
+				} else {
+					st.Value = -1
+				}
+			})
+		})
+		s.installs.update(id, func(st *InstallState) {
+			st.Running, st.Done = false, true
+			if err != nil {
+				st.Error, st.Message = err.Error(), "Failed"
+				return
+			}
+			st.Value, st.Message = 1, "Installed"
+		})
+	}()
+	writeJSON(w, 202, map[string]any{"id": id, "started": true})
 }
 
 // writeEnvKey menambah/mengganti satu KEY=value di berkas .env.

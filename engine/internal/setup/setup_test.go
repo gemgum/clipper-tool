@@ -520,3 +520,33 @@ func TestLLMServersAreActionable(t *testing.T) {
 		}
 	}
 }
+
+// Menghapus model harus ikut membuang SISA UNDUHANNYA.
+//
+// Unduhan yang terputus meninggalkan `.part` sebesar apa yang sempat turun —
+// sampai 2,9 GB untuk large-v3. Sebelum ini tombol Remove hanya menyentuh
+// berkas .bin, jadi barisnya berubah jadi "missing" sementara ruang disknya
+// tidak kembali sama sekali.
+func TestRemoveModelAlsoRemovesPartialDownload(t *testing.T) {
+	l := config.Layout{ModelsDir: t.TempDir(), ToolsDir: t.TempDir()}
+	p := ModelPath(l, "small")
+	for _, f := range []string{p, p + ".part", p + ".part.from"} {
+		if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := RemoveModel(l, "small"); err != nil {
+		t.Fatalf("RemoveModel: %v", err)
+	}
+
+	for _, f := range []string{p, p + ".part", p + ".part.from"} {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("%s masih ada sesudah dihapus", filepath.Base(f))
+		}
+	}
+	// Menghapus dua kali bukan galat: barisnya bisa diklik lagi.
+	if err := RemoveModel(l, "small"); err != nil {
+		t.Errorf("hapus kedua kali: %v", err)
+	}
+}

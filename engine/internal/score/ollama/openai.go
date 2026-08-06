@@ -33,6 +33,10 @@ const (
 type Endpoint struct {
 	URL  string `json:"url"`
 	Kind string `json:"kind"`
+	// Name = nama yang dikenali pengguna ("Ollama", "LM Studio"). Ikut di sini
+	// supaya daftar pilihan di GUI tidak perlu menerjemahkan port jadi nama
+	// sendiri — dua tempat yang menebak hal yang sama pasti akan berbeda.
+	Name string `json:"name"`
 }
 
 // openAIReq/openAIResp: bagian yang benar-benar dipakai saja. Server-server ini

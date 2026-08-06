@@ -1,6 +1,7 @@
 package news
 
 import (
+	"context"
 	"net/url"
 	"strings"
 	"testing"
@@ -393,5 +394,33 @@ func TestParseArticleCleansEntitiesInOgURL(t *testing.T) {
 	// og:url menang atas alamat pengalih yang dipakai untuk membuka halaman.
 	if a.Domain != "contoh.go.id" {
 		t.Errorf("domain = %q, mau contoh.go.id", a.Domain)
+	}
+}
+
+// Resolve harus MURAH untuk tautan biasa: dikembalikan apa adanya, tanpa
+// browser, tanpa cache.
+//
+// Itu yang membuatnya aman dipanggil di depan SETIAP pengambilan artikel
+// (api.newsArticle). Kalau suatu saat ia mulai menuntut browser untuk tautan
+// biasa, jalur tempel-link akan mati di komputer tanpa Chrome — dan matinya
+// hanya terlihat saat dijalankan, bukan saat dikompilasi.
+func TestResolvePassesOrdinaryLinksThrough(t *testing.T) {
+	for _, link := range []string{
+		"https://bacaini.id/misteri-995-senjata-api.html",
+		"http://contoh.go.id/berita/1",
+	} {
+		got, err := Resolve(context.Background(), link, nil, t.TempDir())
+		if err != nil {
+			t.Fatalf("Resolve(%s): %v", link, err)
+		}
+		if got != link {
+			t.Errorf("Resolve(%s) = %q — tautan biasa tidak boleh diubah", link, got)
+		}
+	}
+	// Tautan Google TANPA browser harus berkata jelas apa yang kurang, bukan
+	// mengembalikan alamat Google yang akan terbaca sebagai halaman Google.
+	_, err := Resolve(context.Background(), "https://news.google.com/rss/articles/CBMiabc", nil, t.TempDir())
+	if err == nil {
+		t.Error("tautan Google tanpa browser seharusnya galat, bukan diteruskan mentah")
 	}
 }

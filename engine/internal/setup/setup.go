@@ -90,12 +90,22 @@ func HasModel(l config.Layout, name string) bool {
 	return err == nil
 }
 
-// RemoveModel menghapus satu model yang sudah diunduh.
+// RemoveModel menghapus satu model yang sudah diunduh, BESERTA sisa unduhannya.
+//
+// Berkas `.part` dan `.part.from` ikut dibuang, dan itu bukan kerapian: unduhan
+// yang terputus meninggalkan `.part` sebesar apa yang sempat turun — sampai
+// 2,9 GB untuk large-v3 — dan sebelum ini tombol Remove tidak menyentuhnya sama
+// sekali. Pengguna menekan Remove, melihat barisnya jadi "missing", dan ruang
+// disknya tidak kembali. Dilaporkan dari lapangan sebagai "hapusnya tidak
+// bersih".
 func RemoveModel(l config.Layout, name string) error {
 	for _, m := range Models {
 		if m.Name == name {
-			if err := os.Remove(ModelPath(l, name)); err != nil && !os.IsNotExist(err) {
-				return err
+			p := ModelPath(l, name)
+			for _, f := range []string{p, p + ".part", p + ".part.from"} {
+				if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+					return err
+				}
 			}
 			return nil
 		}

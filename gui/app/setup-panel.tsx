@@ -49,6 +49,10 @@ export default function SetupPanel({
   const [apiKey, setApiKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
   const [pulling, setPulling] = useState(false);
+  // Kemajuan unduhan model: -1 = besarnya belum diketahui (tahap verifikasi,
+  // atau manifest belum terbaca). Ditampilkan DI DALAM tombol, bukan sebagai
+  // baris baru — baris yang muncul-hilang menggeser seluruh kolomnya.
+  const [pullPct, setPullPct] = useState(-1);
   // Hasil sapaan ke model: null = belum dicoba.
   const [ping, setPing] = useState<{ ok: boolean; reply?: string; error?: string; ms: number } | null>(null);
   const [pinging, setPinging] = useState(false);
@@ -146,21 +150,56 @@ export default function SetupPanel({
     } finally { setPinging(false); }
   }, [ollamaModel, addLog, t]);
 
+  // Unduhan model BERJALAN DI LATAR; halaman ini cuma berlangganan kabarnya.
+  //
+  // Permintaannya menjawab 202 seketika, lalu kemajuannya datang lewat SSE yang
+  // sama dengan pemasangan komponen. Sebelum ini POST-nya ditunggu sampai
+  // selesai: satu permintaan HTTP yang diam belasan menit untuk model 5 GB,
+  // tanpa persentase — dan kalau halamannya dimuat ulang, unduhannya ikut mati.
   const pullModel = useCallback(async () => {
     setPulling(true);
+    setPullPct(-1);
     addLog(t("logPullStart", { model: ollamaModel }));
     try {
       const res = await fetch(eng(`/api/ollama/pull`), {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: ollamaModel }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "failed");
-      addLog(t("logPullDone", { model: ollamaModel }));
-      checkOllama();
-    } catch (e: any) { addLog(t("logPullFailed", { error: e.message })); }
-    finally { setPulling(false); }
-  }, [ollamaModel, addLog, checkOllama, t]);
+      // 409 = sudah berjalan. Itu bukan galat: langganan di bawah tetap
+      // menampilkan kemajuannya, jadi menekan tombol dua kali tidak merusak apa
+      // pun dan tidak perlu dijelaskan ke pengguna.
+      if (!res.ok && res.status !== 409) throw new Error((await res.json()).error || "failed");
+    } catch (e: any) {
+      setPulling(false);
+      addLog(t("logPullFailed", { error: e.message }));
+    }
+  }, [ollamaModel, addLog, t]);
+
+  // Kemajuan unduhan model DIDENGARKAN terus, bukan hanya sesudah tombolnya
+  // ditekan di sesi ini.
+  //
+  // Unduhannya hidup di engine, bukan di halaman: memuat ulang halaman di
+  // tengah unduhan 5 GB tidak boleh membuat tombolnya kembali berkata "Download"
+  // seolah tidak ada apa-apa. Engine mengirim cuplikan keadaan saat SSE
+  // tersambung, jadi halaman yang baru dibuka langsung tahu apa yang berjalan.
+  useEffect(() => {
+    if (!ollamaActive) return;
+    const es = new EventSource(eng(`/api/requirements/events`));
+    es.addEventListener("install", (ev) => {
+      const st = JSON.parse((ev as MessageEvent).data);
+      if (!String(st.id || "").startsWith("llm-model:")) return;
+      if (!st.done) { setPulling(true); setPullPct(st.value); return; }
+      setPulling(false);
+      if (st.error) addLog(t("logPullFailed", { error: st.error }));
+      else { addLog(t("logPullDone", { model: String(st.id).slice(10) })); checkOllama(); }
+    });
+    return () => es.close();
+  }, [ollamaActive, addLog, checkOllama, t]);
+
+  // "downloading… 42%" — persentasenya hanya bila besarnya diketahui.
+  const pullLabel = pullPct >= 0
+    ? `${t("downloading")} ${Math.round(pullPct * 100)}%`
+    : t("downloading");
 
   return (
     <div className="panel">
@@ -234,7 +273,22 @@ export default function SetupPanel({
                       muat — labelnya terpotong jadi "Model · Ollama …" — dan
                       sistemnya masih terbaca di tiap baris daftar model serta
                       di tooltip label ini. */}
-                  {ollamaStatus?.server && <span className="meta"> · {ollamaStatus.server}</span>}
+                  {/* Selama mengunduh, kemajuannya MENGGANTIKAN nama server —
+                      bukan ditambahkan di sebelahnya.
+                      Tombol unduhnya tinggal di dalam popup peringatan, jadi
+                      selama unduhan 5 GB berjalan yang terlihat cuma lambang ⚠,
+                      dan "sedang jalan" tidak bisa dibedakan dari "macet" tanpa
+                      mengklik. Tapi keduanya sekaligus tidak muat: label
+                      "Model · Ollama · 51%" terpotong jadi "Model · Ollama …".
+                      Satu hal pada satu waktu — nama servernya kembali begitu
+                      unduhannya selesai. */}
+                  {pulling ? (
+                    <span className="meta" title={t("downloading")}>
+                      {" · "}{pullPct >= 0 ? `${Math.round(pullPct * 100)}%` : "…"}
+                    </span>
+                  ) : ollamaStatus?.server ? (
+                    <span className="meta"> · {ollamaStatus.server}</span>
+                  ) : null}
                   {/* Keadaan yang butuh tindakan jadi LAMBANG di label, lengkap
                       dengan tombolnya di dalam popup. Sebagai baris teks, ia
                       menggeser seluruh kolom tiap kali Ollama dinyalakan atau
@@ -246,13 +300,13 @@ export default function SetupPanel({
                   ) : ollamaStatus?.running && !selectedOllama ? (
                     <Warn>{t("modelNeedsDownload")}
                       <button className="ghost tiny" onClick={pullModel} disabled={pulling}>
-                        {pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}
+                        {pulling ? pullLabel : <><Download className="ico" aria-hidden="true" /> {t("downloadModel")}</>}
                       </button>
                     </Warn>
                   ) : selectedOllama && !selectedOllama.ready ? (
                     <Warn>{selectedOllama.note}
                       <button className="ghost tiny" onClick={pullModel} disabled={pulling}>
-                        {pulling ? t("downloading") : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}
+                        {pulling ? pullLabel : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}
                       </button>
                     </Warn>
                   ) : ping && !ping.ok ? (

@@ -43,7 +43,7 @@ const cacheFor = 30 * time.Second
 
 var (
 	found struct {
-		ep   Endpoint
+		eps  []Endpoint
 		when time.Time
 	}
 	foundMu sync.Mutex
@@ -53,14 +53,33 @@ var (
 // tidak satu pun kandidat hidup.
 func Discover(ctx context.Context) string { return DiscoverEndpoint(ctx).URL }
 
-// DiscoverEndpoint mencari server LLM lokal — Ollama ATAU yang bergaya OpenAI —
-// dan menyebutkan jenisnya.
+// DiscoverEndpoint mengembalikan server yang DIPAKAI: yang paling awal di daftar
+// kandidat, bukan yang paling cepat menjawab.
 func DiscoverEndpoint(ctx context.Context) Endpoint {
+	all := DiscoverAll(ctx)
+	if len(all) == 0 {
+		return Endpoint{}
+	}
+	return all[0]
+}
+
+// DiscoverAll mengembalikan SEMUA server LLM lokal yang menjawab, urut menurut
+// kemungkinan (yang pertama = yang dipakai).
+//
+// Semuanya dikembalikan, bukan cuma pemenangnya, karena di satu komputer bisa
+// ada beberapa sekaligus — Ollama di 11434, llama.cpp di 8080, KoboldCpp di
+// 5001 — dan pengguna yang memasang tiga server jelas ingin MEMILIH, bukan
+// diberi tahu satu lalu disuruh mengetik alamat dua lainnya dari ingatan.
+//
+// Ongkosnya nol dibanding sebelumnya: pemeriksaannya memang sudah dilakukan
+// berbarengan untuk semua kandidat, yang berubah cuma berapa hasil yang
+// disimpan.
+func DiscoverAll(ctx context.Context) []Endpoint {
 	foundMu.Lock()
-	if found.ep.URL != "" && time.Since(found.when) < cacheFor {
-		ep := found.ep
+	if found.eps != nil && time.Since(found.when) < cacheFor {
+		eps := found.eps
 		foundMu.Unlock()
-		return ep
+		return eps
 	}
 	foundMu.Unlock()
 
@@ -76,37 +95,64 @@ func DiscoverEndpoint(ctx context.Context) Endpoint {
 		go func(i int, u string) {
 			defer wg.Done()
 			if kind := kindOf(ctx, u); kind != "" {
-				results <- hit{i, Endpoint{URL: u, Kind: kind}}
+				results <- hit{i, Endpoint{URL: u, Kind: kind, Name: serverName(u, kind)}}
 			}
 		}(i, u)
 	}
 	wg.Wait()
 	close(results)
 
-	// Yang paling awal di daftar menang, bukan yang paling cepat menjawab:
-	// urutan kandidat itu urutan kemungkinan, dan hasil balapan jaringan bukan
-	// hal yang boleh menentukan konfigurasi mana yang dipakai (dua alamat bisa
+	// Urutan kandidat = urutan kemungkinan, dan hasil balapan jaringan bukan hal
+	// yang boleh menentukan konfigurasi mana yang dipakai (dua alamat bisa
 	// menunjuk server berbeda, dengan model yang berbeda).
-	best := hit{i: len(cands)}
+	hits := make([]hit, 0, len(cands))
 	for h := range results {
-		if h.i < best.i {
-			best = h
+		hits = append(hits, h)
+	}
+	slices.SortFunc(hits, func(a, b hit) int { return a.i - b.i })
+
+	eps := make([]Endpoint, 0, len(hits))
+	for _, h := range hits {
+		// Satu server bisa menjawab di dua alamat (localhost DAN 127.0.0.1).
+		// Yang membedakan bukan ejaan alamatnya melainkan PORT + jenisnya.
+		dup := false
+		for _, e := range eps {
+			if samePort(e.URL, h.ep.URL) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			eps = append(eps, h.ep)
 		}
 	}
-	if best.ep.URL == "" {
-		return Endpoint{}
+	if len(eps) == 0 {
+		return nil
 	}
 	foundMu.Lock()
-	found.ep, found.when = best.ep, time.Now()
+	found.eps, found.when = eps, time.Now()
 	foundMu.Unlock()
-	return best.ep
+	return eps
+}
+
+// samePort membandingkan dua alamat berdasarkan portnya saja: "localhost:11434"
+// dan "127.0.0.1:11434" adalah Ollama yang SAMA, dan menampilkan keduanya
+// sebagai dua pilihan hanya membuat daftar yang menyesatkan.
+func samePort(a, b string) bool {
+	port := func(u string) string {
+		if i := strings.LastIndex(u, ":"); i > 0 {
+			return u[i:]
+		}
+		return u
+	}
+	return port(a) == port(b)
 }
 
 // resetDiscoverCache dipakai uji: cache alamat membuat dua kasus uji dalam satu
 // proses saling memengaruhi.
 func resetDiscoverCache() {
 	foundMu.Lock()
-	found.ep, found.when = Endpoint{}, time.Time{}
+	found.eps, found.when = nil, time.Time{}
 	foundMu.Unlock()
 }
 

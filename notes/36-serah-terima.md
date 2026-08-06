@@ -6,6 +6,12 @@ di `notes/32`–`35`; ini peta dan daftar kerjanya.
 Keadaan repo saat catatan ini ditulis: pohon kerja **bersih**, rilis terakhir
 **v0.6.1**, `tauri.conf.json` juga 0.6.1.
 
+> **Ditulis ulang 6 Agustus malam**, sesudah kerja server LLM. Butir 2 selesai,
+> butir 1 sebagian; pohon kerja TIDAK lagi bersih — ada perubahan di
+> `internal/api`, `internal/score/ollama`, `internal/setup`, dan `gui/app`.
+> Terverifikasi: `go vet` bersih, `go test ./...` lulus, `tsc` bersih, dan ukur
+> UI **klip 0/0 · kartu 0/0 di 1240×860**.
+
 ## Yang sudah dikerjakan (dan angkanya)
 
 **Tampilan tidak bergerak** (`notes/32`)
@@ -59,42 +65,214 @@ Daftar ini disaring ulang **6 Agustus 2026** dan tiap butirnya diperiksa lagi ke
 kode — yang tertulis di bawah adalah keadaan sesudah pemeriksaan itu, bukan
 keadaan saat catatan ini pertama ditulis.
 
-### 1. Uji klien OpenAI-compatible dengan server SUNGGUHAN — BELUM
+### 1. Uji server LLM sungguhan — SEBAGIAN (6 Agustus 2026 malam)
 
-Masih terbukti dengan server tiruan saja: `openai_test.go` seluruhnya
-`httptest`. Yang belum diketahui: dukungan `json_schema` tiap server, penamaan
-model, batas `max_tokens`. Paling murah dicoba: LM Studio (port 1234) atau
-`llama-server` dari llama.cpp (8080) — keduanya sudah ada di daftar kandidat
-`discover.go`.
+Tidak lagi server tiruan saja. Diuji dengan **Qwen2.5 3B Q4_K_M**, semua biner
+ada di `~/llm-test/`:
 
-### 2. Kotak alamat server LLM + kunci API di GUI — BELUM
+| Server        | Diuji? | Hasil                                                     |
+| ------------- | ------ | --------------------------------------------------------- |
+| Ollama        | dipakai sejak awal | `format` benar-benar memaksa bentuk JSON      |
+| **llama.cpp** | **YA** (b10295) | `/api/tags` 404 → `KindOpenAI`; `json_schema` + `strict` DIHORMATI; `meta` memberi `n_ctx`/`n_params`/`size`/`ftype` |
+| **KoboldCpp** | **YA** | Jalan, TAPI dua kejutan — lihat di bawah                    |
+| **Jan** | **terpasang & jalan** (7 Agu) | AppImage jalan lewat WSLg. Server API-nya masih perlu dinyalakan di jendelanya: Settings → Local API Server |
+| GPT4All | terhalang | Pemasangnya butuh `libxkbcommon-x11.so.0`: `sudo apt install -y libxkbcommon-x11-0 libxcb-cursor0` |
+| LM Studio | belum terunduh | URL pemasangnya di balik JS, tidak bisa diambil dari terminal |
+| llamafile     | gagal jalan | APE terhalang WSLInterop di WSL (butuh `sudo`). Tidak masuk daftar |
 
-Jalur alamatnya di engine **sudah jadi**, yang kurang cuma pengisinya:
+**Dua kejutan dari KoboldCpp**, keduanya sudah ditangani:
 
-| Sudah menerima alamat            | Berkas                                  |
-| -------------------------------- | --------------------------------------- |
-| `POST /api/run` → `ollama_url`   | `engine/internal/api/api.go:284`        |
-| `GET /api/ollama/status?url=`    | `engine/internal/api/api.go:686`        |
-| `GET /api/requirements?ollama_url=` | `engine/internal/api/requirements.go:33` |
+1. Ia **MENIRU `/api/tags` milik Ollama** — lengkap dengan kunci `models`. Jadi
+   `kindOf` melabelinya `KindOllama` dan engine memakainya lewat `/api/chat`
+   (yang ternyata berhasil). Tapi `serverName` ikut menyebutnya "Ollama", jadi
+   baris yang menyala di Requirements adalah aplikasi yang bahkan tidak
+   terpasang. **Perbaikannya: `serverName` memeriksa PORT dulu, jenis protokol
+   belakangan.** Dijaga `TestKoboldCppIsNotCalledOllama`.
+2. Ia **mengabaikan `format`**. Diminta `{"picks":[…]}` ia menjawab
+   `{"moment2":45,"moment5":60}`. Bentuk balasannya bergantung pada model
+   menuruti prompt, bukan pada pagar server. Ditulis apa adanya di barisnya.
 
-Yang kurang ada empat, dan yang kedua paling menentukan:
+Kalau menguji sisanya nanti: nyalakan servernya, lalu bandingkan `/api/tags`
+(200 = akan dianggap Ollama) dan balasan `response_format: json_schema`. Kalau
+bentuknya tidak dipaksa, **tulis itu di `Detail` barisnya** — jangan diam-diam
+dimasukkan sebagai "didukung".
 
-- **GUI tidak pernah mengirimnya.** `gui/app/setup-panel.tsx:257` cuma punya
-  `Select` model; `ollama_url` selalu `""`.
-- **Kunci API dipaku `Bearer local`** di DUA tempat: `openai.go:92` (permintaan)
-  dan `discover.go:202` (**pemeriksaan**). Yang kedua yang fatal — LiteLLM
-  dengan auth menyala membalas 401, `probeJSON` mengembalikan `false`, dan
-  servernya dilaporkan "tidak jalan", bukan "salah kunci". Jadi kotak kunci itu
-  bukan kenyamanan: tanpanya servernya tidak terlihat sama sekali.
-- **Di mana disimpan — KEPUTUSAN PEMILIK.** Polanya sudah ada (kunci Claude ke
-  `.env` lewat `postSettings`, `api.go:667`); `LLM_URL` + `LLM_API_KEY` di sana
-  mengikuti pola itu. Menyentuh format data, jangan diputuskan sendiri.
-- **Alamat publik — KEPUTUSAN PEMILIK.** `hostURL()` (`discover.go:159`)
-  sengaja MENOLAK IP publik; kotak isian membobol pagar itu. Perlu diputuskan
-  apakah alamat yang diketik pengguna sendiri boleh publik (itu satu-satunya
-  cara memakai LLM di server sendiri) atau tetap ditolak.
+> Catatan cara kerja, ditulis sesudah ditegur: klaim "butuh jendela jadi tidak
+> bisa diuji dari terminal" itu **salah** — `DISPLAY=:0` ada di mesin ini
+> (WSLg), dan Jan memang jalan begitu dicoba. Jangan mengecilkan lingkup
+> permintaan berdasarkan hambatan yang belum diuji; coba dulu, baru laporkan
+> apa yang benar-benar menghalangi.
 
-### 3. Layar 1366×768 — BELUM
+### 2. Server LLM di UI — SELESAI
+
+Bukan cuma kotak alamat: seluruh daftar server kini ADA di aplikasi.
+
+**Halaman Requirements → "Separate applications"** menampilkan enam baris dari
+`setup.LLMServers` (`engine/internal/setup/setup.go`): Ollama, LM Studio, Jan,
+llama.cpp, KoboldCpp, GPT4All. Tiap baris membawa port bawaannya, cara
+menyalakan servernya, tautan unduh, dan **status ujinya sendiri** ("Tested:
+keeps JSON replies in shape" / "Not tested with Clipper yet"). Yang sedang
+berjalan ditandai hijau dengan alamat + daftar modelnya. Tidak satu pun
+`Required`, jadi titik merah "ada yang kurang" tidak menyala karenanya.
+
+**Panel Settings (gerigi di rail)** memuat kelompok **Server**: nama server yang
+menjawab, **daftar SEMUA server yang menjawab** (tinggal diklik), kotak alamat +
+Save untuk port tak dikenal, dan kotak kunci. **Di sana, bukan di halaman klip** —
+diminta begitu, dan memang benar: keduanya disetel sekali lalu dilupakan,
+sedangkan menaruhnya di halaman klip memaksa kisi mesin skor melipat ke baris
+kedua.
+
+Daftar itu datang dari **`DiscoverAll`** (`discover.go`), yang mengembalikan
+SEMUA kandidat yang menjawab, bukan cuma pemenangnya. Ongkosnya nol: semua
+kandidat memang sudah diketuk berbarengan, yang berubah cuma berapa hasil yang
+disimpan. Alamat yang menunjuk server sama (localhost vs 127.0.0.1) dilipat jadi
+satu lewat `samePort`. Terbukti di mesin ini dengan **tiga server hidup
+sekaligus** — Ollama 11434, llama.cpp 8080, KoboldCpp 5001 — dan mengklik
+llama.cpp benar-benar memindahkan engine ke sana (`llm_url` jadi
+`http://127.0.0.1:8080`, label berubah jadi `✓ llama.cpp`).
+
+Dua jebakan yang ditemukan saat mengerjakannya:
+
+- **`<Select>` TIDAK BISA dipakai di dalam `<Popover>`** — popup di dalam popup,
+  yang di dalam tertutup begitu dibuka; diuji dengan klik tetikus sungguhan
+  lewat CDP, `.sel-list` tidak pernah masuk DOM. Daftar servernya karena itu
+  memakai baris `<button>` biasa (`.srv-row` di `globals.css`), bentuk yang sudah
+  dipakai daftar komponen di panel yang sama.
+- Memilih server **tidak boleh mengirim `llm_api_key: ""`** — field pointer di
+  `postSettings` menafsirkannya sebagai "hapus kunci tersimpan". Kunci hanya
+  ikut terkirim bila memang diketik.
+
+**Deteksi ≠ terpasang.** Yang muncul di daftar adalah server yang SEDANG
+MENJAWAB di sebuah port. Berkas pemasang yang tergeletak di disk tidak dihitung,
+dan itu benar — sempat jadi pertanyaan ("kita sudah unduh banyak LLM, kenapa
+belum terdeteksi?"). Jawabannya: unduh ≠ pasang ≠ jalan.
+
+### Unduhan model Ollama: aturan notes/25 pernah dilanggar di sini juga
+
+Ditemukan 7 Agustus 2026 dari pertanyaan "aku baru menekan tombol unduh gemma —
+dari mana aku tahu ia sedang diproses?". Jawabannya saat itu: **tidak bisa
+tahu**, dan ternyata unduhannya memang sudah mati. Buktinya terukur: berkas
+parsial **5,44 GB dari 5,44 GB** tergeletak **14 menit tanpa bertambah**, dan
+gemma2 tidak pernah muncul di `/api/tags`.
+
+Dua sebabnya, keduanya sudah diperbaiki:
+
+- `ollamaPull` memanggil `ollama.Pull(r.Context(), …)` — unduhan hidup di dalam
+  permintaan halaman, persis yang `notes/25` larang. Sekarang ia dijalankan di
+  latar dengan `context.Background()` lewat **mesin `installs` yang sudah ada**:
+  `POST /api/ollama/pull` menjawab **202 seketika**, kemajuannya disiarkan di
+  SSE yang sama dengan pemasangan komponen (`/api/requirements/events`), dengan
+  id `llm-model:<nama>`.
+- `ollama.Pull` mengirim `"stream": false` — satu permintaan HTTP yang diam
+  belasan menit tanpa satu pun angka. Sekarang `stream: true` dan tiap baris
+  NDJSON-nya (`status`, `completed`, `total`) diteruskan sebagai `PullProgress`.
+
+Di GUI, halaman **BERLANGGANAN saat dibuka**, bukan hanya sesudah tombolnya
+ditekan: memuat ulang halaman di tengah unduhan 5 GB tetap menampilkan
+kemajuannya, sebab engine mengirim cuplikan keadaan saat SSE tersambung.
+Terbukti — unduhan dimulai lewat `curl`, dan halaman yang dibuka sesudahnya
+tetap melaporkannya sampai `✓ Model gemma2 is ready`.
+
+Kemajuannya tampil **di label**, bukan cuma di tombol: tombol unduhnya tinggal
+di dalam popup peringatan, jadi selama unduhan berjalan yang terlihat hanya
+lambang ⚠. Dan ia **menggantikan** nama server, tidak ditambahkan di sebelahnya —
+"Model · Ollama · 51%" terpotong jadi "Model · Ollama …" (diukur, bukan
+dikira).
+
+Yang berubah di engine:
+
+- Alamat disimpan sebagai **`OLLAMA_HOST`** di `.env`, bukan variabel baru —
+  `Candidates()` sudah membacanya lebih dulu dan memenangkannya atas semua
+  tebakan, jadi CLI ikut memakainya tanpa jalur tambahan.
+- Kunci dari **`LLM_API_KEY`** menggantikan `Bearer local` yang dipaku di DUA
+  tempat: `openai.go` (permintaan) dan `discover.go` (**pemeriksaan**). Yang
+  kedua yang fatal — server ber-auth membalas 401, `probeJSON` mengembalikan
+  `false`, dan ia dilaporkan "tidak jalan", bukan "salah kunci".
+- Semua field `postSettings` jadi **pointer**: menyimpan satu tidak boleh
+  menghapus dua lainnya.
+- `ollama.ResetCache()` dipanggil setelah alamat/kunci berubah — tanpa itu
+  alamat lama masih dipakai sampai 30 detik berikutnya.
+- `openAIModels` membaca `data[].meta` → `Context`/`Bytes`/`Params`/`Quant`.
+  `Context` yang paling penting: ia jadi `Client.NumCtx`, dan untuk server
+  OpenAI nilainya SELALU 0 sebelum ini.
+- Port ditambah: **1337** (Jan), **5001** (KoboldCpp), **4891** (GPT4All).
+
+Dua hal yang saat itu disebut "keputusan pemilik" sudah diputuskan sambil
+jalan: alamat disimpan di `.env` mengikuti pola kunci Claude, dan alamat yang
+DIKETIK pengguna tidak melewati saringan IP privat `hostURL()` — saringan itu
+tetap berlaku untuk tebakan otomatis saja.
+
+### 3. Kartu berita: gambar SUDAH, paragraf BELUM
+
+Dilaporkan 7 Agustus 2026 dari tab News cards: kartu jadi tanpa gambar.
+**Gambarnya sudah diperbaiki** (lihat di bawah); paragrafnya belum.
+
+Reproduksi (artikel Blogspot, `tabloidlugas.com`):
+
+```bash
+curl -s -X POST http://127.0.0.1:8787/api/news/article \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://www.tabloidlugas.com/2026/08/opini-di-balik-temuan-995-senjata-sekolah-konflik-yayasan-dan-pencarian-kebenaran.html"}'
+# title: benar · image: "" · paragraphs: 0
+```
+
+**SUDAH DIPERBAIKI — DUA hal, dan yang kedua yang sebenarnya dikeluhkan.**
+
+**(a) Klik baris daftar tidak pernah mengambil artikelnya.**
+`news/page.tsx` memasang `onClick={() => useArticle(a)}` — objek `a` itu dari
+RSS, dan **RSS tidak membawa gambar**. Jadi kartu selalu jadi tanpa foto.
+Satu-satunya cara yang bekerja adalah jalur memutar: tekan `copy` (yang
+diam-diam meresolusi tautannya), tempel ke kotak Fetch, baru gambarnya muncul —
+persis yang dilaporkan. Sekarang klik memanggil `openItem`, yang MENGAMBIL
+artikelnya lewat `/api/news/article`. Ringkasan RSS tetap dipasang lebih dulu
+supaya kliknya terasa langsung menjawab, lalu ditimpa artikel lengkapnya.
+
+**(b) Langkah resolve yang hilang di engine.**
+
+`api.newsArticle` meneruskan URL apa adanya ke `news.FetchArticle`. Tautan dari
+daftar berita menunjuk `news.google.com/rss/articles/CBMi…`, jadi yang terbaca
+adalah halaman Google sendiri. Terukur, artikel yang sama:
+
+| | sebelum | sesudah |
+| --- | --- | --- |
+| title | `Google Berita` | judul artikel asli |
+| image | logo Google | `bacaini.id/wp-content/uploads/…` |
+
+Langkah `news.Resolve` sebenarnya SUDAH ADA — tapi hanya di tombol salin-tautan
+di GUI (`copyLink`). **Satu langkah yang hidup di satu tombol saja adalah
+langkah yang pasti terlewat di tombol berikutnya** — tempatnya di engine, dan
+sekarang di sana. Itu juga yang membuat (a) mungkin: klik daftar boleh mengirim
+tautan Google mentah, engine yang membukanya. Murah untuk tautan biasa:
+`Resolve` mengembalikannya apa adanya, dijaga
+`TestResolvePassesOrdinaryLinksThrough`.
+
+Terbukti dari ujung ke ujung dengan tautan yang PERSIS dikirim tombol klik:
+
+```
+dikirim   : https://news.google.com/rss/articles/CBMiqgFBVV95cUxNVH…
+url balik : https://centralnews.id/polisi-selidiki-temuan-995-senjata-api-…
+image     : https://centralnews.id/wp-content/uploads/2026/08/Screenshot_…
+```
+
+Yang MASIH tersisa:
+
+1. **Tidak ada cadangan untuk gambar** saat halamannya memang tidak punya
+   `og:image`. `tabloidlugas.com` begitu — diperiksa dengan grep, nol og:image,
+   padahal ada **9 `<img>`** di halamannya. (Situs yang punya og:image, seperti
+   bacaini.id, sekarang sudah benar.)
+2. **Paragraf tidak terbaca dari markup Blogspot.** `content.go:117-118` mencari
+   `<p>…</p>` (halaman itu cuma punya 2) atau `<div>` yang isinya teks polos
+   ≥60 karakter (`[^<]{60,}`) — dan badan tulisan Blogspot penuh tag inline di
+   dalamnya, jadi pola itu tidak pernah cocok. Akibatnya tombol Analyse &
+   Paragraphs tidak punya bahan apa pun.
+
+Yang harus diputuskan sebelum mengerjakan: gambar cadangan diambil dari `<img>`
+pertama **di dalam badan artikel** (butuh menemukan badan itu lebih dulu) atau
+dari `<img>` terbesar di halaman. Yang pertama lebih benar, yang kedua lebih
+mudah dan gampang salah mengambil logo situs — halaman itu punya dua logo
+"LUGAS 28th" sebagai dua `<img>` pertamanya.
+
+### 4. Layar 1366×768 — BELUM
 
 `desktop/src-tauri/tauri.conf.json` masih `minWidth: 1240`, `minHeight: 860`;
 860 + bilah judul + taskbar ≈ 940, tidak muat. Kalau jadi masalah nyata, yang
@@ -103,14 +281,14 @@ menurunkan angka minimumnya; tabel ukur di `notes/33` menunjukkan akibatnya
 kalau diturunkan. Bahannya sudah ada: `<Section>` (`gui/app/section.tsx`) sudah
 bisa diciutkan, tinggal dipakai untuk kelompok setelan.
 
-### 4. Deploy situs otomatis — DITUTUP pemilik
+### 5. Deploy situs otomatis — DITUTUP pemilik
 
 Dianggap selesai; deploy dijalankan sebagaimana adanya. Catatan faktual supaya
 sesi berikutnya tidak bingung: `.github/workflows/desktop.yml` di repo ini
 BERHENTI di langkah "Publish release" — tidak ada `repository_dispatch`, jadi
 kalau otomatisasinya ada, ia hidup di sisi `gemgum.github.io`, bukan di sini.
 
-### 5. Galat ffmpeg lama di Windows — SETENGAH JALAN
+### 6. Galat ffmpeg lama di Windows — SETENGAH JALAN
 
 Akar yang bisa dibuktikan sudah ditutup: `checkRuns`
 (`engine/internal/setup/setup.go:215`) BENAR-BENAR menjalankan
@@ -136,6 +314,27 @@ baru:
 
 - **Menghapus satu JOB utuh dari riwayat.** Menghapus per klip sudah cukup.
 - **Sumber private + repo rilis publik.** Repo tetap seperti sekarang.
+
+## Dua jebakan yang memakan waktu di sesi 6 Agustus
+
+Keduanya membuat saya membaca hasil yang SALAH selama beberapa putaran. Kalau
+angka dan uji unit bertentangan, curigai keduanya lebih dulu.
+
+**1. `clipper serve` yang gagal bind DIAM SAJA di latar.** Port 8787 masih
+dipegang proses lama, `serve` baru menulis "address already in use" ke lognya
+lalu mati — dan yang menjawab semua `curl` berikutnya adalah **biner sebelum
+perbaikan**. Terjadi DUA KALI. Gejalanya khas: uji unit bilang "KoboldCpp",
+API bilang "Ollama". Sebelum percaya jawaban engine, pastikan yang mendengarkan
+itu proses yang baru:
+
+```bash
+ss -lptn 'sport = :8787'          # ada yang pegang? bunuh dulu
+head -2 <log serve>               # baris pertama harus banner, bukan galat bind
+```
+
+**2. `pkill -f <pola>` ikut membunuh shell yang menjalankannya**, sebab pola itu
+juga ada di baris perintahnya sendiri (exit 144). Pakai `pgrep -af` untuk
+melihat PID-nya lebih dulu, lalu `kill <pid>`.
 
 ## Cara memeriksa sebelum menyerahkan apa pun
 

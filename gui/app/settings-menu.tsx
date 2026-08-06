@@ -26,10 +26,18 @@ export default function SettingsMenu() {
   // mesin skor melipat ke baris kedua, dan baris itu tinggi yang diambil dari
   // pratinjau tiap kali halaman dibuka.
   const [llmUrl, setLlmUrl] = useState("");
+  // Kotak alamat manual dipisah dari alamat yang SEDANG berlaku.
+  //
+  // Sebelumnya keduanya satu nilai, jadi memilih "Ollama" dari daftar membuat
+  // alamat yang sama muncul tiga kali di panel setinggi 300 px: sebagai baris
+  // tersorot, sebagai isi kotak, dan sebagai teks di bawahnya. Kotak ini
+  // sekarang hanya untuk alamat yang TIDAK ada di daftar.
+  const [manual, setManual] = useState("");
   const [llmKey, setLlmKey] = useState("");
   const [hasLlmKey, setHasLlmKey] = useState(false);
-  const [llmServer, setLlmServer] = useState("");
   const [saving, setSaving] = useState(false);
+  // Semua server yang menjawab, bukan cuma yang dipakai.
+  const [servers, setServers] = useState<{ url: string; kind: string; name: string }[]>([]);
 
   // Status komponen ditarik saat panel DIBUKA — dan SETIAP kali dibuka.
   //
@@ -50,28 +58,47 @@ export default function SettingsMenu() {
       .catch(() => {});
     fetch(eng(`/api/ollama/status`))
       .then((r) => r.json())
-      .then((d) => setLlmServer(d.running ? d.server || "" : ""))
-      .catch(() => setLlmServer(""));
+      .then((d) => setServers(d.servers || []))
+      .catch(() => setServers([]));
   }, [open]);
 
   // Menyimpan lalu MEMERIKSA ULANG. Yang ingin dilihat pengguna sesudah menekan
   // Save bukan kata "tersimpan", melainkan nama server yang menjawab di alamat
   // itu — dan kalau tidak ada, itu harus ketahuan sekarang, bukan saat job
   // pertama berhenti di tengah jalan.
-  const saveLLM = async () => {
+  const save = async (url: string, key: string) => {
     setSaving(true);
     try {
+      // Kunci HANYA ikut terkirim bila memang diketik. Engine membedakan
+      // "tidak dikirim" dari "dikirim kosong" (field pointer di postSettings),
+      // dan mengirim string kosong berarti MENGHAPUS kunci tersimpan — yang
+      // jelas bukan maksud orang yang cuma memilih server lain dari daftar.
+      const body: Record<string, string> = { llm_url: url };
+      if (key) body.llm_api_key = key;
       const res = await fetch(eng(`/api/settings`), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ llm_url: llmUrl, llm_api_key: llmKey }),
+        body: JSON.stringify(body),
       });
       const d = await res.json();
       setHasLlmKey(!!d.has_llm_key);
       setLlmKey("");
       const st = await (await fetch(eng(`/api/ollama/status`))).json();
-      setLlmServer(st.running ? st.server || "" : "");
-    } catch { setLlmServer(""); } finally { setSaving(false); }
+      setServers(st.servers || []);
+    } catch { setServers([]); } finally { setSaving(false); }
   };
+
+  const saveLLM = () => { setLlmUrl(manual); save(manual, llmKey); };
+
+  // Memilih dari daftar LANGSUNG berlaku — tidak ada tombol Save kedua.
+  // Kotak alamat di bawahnya punya Save karena teks yang diketik belum tentu
+  // selesai diketik; pilihan dari daftar sudah pasti selesai.
+  const pickServer = (url: string) => { setLlmUrl(url); setManual(""); save(url, ""); };
+
+  // Alamat tersimpan yang TIDAK ada di daftar berarti pengguna mengetiknya
+  // sendiri — kembalikan ke kotaknya supaya ia bisa melihat & menyuntingnya.
+  useEffect(() => {
+    if (llmUrl && !servers.some((s) => s.url === llmUrl)) setManual(llmUrl);
+  }, [llmUrl, servers]);
 
   // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
   // penanda kapan status komponen perlu ditarik.
@@ -110,16 +137,37 @@ export default function SettingsMenu() {
 
           <div className="settings-group">
             <div className="settings-head">{t("llmServer")}</div>
-            {/* Nama server yang MENJAWAB, bukan yang diketik: itu satu-satunya
-                jawaban yang berguna di sini. Kosong = tidak ada yang menjawab. */}
-            <div className="meta" style={{ marginBottom: 6 }}>
-              {llmServer ? `✓ ${llmServer}` : t("llmServerNone")}
-            </div>
+            {/* Tidak ada baris "✓ Ollama" lagi: daftarnya sendiri sudah
+                menandai mana yang dipakai, dan dua tempat yang menyatakan hal
+                yang sama membuat panel ini tinggi tanpa memberi tahu apa pun.
+                Pesan hanya muncul saat memang TIDAK ADA yang menjawab. */}
+            {servers.length === 0 && (
+              <div className="meta" style={{ marginBottom: 6 }}>{t("llmServerNone")}</div>
+            )}
+            {/* SEMUA server yang menjawab jadi pilihan.
+                Di komputer yang punya tiga sekaligus — Ollama, llama.cpp,
+                KoboldCpp — menyebut satu lalu menyuruh pengguna mengetik alamat
+                dua lainnya dari ingatan adalah pekerjaan yang tidak perlu ada:
+                engine sudah tahu ketiganya, sebab ia memang mengetuk semua port
+                itu berbarengan. Kotak alamat di bawah tetap ada untuk server di
+                port yang tidak dikenal. */}
+            {servers.length > 0 && (
+              <div className="srv-list">
+                {[{ url: "", name: t("llmServerAuto"), kind: "" }, ...servers].map((s) => (
+                  <button key={s.url || "auto"} type="button"
+                    className={"srv-row" + (llmUrl === s.url ? " on" : "")}
+                    onClick={() => pickServer(s.url)} disabled={saving}>
+                    <span className="srv-name">{s.name}</span>
+                    <span className="meta">{s.url.replace(/^https?:\/\//, "")}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="path-row">
-              <input type="text" value={llmUrl} title={t("llmServerTip")}
-                placeholder={t("llmServerAuto")}
-                onChange={(e) => setLlmUrl(e.target.value)} />
-              <button onClick={saveLLM} disabled={saving}>{t("save")}</button>
+              <input type="text" value={manual} title={t("llmServerTip")}
+                placeholder={t("llmServerOther")}
+                onChange={(e) => setManual(e.target.value)} />
+              <button onClick={saveLLM} disabled={saving || !manual}>{t("save")}</button>
             </div>
             <input type="password" value={llmKey} title={t("llmApiKeyTip")}
               style={{ marginTop: 6, width: "100%" }}
@@ -132,13 +180,15 @@ export default function SettingsMenu() {
             {items === null ? (
               <div className="meta">{t("loading")}</div>
             ) : (
-              items.slice(0, 6).map((c) => (
-                <div className="settings-row" key={c.id}>
-                  <span className={"req-dot " + (c.installed ? "on" : c.required ? "off" : "idle")} />
-                  <span className="settings-name">{c.name}</span>
-                  <span className="meta">{c.installed ? t("settingsReady") : t("settingsMissing")}</span>
-                </div>
-              ))
+              <div className="settings-scroll">
+                {items.map((c) => (
+                  <div className="settings-row" key={c.id}>
+                    <span className={"req-dot " + (c.installed ? "on" : c.required ? "off" : "idle")} />
+                    <span className="settings-name">{c.name}</span>
+                    <span className="meta">{c.installed ? t("settingsReady") : t("settingsMissing")}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 

@@ -2000,3 +2000,38 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    bergerigi. Caption tetap ada di dalam zip-nya. */
 
 .feed-more { text-align: center; padding: 8px 0; }
+
+/* Daftar server LLM di panel Settings.
+   Baris yang bisa diklik, BUKAN <Select>: dropdown di dalam popover tidak
+   pernah terbuka — popup-di-dalam-popup, dan yang di dalam tertutup begitu
+   dibuka. Bentuk baris juga yang sudah dipakai daftar komponen di panel yang
+   sama, jadi tidak ada tata letak baru yang perlu diingat. */
+.srv-list { display: flex; flex-direction: column; gap: 2px; margin-bottom: 6px; }
+.srv-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.srv-row:hover { background: var(--hover); }
+.srv-row.on { border-color: var(--accent); background: var(--hover); }
+.srv-name { font-weight: 500; }
+.srv-row .meta { font-size: 11px; white-space: nowrap; }
+
+/* Panel Settings HARUS MUAT; yang boleh bergulir hanya daftar di dalamnya.
+   Terukur 7 Agustus 2026: isinya 463 px sementara batas popover 420 px, jadi
+   panelnya sendiri yang bergulir — persis yang dilarang. Dua daftar di
+   dalamnya (server & komponen) sekarang dibatasi tingginya, jadi panelnya
+   tidak lagi tumbuh mengikuti berapa banyak server yang kebetulan menyala
+   atau berapa model yang sudah diunduh. */
+.srv-list { max-height: 104px; overflow-y: auto; }
+.settings-scroll { max-height: 132px; overflow-y: auto; }

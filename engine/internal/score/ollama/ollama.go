@@ -2,6 +2,7 @@
 package ollama
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -247,6 +248,10 @@ type StatusInfo struct {
 	// Models = daftar nama lengkap; dipertahankan agar pemakai lama tetap jalan.
 	Models    []string    `json:"models"`
 	Installed []ModelInfo `json:"installed"`
+	// Servers = SEMUA server LLM yang menjawab di komputer ini, bukan cuma yang
+	// dipakai. Itu yang membuat GUI bisa menawarkan pilihan alih-alih menuntut
+	// pengguna mengetik alamat server keduanya dari ingatan.
+	Servers []Endpoint `json:"servers"`
 }
 
 // Status memeriksa apakah Ollama jalan & daftar model terpasang, lengkap dengan
@@ -268,7 +273,7 @@ func Status(ctx context.Context, url string) StatusInfo {
 	if ep.Kind == KindOpenAI {
 		models := openAIModels(ctx, ep.URL)
 		info := StatusInfo{Running: true, URL: ep.URL, Where: Where(ep.URL), OS: OS(ep.URL),
-			Kind: ep.Kind, Server: serverName(ep.URL, ep.Kind)}
+			Kind: ep.Kind, Server: serverName(ep.URL, ep.Kind), Servers: DiscoverAll(ctx)}
 		for _, m := range models {
 			info.Models = append(info.Models, m.Name)
 		}
@@ -298,7 +303,7 @@ func Status(ctx context.Context, url string) StatusInfo {
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &parsed)
 	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url),
-		Kind: KindOllama, Server: serverName(url, KindOllama)}
+		Kind: KindOllama, Server: serverName(url, KindOllama), Servers: DiscoverAll(ctx)}
 	for _, m := range parsed.Models {
 		mi := ModelInfo{
 			Name:    m.Name,
@@ -382,12 +387,22 @@ func parseParams(s string) float64 {
 }
 
 // Pull mengunduh model lewat Ollama (bisa lama). Mengembalikan error bila gagal.
-func Pull(ctx context.Context, url, model string) error {
+func Pull(ctx context.Context, url, model string, onProgress func(PullProgress)) error {
 	if url == "" {
 		url = defaultURL
 	}
+	if onProgress == nil {
+		onProgress = func(PullProgress) {}
+	}
 	url = strings.TrimRight(url, "/")
-	body, _ := json.Marshal(map[string]interface{}{"name": model, "stream": false})
+	// stream:true — DIALIRKAN, bukan satu balasan di akhir.
+	//
+	// Dengan stream:false unduhan 5 GB adalah satu permintaan HTTP yang diam
+	// belasan menit: tidak ada persentase, tidak ada cara membedakan "sedang
+	// jalan" dari "sudah mati". Terjadi sungguhan 7 Agustus 2026 — gemma2
+	// berhenti di 5,44 GB dan berkas parsialnya tergeletak 14 menit tanpa ada
+	// satu pun tempat yang memberitahu.
+	body, _ := json.Marshal(map[string]any{"name": model, "stream": true})
 	cl := &http.Client{Timeout: 60 * time.Minute}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url+"/api/pull", bytes.NewReader(body))
 	if err != nil {
@@ -399,19 +414,52 @@ func Pull(ctx context.Context, url, model string) error {
 		return fmt.Errorf("Ollama is unreachable (download failed): %w", err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	var r struct {
-		Status string `json:"status"`
-		Error  string `json:"error"`
-	}
-	_ = json.Unmarshal(raw, &r)
-	if r.Error != "" {
-		return fmt.Errorf("model download failed: %s", r.Error)
-	}
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("model download failed (status %d)", resp.StatusCode)
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		return fmt.Errorf("model download failed (status %d): %s", resp.StatusCode, trunc(string(raw), 200))
+	}
+
+	// Tiap baris satu objek JSON. Baris terakhir yang berisi "error" menang atas
+	// apa pun sebelumnya: Ollama melaporkan kemajuan lebih dulu, baru gagal.
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	seen := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var p PullProgress
+		if json.Unmarshal([]byte(line), &p) != nil {
+			continue
+		}
+		if p.Error != "" {
+			return fmt.Errorf("model download failed: %s", p.Error)
+		}
+		seen = true
+		onProgress(p)
+	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("the download stopped early: %w", err)
+	}
+	if !seen {
+		return fmt.Errorf("Ollama at %s said nothing about the download of %q", url, model)
 	}
 	return nil
+}
+
+// PullProgress = satu baris kemajuan dari /api/pull.
+//
+// Completed/Total hanya terisi selama lapisan berkas diunduh; baris lain
+// ("verifying sha256 digest", "success") cuma membawa Status. Karena itu GUI
+// menampilkan Status apa adanya dan persentasenya hanya bila Total > 0 —
+// bilangan 0% yang menggantung di tahap verifikasi terbaca seperti macet.
+type PullProgress struct {
+	Status    string `json:"status"`
+	Digest    string `json:"digest"`
+	Total     int64  `json:"total"`
+	Completed int64  `json:"completed"`
+	Error     string `json:"error"`
 }
 
 // PickMoments meminta model lokal MEMILIH dari kandidat bernomor.
