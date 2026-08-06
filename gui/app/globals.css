@@ -59,6 +59,8 @@
 /* Nama pendek yang dipakai seluruh CSS tulisan tangan di bawah. Dipetakan ke
  * token di atas, bukan diberi nilai sendiri — satu tempat, satu kebenaran. */
 :root {
+  /* Tinggi semua kendali sebaris — lihat komentarnya di aturan input/select. */
+  --ctl-h: 32px;
   --bg: var(--color-bg);
   --panel: var(--color-panel);
   --panel2: var(--color-panel2);
@@ -351,6 +353,11 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; flex: 1; min-width: 160px; }
 label { font-size: 13px; color: var(--muted); }
 
+/* SATU tinggi untuk semua kendali sebaris: <input>, <Select>, dan tombol di
+   dalam kisi. Ditulis sebagai variabel karena ketiganya harus berubah bersama —
+   dulu tombol kisi memakai angkanya sendiri (37 px + padding = 40) sementara
+   kotak isian 32 px, jadi tombol berdiri 8 px lebih tinggi DAN 8 px lebih ke
+   atas daripada kotak di sebelahnya. */
 input, select {
   background: var(--panel2);
   border: 1px solid var(--border);
@@ -359,6 +366,7 @@ input, select {
   padding: 7px 11px;
   font-size: 14px;
   width: 100%;
+  min-height: var(--ctl-h);
 }
 input:focus, select:focus { outline: 2px solid var(--accent); }
 
@@ -373,6 +381,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-height: var(--ctl-h);
   background: var(--panel2);
   border: 1px solid var(--border);
   color: var(--text);
@@ -1347,7 +1356,10 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
      yang salah satunya lewat <Popover> tampak tidak simetris kalau masing-masing
      mengatur ukurannya sendiri. */
   width: 100%;
-  min-height: 37px;
+  min-height: var(--ctl-h);
+  height: var(--ctl-h);
+  padding-top: 0;
+  padding-bottom: 0;
   justify-content: center;
   /* Satu baris, apa pun labelnya: tombol yang membungkus jadi dua baris berdiri
      lebih tinggi daripada tetangganya, dan dua tombol bersebelahan yang
@@ -1763,6 +1775,20 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 }
 .req-row:first-of-type { border-top: none; }
 .req-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex: none; }
+.req-row { position: relative; }
+/* Keterangan komponen: SATU baris, dipotong elipsis. Pesan kemajuan unduhan
+   ("112 MB dari 214 MB") panjangnya berubah terus, dan membiarkannya membungkus
+   berarti tinggi barisnya ikut berubah tiap detik. */
+.req-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Bilah kemajuan di dasar baris, di luar aliran tata letak. */
+.req-progress {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
 .req-dot.on { background: var(--good); }
 .req-dot.off { background: var(--bad); }
 .req-dot.idle { background: var(--muted); }

@@ -12,6 +12,7 @@ import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import Picker from "../picker";
 import Alerts from "../alerts";
+import Warn from "../warn";
 
 type Component = {
   id: string;
@@ -250,23 +251,23 @@ export default function RequirementsPage() {
                   <div className="req-main">
                     <div className="req-name">
                       {c.name}
+                      {st?.error && <Warn>{st.error}</Warn>}
                       {c.required && !c.installed && <span className="req-tag">{t("reqRequired")}</span>}
                       {c.size && !c.installed && <span className="meta"> · {c.size}</span>}
                     </div>
-                    <div className="meta">{c.detail}</div>
+                    {/* SATU baris keterangan, apa pun keadaannya: saat memasang
+                        ia berganti jadi kabar kemajuan, bukan menambah baris di
+                        bawahnya. Baris yang bertambah mendorong seluruh daftar
+                        komponen turun tepat saat tombol Install ditekan. */}
+                    <div className="meta req-line">{live ? st.message : c.detail}</div>
                     {c.installed && c.path && <div className="req-path">{c.path}</div>}
-                    {!c.installed && !c.installable && c.hint && <div className="meta">{c.hint}</div>}
-                    {notes[c.id] && <div className="meta">{notes[c.id]}</div>}
-                    {st?.error && <div className="meta">⚠ {st.error}</div>}
+                    {!c.installed && !c.installable && c.hint && <div className="meta req-line">{c.hint}</div>}
+                    {notes[c.id] && <div className="meta req-line">{notes[c.id]}</div>}
+                    {/* Bilah kemajuan menempel di DASAR barisnya, di luar aliran:
+                        munculnya tidak menambah satu piksel pun. */}
                     {live && (
-                      <div style={{ marginTop: 8 }}>
-                        <div className="progress-outer">
-                          <div
-                            className="progress-inner"
-                            style={{ width: `${Math.max(0, st.value) * 100}%` }}
-                          />
-                        </div>
-                        <div className="meta" style={{ marginTop: 4 }}>{st.message}</div>
+                      <div className="req-progress">
+                        <div className="progress-inner" style={{ width: `${Math.max(0, st.value) * 100}%` }} />
                       </div>
                     )}
                   </div>

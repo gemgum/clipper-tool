@@ -365,7 +365,11 @@ export default function PreviewPanel({
         <div className="group">
         <div className="group-title">{t("groupSubtitle")}</div>
         <div className="grid3">
-          <div className="field"><label>{t("font")}</label>
+          <div className="field"><label>{t("font")}
+            {/* Font manual yang ditolak: lambang di label, bukan kalimat merah
+                di bawah kotaknya — kalimat itu panjangnya berubah tiap ketikan
+                dan seluruh kisi ikut naik-turun. */}
+            {fontManual && fontCheck && !fontCheck.valid && <Warn>{fontCheck.error}</Warn>}</label>
             <Select
               value={fontManual ? "__manual__" : subFont}
               onChange={(v) => {
@@ -380,11 +384,12 @@ export default function PreviewPanel({
               <>
                 <input style={{ marginTop: 6 }} value={subFont} spellCheck={false}
                   placeholder={t("fontPlaceholder")} onChange={(e) => setSubFont(e.target.value)} />
-                <div className="meta">
+                {/* Satu baris, selalu: apa pun keadaannya tingginya sama. */}
+                <div className="meta req-line">
                   {fontChecking ? t("fontChecking")
                     : !fontCheck ? t("fontHint")
                     : fontCheck.valid ? <span className="ok">{t("fontFound", { family: fontCheck.family, source: fontCheck.source })}</span>
-                    : <span className="warn">⚠ {fontCheck.error}</span>}
+                    : fontCheck.error}
                 </div>
               </>
             )}</div>

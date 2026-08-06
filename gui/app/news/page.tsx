@@ -12,6 +12,7 @@ import Popover from "../popover";
 import Select from "../select";
 import Section from "../section";
 import Alerts from "../alerts";
+import Warn from "../warn";
 
 
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
@@ -611,7 +612,12 @@ export default function News() {
                     )}
                   </div>
                   <div className="field field-check">
-                    <button className="ghost" onClick={analyze} disabled={analyzeBusy}>
+                    {/* Kabar "sedang menganalisis" ada di tombolnya sendiri, dan
+                        catatan dari mesin skor jadi lambang peringatan di
+                        sebelahnya — dua baris teks yang dulu muncul di bawah
+                        kisi ini mendorong seluruh panel isi & pratinjau turun. */}
+                    <button className="ghost" onClick={analyze} disabled={analyzeBusy}
+                      title={analyzeBusy && engine === "ollama" ? t("analyzingLocal") : undefined}>
                       {analyzeBusy ? t("analyzing") : t("analyze")}
                     </button>
                   </div>
@@ -620,6 +626,7 @@ export default function News() {
                       antaranya berarti panelnya sendiri yang harus digulir —
                       sekaligus mendorong pratinjau kartu keluar layar. */}
                   <div className="field field-check">
+                    {selection?.note && <Warn width={340}>{selection.note}</Warn>}
                     <Popover width={760} buttonClass="ghost" disabled={!selection}
                       label={selection
                         ? t("pickParagraph", { n: selection.rankings.length })
@@ -654,8 +661,6 @@ export default function News() {
                   </div>
                 </div>
 
-                {analyzeBusy && engine === "ollama" && <p className="stage">{t("analyzingLocal")}</p>}
-                {selection?.note && <div className="warnbox">{selection.note}</div>}
               </Section>
 
               <Section title={t("groupContent")}>
@@ -910,18 +915,20 @@ export default function News() {
                 placeholder={t("searchPlaceholder")}
                 aria-label={t("search")}
               />
-              <button onClick={runSearch} disabled={!typed.trim() || listBusy}>
-                {listBusy && query ? t("searching") : t("search")}
-              </button>
-            </div>
-            {query && (
-              <div className="search-result">
-                <span>{t("searchResultsFor")} <b>{query}</b></span>
-                <button className="ghost tiny" onClick={() => { setQuery(""); setTyped(""); }}>
+              {/* Satu tombol yang berganti peran, bukan baris kedua yang muncul
+                  saat sedang mencari: baris itu mendorong seluruh daftar berita
+                  turun tepat ketika hasilnya datang. */}
+              {query ? (
+                <button className="ghost" title={t("searchResultsFor") + " " + query}
+                  onClick={() => { setQuery(""); setTyped(""); }}>
                   {t("backToSources")}
                 </button>
-              </div>
-            )}
+              ) : (
+                <button onClick={runSearch} disabled={!typed.trim() || listBusy}>
+                  {listBusy && query ? t("searching") : t("search")}
+                </button>
+              )}
+            </div>
 
             {/* Daftar TIDAK PERNAH diganti teks "memuat" selama masih ada isi.
                 Dulu iya, dan itu mematahkan gulir tak terbatas: menggulir ke

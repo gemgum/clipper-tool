@@ -173,3 +173,30 @@ tombol yang membungkus dua baris berdiri lebih tinggi daripada tetangganya.
 Tombol uji model pindah ke kolom ketiga kisi Engine, sejajar dengan dua Select
 di kirinya; hasilnya tidak lagi menambah baris (berhasil → tombol hijau +
 tooltip, gagal → lambang peringatan di label model).
+
+### 15. Tinggi kendali: satu variabel (`--ctl-h`)
+
+Terukur di baris "Paragraph": `<Select>` **top 83, tinggi 32**; tombol di sel
+sebelahnya **top 75, tinggi 40** — 8 px lebih tinggi DAN 8 px lebih ke atas,
+karena tombol kisi memakai angkanya sendiri (`min-height: 37px` + padding).
+Sekarang `--ctl-h: 32px` dipakai `<input>`, `.sel`, dan tombol di kisi; keempat
+kendali baris itu **top 83, tinggi 32**.
+
+Label yang jadi dua baris ikut dipendekkan ("Move to safe area" → "Safe area"):
+dengan tinggi terkunci, label panjang meluap, bukan menaikkan tombol.
+
+### 16. Sisa peringatan yang masih menggeser — semuanya dibereskan
+
+Setelah butir 12, enam tempat lain masih memakai pola lama:
+
+| Tempat | Dulu | Sekarang |
+| --- | --- | --- |
+| Kartu: catatan mesin skor | `.warnbox` di bawah kisi | `<Warn>` di sel tombol |
+| Kartu: "menganalisis (lokal)…" | baris `.stage` | tooltip pada tombolnya |
+| Kartu: "hasil pencarian untuk X" | baris tambahan di atas daftar | tombol Search berganti jadi Clear |
+| Requirements: galat pemasangan | baris `⚠` di bawah keterangan | `<Warn>` di nama komponen |
+| Requirements: kemajuan unduhan | bar + pesan, dua baris baru | bar `position:absolute` di dasar baris; keterangan berganti teks (satu baris, elipsis) |
+| Klip: status font manual | baris yang panjangnya berubah tiap ketikan | satu baris tetap + `<Warn>` di label |
+
+Yang TIDAK diubah: `⚠` di dalam kotak log. Log memang daftar yang bergulir —
+itu satu-satunya tempat teks boleh bertambah.
