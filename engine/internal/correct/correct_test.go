@@ -281,37 +281,48 @@ func TestCorrectRejectsDroppedQuotationMarks(t *testing.T) {
 	}
 }
 
-// Satu potongan yang balasannya tak terbaca TIDAK boleh membuang seluruh
-// pekerjaan — dicoba ulang dulu, dan yang tetap gagal dilewati serta dihitung.
-func TestCorrectRetriesThenSkipsUnreadableChunk(t *testing.T) {
+// Model yang tidak sanggup membalas satu potongan penuh harus DILAYANI, bukan
+// menggagalkan job: potongannya dipecah sampai ia sanggup.
+func TestCorrectSplitsChunkWhenReplyIsEmpty(t *testing.T) {
 	tr := types.Transcript{Language: "id", Segments: []types.TranscriptSegment{
 		{Start: 0, End: 2, Text: "halo dunia"},
 		{Start: 2, End: 4, Text: "apa kabar"},
 	}}
-	calls := 0
-	// Dua percobaan pertama membalas kosong, ketiga benar.
+	// Kosong untuk permintaan berisi DUA segmen; benar untuk permintaan berisi
+	// satu segmen — persis kelakuan model yang kehabisan ruang.
 	complete := func(ctx context.Context, system, user string, schema any) (string, error) {
-		calls++
-		if calls < 3 {
+		if strings.Count(user, "[") >= 2 {
 			return "", nil
 		}
-		return `{"segments":[{"index":0,"text":"Halo dunia."},{"index":1,"text":"Apa kabar?"}]}`, nil
+		if strings.Contains(user, "[0]") {
+			return `{"segments":[{"index":0,"text":"Halo dunia."}]}`, nil
+		}
+		return `{"segments":[{"index":1,"text":"Apa kabar?"}]}`, nil
 	}
 	out, rep, err := Correct(context.Background(), tr, nil, complete, "uji", nil)
 	if err != nil {
-		t.Fatalf("gagal padahal percobaan ketiga benar: %v", err)
+		t.Fatalf("job gagal padahal pemecahan berhasil: %v", err)
 	}
-	if calls != 3 {
-		t.Fatalf("percobaan = %d, mau 3", calls)
+	if rep.Split == 0 {
+		t.Fatal("potongan tidak pernah dipecah")
 	}
-	if rep.Failed != 0 || out.Segments[0].Text != "Halo dunia." {
-		t.Fatalf("hasil = %+v / %q", rep, out.Segments[0].Text)
+	if rep.Failed != 0 {
+		t.Fatalf("ada potongan yang dinyatakan gagal: %+v", rep)
 	}
+	if out.Segments[0].Text != "Halo dunia." || out.Segments[1].Text != "Apa kabar?" {
+		t.Fatalf("hasil koreksi = %q / %q", out.Segments[0].Text, out.Segments[1].Text)
+	}
+}
 
-	// Selalu kosong: satu-satunya potongan gagal, dan itu lebih dari
-	// seperempat — jobnya harus berhenti, dengan pesan yang menyebut balasannya.
+// Model yang SELALU membalas kosong, bahkan untuk satu segmen, memang tidak
+// sanggup — jobnya harus berhenti dengan pesan yang menyebut balasannya.
+func TestCorrectStopsWhenEvenOneSegmentFails(t *testing.T) {
+	tr := types.Transcript{Language: "id", Segments: []types.TranscriptSegment{
+		{Start: 0, End: 2, Text: "halo dunia"},
+		{Start: 2, End: 4, Text: "apa kabar"},
+	}}
 	always := func(ctx context.Context, system, user string, schema any) (string, error) { return "", nil }
-	_, _, err = Correct(context.Background(), tr, nil, always, "uji", nil)
+	_, _, err := Correct(context.Background(), tr, nil, always, "uji", nil)
 	if err == nil {
 		t.Fatal("balasan kosong terus-menerus harus menggagalkan koreksi")
 	}

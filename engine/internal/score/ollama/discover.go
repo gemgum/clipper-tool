@@ -3,6 +3,8 @@ package ollama
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -41,27 +43,31 @@ const cacheFor = 30 * time.Second
 
 var (
 	found struct {
-		url  string
+		ep   Endpoint
 		when time.Time
 	}
 	foundMu sync.Mutex
 )
 
-// Discover mengembalikan alamat Ollama yang benar-benar menjawab, atau "" bila
+// Discover mengembalikan alamat server LLM lokal yang menjawab, atau "" bila
 // tidak satu pun kandidat hidup.
-func Discover(ctx context.Context) string {
+func Discover(ctx context.Context) string { return DiscoverEndpoint(ctx).URL }
+
+// DiscoverEndpoint mencari server LLM lokal — Ollama ATAU yang bergaya OpenAI —
+// dan menyebutkan jenisnya.
+func DiscoverEndpoint(ctx context.Context) Endpoint {
 	foundMu.Lock()
-	if found.url != "" && time.Since(found.when) < cacheFor {
-		u := found.url
+	if found.ep.URL != "" && time.Since(found.when) < cacheFor {
+		ep := found.ep
 		foundMu.Unlock()
-		return u
+		return ep
 	}
 	foundMu.Unlock()
 
 	cands := Candidates()
 	type hit struct {
-		i   int
-		url string
+		i  int
+		ep Endpoint
 	}
 	results := make(chan hit, len(cands))
 	var wg sync.WaitGroup
@@ -69,8 +75,8 @@ func Discover(ctx context.Context) string {
 		wg.Add(1)
 		go func(i int, u string) {
 			defer wg.Done()
-			if alive(ctx, u) {
-				results <- hit{i, u}
+			if kind := kindOf(ctx, u); kind != "" {
+				results <- hit{i, Endpoint{URL: u, Kind: kind}}
 			}
 		}(i, u)
 	}
@@ -80,27 +86,27 @@ func Discover(ctx context.Context) string {
 	// Yang paling awal di daftar menang, bukan yang paling cepat menjawab:
 	// urutan kandidat itu urutan kemungkinan, dan hasil balapan jaringan bukan
 	// hal yang boleh menentukan konfigurasi mana yang dipakai (dua alamat bisa
-	// menunjuk Ollama yang berbeda, dengan model yang berbeda).
+	// menunjuk server berbeda, dengan model yang berbeda).
 	best := hit{i: len(cands)}
 	for h := range results {
 		if h.i < best.i {
 			best = h
 		}
 	}
-	if best.url == "" {
-		return ""
+	if best.ep.URL == "" {
+		return Endpoint{}
 	}
 	foundMu.Lock()
-	found.url, found.when = best.url, time.Now()
+	found.ep, found.when = best.ep, time.Now()
 	foundMu.Unlock()
-	return best.url
+	return best.ep
 }
 
 // resetDiscoverCache dipakai uji: cache alamat membuat dua kasus uji dalam satu
 // proses saling memengaruhi.
 func resetDiscoverCache() {
 	foundMu.Lock()
-	found.url, found.when = "", time.Time{}
+	found.ep, found.when = Endpoint{}, time.Time{}
 	foundMu.Unlock()
 }
 
@@ -128,9 +134,15 @@ func Candidates() []string {
 		h = strings.Replace(h, "0.0.0.0", "127.0.0.1", 1)
 		add(h)
 	}
-	// 2. Sistem yang sama.
+	// 2. Sistem yang sama. Selain port Ollama, port yang lazim dipakai server
+	// lokal bergaya OpenAI: llama.cpp & llamafile & LocalAI (8080), vLLM &
+	// Aphrodite (8000), LiteLLM (4000), Exo (52415). Semuanya hanya dianggap
+	// LLM bila benar-benar menjawab /v1/models — lihat probeJSON.
 	add(defaultURL)
 	add("http://127.0.0.1:11434")
+	for _, port := range []string{"8080", "8000", "4000", "52415", "1234"} {
+		add("http://127.0.0.1:" + port)
+	}
 
 	// 3. Menyeberangi batas WSL <-> Windows.
 	if runtime.GOOS == "linux" {
@@ -158,21 +170,51 @@ func hostURL(ip string) string {
 	return "http://" + ip + ":11434"
 }
 
-// alive memeriksa satu alamat dengan permintaan yang paling murah yang tetap
-// membuktikan ini benar-benar Ollama.
-func alive(ctx context.Context, url string) bool {
+// kindOf memeriksa satu alamat dan menyebutkan jenis servernya ("" = bukan
+// server LLM, atau tidak menjawab).
+//
+// Ollama diperiksa lebih dulu: ia MENYEDIAKAN /v1 juga, dan lewat API-nya
+// sendiri bentuk balasan bisa dipaksa dengan JSON Schema penuh — kemampuan yang
+// hilang kalau ia diperlakukan sebagai server OpenAI biasa.
+func kindOf(ctx context.Context, url string) string {
+	if probeJSON(ctx, url+"/api/tags", "models") {
+		return KindOllama
+	}
+	if probeJSON(ctx, url+"/v1/models", "data") {
+		return KindOpenAI
+	}
+	return ""
+}
+
+// probeJSON menganggap sebuah alamat "milik kita" hanya bila ia menjawab 200
+// DENGAN JSON yang memuat kunci yang diharapkan.
+//
+// Bukan sekadar "port 8080 terbuka": kandidat di sini mencakup port yang lazim
+// dipakai server lain (8000, 8080), dan menyapa server pengembangan orang lalu
+// menyimpulkan ia LLM adalah cara paling cepat membuat aplikasi ini salah.
+func probeJSON(ctx context.Context, url, key string) bool {
 	c, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(c, http.MethodGet, url+"/api/tags", nil)
+	req, err := http.NewRequestWithContext(c, http.MethodGet, url, nil)
 	if err != nil {
 		return false
 	}
+	req.Header.Set("authorization", "Bearer local")
 	resp, err := (&http.Client{Timeout: probeTimeout}).Do(req)
 	if err != nil {
 		return false
 	}
 	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+	var probe map[string]json.RawMessage
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if json.Unmarshal(raw, &probe) != nil {
+		return false
+	}
+	_, ok := probe[key]
+	return ok
 }
 
 // gatewayIP membaca gerbang default lewat `ip route` — di WSL2 itu host Windows.

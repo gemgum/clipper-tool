@@ -26,6 +26,10 @@ const defaultURL = "http://localhost:11434"
 // akan memotong prompt diam-diam.
 const numCtx = 8192
 
+// minCtx = konteks terkecil yang masih masuk akal untuk satu segmen transkrip
+// beserta prompt sistemnya. Di bawah ini modelnya memang tidak bisa dipakai.
+const minCtx = 2048
+
 // minParams = batas bawah ukuran model (miliar parameter) yang masih sanggup
 // mengerjakan prompt pemilihan momen. Dari uji di notes/12: model 4B membalas
 // JSON valid tapi isian kosong, sedangkan 7B mengerjakannya dengan benar.
@@ -40,6 +44,20 @@ type Client struct {
 	// koreksi transkrip butuh angka jauh lebih rendah daripada tugas kreatif
 	// seperti memilih momen — pada 0.4 keluarannya berbeda-beda tiap kali.
 	Temperature float64
+	// NumCtx = konteks maksimum model INI, dari metadata Ollama. 0 = tidak tahu.
+	NumCtx int
+	// Kind = jenis server: KindOllama (bawaan) atau KindOpenAI untuk apa pun
+	// yang bicara /v1/chat/completions — llama.cpp, LocalAI, llamafile, vLLM,
+	// Aphrodite, LiteLLM, Exo. Lihat openai.go.
+	Kind string
+}
+
+// temperature mengembalikan suhu yang berlaku untuk klien ini.
+func (c *Client) temperature() float64 {
+	if c.Temperature > 0 {
+		return c.Temperature
+	}
+	return defaultTemperature
 }
 
 // defaultTemperature dipakai bila Client.Temperature tidak diisi.
@@ -52,6 +70,20 @@ const defaultTemperature = 0.4
 // pertama, dan selama itu Ollama belum mengirim satu header pun. Dilaporkan
 // sebagai kegagalan di lapangan; 5 menit terlalu ketat.
 const chatTimeout = 12 * time.Minute
+
+// ctxSize = jendela konteks yang diminta ke Ollama untuk klien ini.
+//
+// Bukan angka tetap: model kecil sering hanya mendukung 4096 atau 2048, dan
+// meminta 8192 padanya membuat Ollama memuat model dengan konteks yang tidak
+// bisa dipenuhi — balasannya kosong, tanpa satu pun pesan galat. NumCtx diisi
+// pemanggil dari metadata model (lihat pipeline/ollama_resolve.go); 0 berarti
+// "tidak tahu", dan di situ angka bawaan yang dipakai.
+func (c *Client) ctxSize() int {
+	if c.NumCtx >= 512 {
+		return min(c.NumCtx, numCtx)
+	}
+	return numCtx
+}
 
 func New(url, model string) *Client {
 	if url == "" {
@@ -90,10 +122,10 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 	if numPredict <= 0 {
 		numPredict = 2048
 	}
-	temperature := c.Temperature
-	if temperature <= 0 {
-		temperature = defaultTemperature
+	if c.Kind == KindOpenAI {
+		return c.completeOpenAI(ctx, system, user, schema, numPredict)
 	}
+	temperature := c.temperature()
 	reqBody := chatReq{
 		Model: c.Model,
 		Messages: []chatMsg{
@@ -102,7 +134,7 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 		},
 		Stream:  false,
 		Format:  schema,
-		Options: map[string]any{"temperature": temperature, "num_ctx": numCtx, "num_predict": numPredict},
+		Options: map[string]any{"temperature": temperature, "num_ctx": c.ctxSize(), "num_predict": numPredict},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
@@ -206,6 +238,8 @@ type StatusInfo struct {
 	Where string `json:"where"`
 	// OS = satu kata: "Windows", "WSL", "Linux", "macOS", "remote".
 	OS string `json:"os"`
+	// Kind = "ollama" atau "openai" (llama.cpp, LocalAI, vLLM, …).
+	Kind string `json:"kind"`
 	// Models = daftar nama lengkap; dipertahankan agar pemakai lama tetap jalan.
 	Models    []string    `json:"models"`
 	Installed []ModelInfo `json:"installed"`
@@ -215,15 +249,28 @@ type StatusInfo struct {
 // penilaian siap/tidaknya tiap model.
 func Status(ctx context.Context, url string) StatusInfo {
 	// Alamat kosong berarti "cari sendiri" — bukan "pakai localhost". Localhost
-	// hanya benar bila Ollama ada di sistem yang sama, dan itu justru susunan
+	// hanya benar bila servernya ada di sistem yang sama, dan itu justru susunan
 	// yang paling sering TIDAK berlaku di Windows (lihat discover.go).
+	ep := Endpoint{URL: strings.TrimRight(url, "/"), Kind: KindOllama}
 	if url == "" {
-		url = Discover(ctx)
+		ep = DiscoverEndpoint(ctx)
+	} else if k := kindOf(ctx, ep.URL); k != "" {
+		ep.Kind = k
 	}
-	if url == "" {
+	if ep.URL == "" {
 		return StatusInfo{Running: false, Where: Where("")}
 	}
-	url = strings.TrimRight(url, "/")
+	// Server bergaya OpenAI: metadatanya cuma daftar nama (lihat openai.go).
+	if ep.Kind == KindOpenAI {
+		models := openAIModels(ctx, ep.URL)
+		info := StatusInfo{Running: true, URL: ep.URL, Where: Where(ep.URL), OS: OS(ep.URL), Kind: ep.Kind}
+		for _, m := range models {
+			info.Models = append(info.Models, m.Name)
+		}
+		info.Installed = models
+		return info
+	}
+	url = ep.URL
 	cl := &http.Client{Timeout: 3 * time.Second}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url+"/api/tags", nil)
 	resp, err := cl.Do(req)
@@ -245,7 +292,7 @@ func Status(ctx context.Context, url string) StatusInfo {
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &parsed)
-	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url)}
+	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url), Kind: KindOllama}
 	for _, m := range parsed.Models {
 		mi := ModelInfo{
 			Name:    m.Name,
@@ -282,11 +329,25 @@ func judge(name string, bytes int64, paramSize string, ctxLen int, caps []string
 	if len(caps) > 0 && !slices.Contains(caps, "completion") {
 		return false, "this model does not generate text (e.g. an embedding model)"
 	}
-	if ctxLen > 0 && ctxLen < numCtx {
-		return false, fmt.Sprintf("maximum context is %d tokens, below the %d a transcript chunk needs", ctxLen, numCtx)
+	// Konteks kecil TIDAK lagi menolak modelnya: potongan transkrip yang
+	// balasannya gagal dibaca kini dipecah sampai model sanggup (lihat
+	// correct.Correct), jadi model berkonteks 4096 tetap bisa dipakai — hanya
+	// lebih lambat. Yang benar-benar tidak masuk akal adalah di bawah minCtx.
+	if ctxLen > 0 && ctxLen < minCtx {
+		return false, fmt.Sprintf("maximum context is only %d tokens — too small even for one transcript segment", ctxLen)
 	}
+	if ctxLen > 0 && ctxLen < numCtx {
+		return true, fmt.Sprintf("small context (%d tokens) — Clipper will send smaller pieces, which is slower", ctxLen)
+	}
+	// Model KECIL (1B–4B) tidak lagi ditolak, hanya ditandai.
+	//
+	// Dulu ditolak karena diuji membalas isian kosong saat memilih momen
+	// (notes/12). Itu masih benar — tapi menolaknya berarti pengguna yang hanya
+	// punya mesin kecil tidak bisa memakai apa pun, padahal koreksi transkrip
+	// kini menyesuaikan diri dengan memecah potongan, dan mesin skor heuristik
+	// selalu tersedia sebagai gantinya.
 	if b := parseParams(paramSize); b > 0 && b < minParams {
-		return false, fmt.Sprintf("only %s parameters — in testing, models below %.0fB return empty fields for this prompt", paramSize, minParams)
+		return true, fmt.Sprintf("small model (%s) — fine for transcript correction, but it often returns empty fields when picking moments; the built-in heuristic is the safer choice there", paramSize)
 	}
 	return true, ""
 }

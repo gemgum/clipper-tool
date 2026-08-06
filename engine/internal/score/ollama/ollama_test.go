@@ -36,13 +36,20 @@ func TestJudge(t *testing.T) {
 	if ok, note := judge("qwen2.5:latest", 4_700_000_000, "7.6B", 32768, []string{"completion", "tools"}); !ok {
 		t.Errorf("qwen2.5 seharusnya siap, malah ditolak: %s", note)
 	}
-	// Model 4B: kasus di notes/12 — balasannya isian kosong.
-	if ok, _ := judge("kecil:latest", 2_000_000_000, "4B", 32768, []string{"completion"}); ok {
-		t.Error("model 4B seharusnya ditandai kurang memadai")
+	// Model 4B: dipakai, tapi WAJIB membawa peringatannya (notes/12 — balasannya
+	// isian kosong saat memilih momen).
+	if ok, note := judge("kecil:latest", 2_000_000_000, "4B", 32768, []string{"completion"}); !ok || note == "" {
+		t.Errorf("model 4B seharusnya dipakai dengan peringatan, dapat ok=%v note=%q", ok, note)
 	}
-	// Konteks lebih kecil dari yang diminta engine.
-	if ok, _ := judge("sempit:latest", 4_000_000_000, "7B", 4096, []string{"completion"}); ok {
-		t.Error("konteks 4096 < 8192 seharusnya ditolak")
+	// Konteks lebih kecil dari yang diminta engine: DIPAKAI, dengan catatan.
+	// Potongan yang gagal dibaca dipecah sampai model sanggup (correct.Correct),
+	// jadi menolaknya berarti membuang model yang sebenarnya bisa bekerja.
+	if ok, note := judge("sempit:latest", 4_000_000_000, "7B", 4096, []string{"completion"}); !ok || note == "" {
+		t.Errorf("konteks 4096 seharusnya dipakai dengan catatan, dapat ok=%v note=%q", ok, note)
+	}
+	// Terlalu kecil untuk satu segmen pun: ditolak.
+	if ok, _ := judge("mini:latest", 1_000_000_000, "7B", 1024, []string{"completion"}); ok {
+		t.Error("konteks 1024 seharusnya ditolak")
 	}
 	// Model embedding tak bisa membuat teks.
 	if ok, _ := judge("embed:latest", 700_000_000, "335M", 8192, []string{"embedding"}); ok {

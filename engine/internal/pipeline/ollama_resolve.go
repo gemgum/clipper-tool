@@ -29,7 +29,7 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 			where = url
 		}
 		return nil, "", fmt.Errorf(
-			"Ollama was not found. Tried %v — start it with `ollama serve`, or set OLLAMA_HOST if it listens somewhere else (looked for %s)",
+			"no local LLM server answered. Tried %v — start Ollama (`ollama serve`), or any OpenAI-compatible server (llama.cpp, LocalAI, llamafile, vLLM, LiteLLM), or set OLLAMA_HOST if yours listens elsewhere (looked for %s)",
 			ollama.Candidates(), where)
 	}
 	if len(st.Installed) == 0 {
@@ -56,5 +56,19 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 	}
 
 	c := ollama.New(st.URL, name)
-	return c, fmt.Sprintf("Ollama (%s) at %s — %s", name, st.URL, ollama.Where(st.URL)), nil
+	c.Kind = st.Kind
+	// Konteks model dipakai apa adanya: meminta 8192 pada model yang hanya
+	// mendukung 4096 membuat Ollama membalas kosong tanpa pesan galat, dan
+	// itulah kegagalan yang paling sering terlihat di model kecil.
+	for _, m := range st.Installed {
+		if m.Name == name {
+			c.NumCtx = m.Context
+			break
+		}
+	}
+	label := "Ollama"
+	if st.Kind == ollama.KindOpenAI {
+		label = "Local LLM server"
+	}
+	return c, fmt.Sprintf("%s (%s) at %s — %s", label, name, st.URL, ollama.Where(st.URL)), nil
 }

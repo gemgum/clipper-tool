@@ -105,3 +105,34 @@ memasang semua komponen wajib yang kurang DAN bisa dipasang engine. Yang tidak
 bisa dipasang engine (Ollama, Chrome) sengaja tidak ikut — tombol yang
 menjanjikan sesuatu yang tidak bisa dikerjakan lebih buruk daripada tidak ada
 tombol.
+
+## 8. Model kecil dilayani, bukan ditolak — potongan yang gagal DIPECAH
+
+Laporan berikutnya: `qwen3.5:latest` membalas kosong pada 1 dari 2 potongan.
+Percobaan ulang identik (3×) tidak menolong sama sekali — permintaan yang sama
+persis pada model yang sama menghasilkan balasan kosong yang sama.
+
+Yang menolong: **permintaan yang lebih kecil**. Sekarang:
+
+1. Potongan yang balasannya tak terbaca **dipecah dua** lalu dikerjakan ulang,
+   berulang sampai satu segmen. Daftar kerjanya antrian, bukan perulangan biasa,
+   jadi ia boleh bertambah di tengah jalan. Model yang tidak sanggup membalas 12
+   segmen sekaligus hampir selalu sanggup membalas 6.
+2. **Balasan kosong tidak diulang identik**: kalau potongannya masih bisa
+   dipecah, langsung dipecah — percobaan kedua hanya menghabiskan waktu.
+3. Kalau SATU segmen pun gagal, barulah ia dilewati dan dihitung; lewat
+   seperempat total, job berhenti dengan pesan bahwa modelnya memang terlalu
+   kecil.
+4. Ringkasan koreksi menyebutkan berapa potongan yang dipecah
+   (`N part(s) split into smaller pieces for this model`).
+
+**Konteks model dipakai apa adanya.** `Client.NumCtx` diisi dari metadata Ollama
+(`context_length`) dan dikirim sebagai `num_ctx`. Meminta 8192 pada model yang
+hanya mendukung 4096 membuat Ollama memuatnya dengan konteks yang tidak bisa
+dipenuhi — balasan kosong, tanpa satu pun pesan galat. Itu kelas kegagalan yang
+sama, dari arah yang berbeda.
+
+Akibatnya `judge` ikut berubah: konteks di bawah 8192 **tidak lagi menolak**
+model, hanya menandainya *"small context — Clipper will send smaller pieces,
+which is slower"*. Yang ditolak sekarang hanya di bawah 2048, yang memang tidak
+cukup untuk satu segmen pun.

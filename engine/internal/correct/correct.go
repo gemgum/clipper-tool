@@ -80,6 +80,7 @@ type Report struct {
 	Rejected int      `json:"rejected"` // koreksi yang ditolak pagar pengaman
 	Missing  int      `json:"missing"`  // segmen yang tidak dibalas model
 	Failed   int      `json:"failed"`   // potongan yang balasannya tak bisa dibaca
+	Split    int      `json:"split"`    // potongan yang dipecah karena balasannya tak terbaca
 	Samples  []Change `json:"samples"`  // beberapa contoh untuk log
 }
 
@@ -387,39 +388,60 @@ func Correct(ctx context.Context, tr types.Transcript, terms []string, complete 
 	exempt := termWords(terms)
 	chunks := buildChunks(tr, chunkWords)
 
-	for ci, c := range chunks {
-		// Dicoba beberapa kali: model lokal sesekali membalas kosong atau
-		// terpotong, dan percobaan berikutnya biasanya benar. Galat JARINGAN
-		// tidak diulang — Ollama yang mati atau kelewat lambat tidak akan
-		// sembuh dalam sedetik, dan pesannya sudah menjelaskan sebabnya.
+	// Antrian, bukan perulangan biasa: potongan yang balasannya tak terbaca
+	// DIPECAH DUA dan dicoba lagi, jadi daftar kerjanya bisa bertambah di
+	// tengah jalan. Itu cara menyesuaikan diri dengan kapasitas model yang
+	// sebenarnya tanpa menebak-nebak jumlah tokennya: model yang tidak sanggup
+	// membalas 12 segmen sekaligus hampir selalu sanggup membalas 6, dan
+	// pemecahan berhenti sendiri di 1 segmen.
+	queue := append([]chunk(nil), chunks...)
+	total := len(chunks)
+	for ci := 0; ci < len(queue); ci++ {
+		c := queue[ci]
 		var r reply
 		var readErr error
 		var lastRaw string
 		for attempt := 1; attempt <= chunkAttempts; attempt++ {
 			raw, err := complete(ctx, system, userPrompt(tr, c), SegmentsSchema(len(c.segments)))
 			if err != nil {
-				return types.Transcript{}, report, fmt.Errorf("part %d of %d: %w", ci+1, len(chunks), err)
+				return types.Transcript{}, report, fmt.Errorf("part %d of %d: %w", ci+1, total, err)
 			}
 			lastRaw = raw
 			r = reply{}
 			if readErr = json.Unmarshal([]byte(extractJSON(raw)), &r); readErr == nil {
 				break
 			}
+			// Balasan KOSONG tidak akan berubah kalau permintaannya sama
+			// persis: percobaan kedua hanya menghabiskan waktu. Yang menolong
+			// adalah permintaan yang lebih kecil, jadi langsung ke sana.
+			if strings.TrimSpace(lastRaw) == "" && len(c.segments) > 1 {
+				break
+			}
 		}
 		if readErr != nil {
-			// Potongan ini dilewati: segmennya tetap memakai teks aslinya, dan
-			// itu DIHITUNG — laporan akhir menyebut berapa yang tidak sempat
-			// dikoreksi, jadi tidak ada yang hilang diam-diam.
+			if len(c.segments) > 1 {
+				// Dipecah dua dan dikerjakan ulang. Potongan pecahan mewarisi
+				// konteksnya supaya kalimat yang menyambung tetap terbaca.
+				half := len(c.segments) / 2
+				left := chunk{segments: c.segments[:half], context: c.context}
+				right := chunk{segments: c.segments[half:], context: tr.Segments[c.segments[half-1]].Text}
+				queue = append(queue, left, right)
+				total += 2
+				report.Split++
+				continue
+			}
+			// Satu segmen pun tidak terbaca: dilewati, teks aslinya
+			// dipertahankan, dan itu DIHITUNG — tidak ada yang hilang diam-diam.
 			report.Failed++
 			report.Missing += len(c.segments)
-			if report.Failed*failedChunkPart > len(chunks) {
+			if report.Failed*failedChunkPart > total {
 				return types.Transcript{}, report, fmt.Errorf(
-					"%s returned JSON that could not be read for %d of %d parts (last failure at part %d: %w) — reply was: %s. "+
-						"An empty or truncated reply usually means the model ran out of room or cannot follow the requested JSON shape; llama3.1 handles this task better than qwen2.5",
-					engineName, report.Failed, len(chunks), ci+1, readErr, describeReply(lastRaw))
+					"%s could not return readable JSON for %d of %d parts, even after splitting them down to a single segment (last reply: %s). "+
+						"The model is most likely too small for this task — llama3.1 (8B) is the smallest that handles it reliably here",
+					engineName, report.Failed, total, describeReply(lastRaw))
 			}
 			if onProgress != nil {
-				onProgress(ci+1, len(chunks))
+				onProgress(ci+1, total)
 			}
 			continue
 		}
@@ -440,7 +462,7 @@ func Correct(ctx context.Context, tr types.Transcript, terms []string, complete 
 		}
 
 		if onProgress != nil {
-			onProgress(ci+1, len(chunks))
+			onProgress(ci+1, total)
 		}
 	}
 	return out, report, nil
@@ -475,6 +497,9 @@ func (r Report) Summary() string {
 	}
 	if r.Missing > 0 {
 		s += fmt.Sprintf("; %d segment(s) not returned by the model", r.Missing)
+	}
+	if r.Split > 0 {
+		s += fmt.Sprintf("; %d part(s) split into smaller pieces for this model", r.Split)
 	}
 	if r.Failed > 0 {
 		s += fmt.Sprintf("; %d part(s) skipped after unreadable replies", r.Failed)
