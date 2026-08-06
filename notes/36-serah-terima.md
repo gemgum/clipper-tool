@@ -202,10 +202,10 @@ jalan: alamat disimpan di `.env` mengikuti pola kunci Claude, dan alamat yang
 DIKETIK pengguna tidak melewati saringan IP privat `hostURL()` — saringan itu
 tetap berlaku untuk tebakan otomatis saja.
 
-### 3. Kartu berita: gambar SUDAH, paragraf BELUM
+### 3. Kartu berita: gambar & paragraf SUDAH
 
 Dilaporkan 7 Agustus 2026 dari tab News cards: kartu jadi tanpa gambar.
-**Gambarnya sudah diperbaiki** (lihat di bawah); paragrafnya belum.
+**Empat perbaikan**, semuanya terukur — lihat (a)–(d) di bawah.
 
 Reproduksi (artikel Blogspot, `tabloidlugas.com`):
 
@@ -254,13 +254,37 @@ url balik : https://centralnews.id/polisi-selidiki-temuan-995-senjata-api-…
 image     : https://centralnews.id/wp-content/uploads/2026/08/Screenshot_…
 ```
 
+**(c) Gambar dicari BERLAPIS** — `og:image` → JSON-LD `NewsArticle.image` →
+`<img>` pertama DI DALAM badan artikel. Lapisan ketiga sengaja dibatasi ke badan
+artikel: di tingkat halaman, gambar pertama hampir selalu logo situs atau iklan,
+dan kartu berlogo situs lebih buruk daripada kartu polos. Dijaga
+`TestArticleImageFallbacks`.
+
+**(d) Paragraf dari markup Blogspot** — `reInlineBlock` menangkap blok yang
+isinya teks + tag SEBARIS (`<a>`, `<b>`, `<span>`), bukan hanya teks polos.
+Karena isinya dibatasi begitu, blok yang memuat `<div>` lain tidak cocok —
+hasilnya selalu blok terdalam, bukan pembungkus sehalaman. Ditambah
+`articleBodyHTML` yang mempersempit ke badan artikel lebih dulu, memakai penanda
+yang SAMA dengan pencarian gambar (satu daftar, dua keperluan). Terukur di
+halaman tabloidlugas: **0 → 17 paragraf**. Dijaga
+`TestParagraphsInsideDivsWithInlineTags` (termasuk: menu & kaki artikel tidak
+boleh ikut).
+
+**Sapuan 10 hasil pencarian** (7 Agu 2026), untuk menjawab "yang lain gimana?":
+
+| | |
+| --- | --- |
+| punya gambar | **7** (centralnews, viva ×2, bacaini, kompas.tv, achmadnurhidayat, publika) |
+| tidak berfoto | 1 — tabloidlugas.com, memang tidak punya |
+| bukan artikel | 1 — `kompas.tv/tag/995-senjata-api`, halaman TAG; Google News memang kadang menautkan halaman daftar |
+| gagal resolve | 1 — "the link has not reached the original article yet", coba lagi |
+
 Yang MASIH tersisa:
 
-1. **Tidak ada cadangan untuk gambar** saat halamannya memang tidak punya
-   `og:image`. `tabloidlugas.com` begitu — diperiksa dengan grep, nol og:image,
-   padahal ada **9 `<img>`** di halamannya. (Situs yang punya og:image, seperti
-   bacaini.id, sekarang sudah benar.)
-2. **Paragraf tidak terbaca dari markup Blogspot.** `content.go:117-118` mencari
+1. **Halaman TAG/daftar tidak ditolak lebih awal.** `kompas.tv/tag/…` diproses
+   seperti artikel biasa lalu menghasilkan kartu tanpa isi. Lebih baik dikenali
+   dan dikatakan.
+2. **(sudah selesai — lihat (d) di atas)** Paragraf dari markup Blogspot. `content.go:117-118` mencari
    `<p>…</p>` (halaman itu cuma punya 2) atau `<div>` yang isinya teks polos
    ≥60 karakter (`[^<]{60,}`) — dan badan tulisan Blogspot penuh tag inline di
    dalamnya, jadi pola itu tidak pernah cocok. Akibatnya tombol Analyse &

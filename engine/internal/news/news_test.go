@@ -424,3 +424,142 @@ func TestResolvePassesOrdinaryLinksThrough(t *testing.T) {
 		t.Error("tautan Google tanpa browser seharusnya galat, bukan diteruskan mentah")
 	}
 }
+
+// Gambar dicari berlapis: og:image → JSON-LD → <img> di badan artikel.
+func TestArticleImageFallbacks(t *testing.T) {
+	u, _ := url.Parse("https://contoh.id/berita/1")
+
+	// 1. Tanpa og:image, JSON-LD yang dipakai.
+	h := `<html><head><meta property="og:title" content="Judul">
+	<script type="application/ld+json">{"@type":"NewsArticle","image":["https://contoh.id/foto.jpg"]}</script>
+	</head><body></body></html>`
+	a, err := parseArticle(h, u, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Image != "https://contoh.id/foto.jpg" {
+		t.Errorf("JSON-LD: image = %q", a.Image)
+	}
+
+	// 2. JSON-LD rusak (template Blogger yang gagal) TIDAK boleh dipakai, dan
+	//    <img> di badan artikel yang menggantikannya.
+	h = `<html><head><meta property="og:title" content="Judul">
+	<script type="application/ld+json">{"@type":"NewsArticle",
+	"image":["<!--Can't find substitution for tag [post.featuredImage.jsonEscaped]-->"]}</script>
+	</head><body>
+	<img src='https://contoh.id/logo-situs.png' alt='logo'>
+	<div class='post-body entry-content'><p>isi</p><img src='https://contoh.id/isi.jpg'></div>
+	</body></html>`
+	a, err = parseArticle(h, u, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Logo di luar badan artikel TIDAK boleh menang.
+	if a.Image != "https://contoh.id/isi.jpg" {
+		t.Errorf("badan artikel: image = %q, mau isi.jpg (bukan logo halaman)", a.Image)
+	}
+
+	// 3. Artikel yang memang tidak berfoto tetap kosong — kartu tanpa foto lebih
+	//    baik daripada kartu berlogo situs.
+	h = `<html><head><meta property="og:title" content="Judul"></head><body>
+	<img src='https://contoh.id/logo-situs.png' alt='logo'>
+	<div class='post-body entry-content'><p>isi tanpa gambar</p></div>
+	</body></html>`
+	a, err = parseArticle(h, u, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Image != "" {
+		t.Errorf("tanpa foto: image = %q, harus kosong", a.Image)
+	}
+}
+
+// Paragraf yang dibungkus <div> DENGAN tag sebaris di dalamnya harus terbaca.
+//
+// Bentuk ini dipakai Blogspot: satu <div> per paragraf, dan hampir semuanya
+// memuat tautan atau penebalan. Pola lama menuntut teks polos (`[^<]{60,}`),
+// jadi halaman dengan ribuan karakter tulisan terbaca sebagai NOL paragraf —
+// dan tombol Analyse tidak punya bahan apa pun (tabloidlugas.com, 7 Agu 2026).
+func TestParagraphsInsideDivsWithInlineTags(t *testing.T) {
+	h := `<html><body>
+	<nav><div>Menu Beranda Berita Olahraga Ekonomi Politik Nasional Internasional Hiburan</div></nav>
+	<div class='post-body entry-content'>
+	  <div><br /></div>
+	  <div><b>Oleh: Mahar Prastowo</b></div>
+	  <div>Angka itu terlalu besar untuk diabaikan dan angka itu terus disebut berulang kali oleh banyak pihak.</div>
+	  <div>Begitu jumlah yang disebut ditemukan di lingkungan sebuah yayasan sekolah swasta di <a href="#">Kebayoran Lama</a> menurut keterangan resmi kepolisian.</div>
+	</div>
+	<div class='post-footer'><div>Baca juga berita lain yang sedang ramai dibicarakan pembaca hari ini juga</div></div>
+	</body></html>`
+
+	ps := parseParagraphs(h)
+	if len(ps) != 2 {
+		t.Fatalf("paragraf = %d, mau 2: %+v", len(ps), ps)
+	}
+	// Paragraf dengan <a> di dalamnya HARUS ikut, dan tautannya jadi teks biasa.
+	if !strings.Contains(ps[1].Text, "Kebayoran Lama") {
+		t.Errorf("teks tautan hilang: %q", ps[1].Text)
+	}
+	// Menu di luar badan artikel TIDAK boleh ikut walau cukup panjang.
+	for _, p := range ps {
+		if strings.Contains(p.Text, "Menu Beranda") {
+			t.Errorf("menu ikut terbaca sebagai paragraf: %q", p.Text)
+		}
+		if strings.Contains(p.Text, "Baca juga") {
+			t.Errorf("kaki artikel ikut terbaca: %q", p.Text)
+		}
+	}
+}
+
+// Lencana sumber harus memberitahu pembaca DARI MANA beritanya.
+func TestSiteBadge(t *testing.T) {
+	for _, c := range []struct{ name, host, want string }{
+		// Nama yang masih mengenali situsnya sendiri: dipakai apa adanya.
+		{"Kompas.com", "kompas.com", "Kompas.com"},
+		{"CNN Indonesia", "cnnindonesia.com", "CNN Indonesia"},
+		{"Bacaini.id", "bacaini.id", "Bacaini.id"},
+		{"Republika Online", "republika.co.id", "Republika Online"},
+		// Branding musiman yang tidak menyebut situsnya: pakai domainnya.
+		{"LUGAS 28th", "tabloidlugas.com", "tabloidlugas.com"},
+		{"", "contoh.id", "contoh.id"},
+		// Label pendek tidak boleh cocok secara kebetulan.
+		{"Something Idea", "id.com", "id.com"},
+	} {
+		if got := siteBadge(c.name, c.host); got != c.want {
+			t.Errorf("siteBadge(%q, %q) = %q, mau %q", c.name, c.host, got, c.want)
+		}
+	}
+}
+
+// Tanggal dicari sampai ke JSON-LD dan <time> — sebagian media tidak memasang
+// meta tanggal sama sekali, dan kartu tanpa tanggal terlihat seperti bug.
+func TestPublishedDateFallbacks(t *testing.T) {
+	u, _ := url.Parse("https://contoh.id/berita/1")
+
+	h := `<html><head><meta property="og:title" content="Judul">
+	<script type="application/ld+json">{"@type":"NewsArticle",
+	"datePublished":"2026-08-07T00:58:00+07:00","dateModified":"2026-08-09T10:00:00+07:00"}</script>
+	</head><body></body></html>`
+	a, err := parseArticle(h, u, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// datePublished yang dipakai, BUKAN dateModified.
+	if !strings.HasPrefix(a.Published, "2026-08-07") {
+		t.Errorf("JSON-LD: published = %q, mau 2026-08-07…", a.Published)
+	}
+	if a.Date == "" {
+		t.Error("Date kosong padahal tanggalnya terbaca")
+	}
+
+	h = `<html><head><meta property="og:title" content="Judul"></head><body>
+	<time class='published' datetime='2026-08-07T00:58:00+07:00'>7 Agustus</time>
+	</body></html>`
+	a, err = parseArticle(h, u, "en")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(a.Published, "2026-08-07") {
+		t.Errorf("<time>: published = %q", a.Published)
+	}
+}

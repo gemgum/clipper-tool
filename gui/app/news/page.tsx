@@ -725,8 +725,25 @@ export default function News() {
                     <input value={article.date} onChange={edit("date")} />
                   </div>
                   <div className="field">
-                    <label>{t("imageURL")} {style === "quote" && <em>{t("imageUnusedInQuote")}</em>}</label>
-                    <input value={article.image} onChange={edit("image")} />
+                    <label>{t("imageURL")} {style === "quote" && <em>{t("imageUnusedInQuote")}</em>}
+                      {/* Peringatan MUNCUL saat artikel sudah terbaca tapi tidak
+                          membawa foto. Sebagai lambang di label, bukan baris
+                          baru — label sudah setinggi satu baris, jadi tidak ada
+                          satu piksel pun yang bergerak (notes/32).
+                          Sebabnya nyata: sebagian media tidak memasang og:image
+                          sama sekali, dan kartu jadi polos tanpa ada yang
+                          menjelaskan kenapa. */}
+                      {article.url && !article.image && (
+                        <Warn>{t("imageNone")}</Warn>
+                      )}</label>
+                    {/* Kotak kosong tidak bisa membedakan "belum diambil" dari
+                        "artikelnya memang tidak berfoto". Yang kedua nyata dan
+                        tidak jarang — sebagian media (mis. blog Blogspot) tidak
+                        memasang og:image sama sekali, dan kartunya jadi polos
+                        tanpa ada yang menjelaskan kenapa. Pesannya masuk ke
+                        placeholder, jadi tidak ada baris baru yang muncul. */}
+                    <input value={article.image} onChange={edit("image")}
+                      placeholder={article.url ? t("imageNonePlaceholder") : ""} />
                   </div>
                   <div className="field">
                     <label>{t("hashtags")}</label>

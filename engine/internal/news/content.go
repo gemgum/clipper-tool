@@ -117,6 +117,11 @@ var (
 	reP    = regexp.MustCompile(`(?is)<p\b[^>]*>(.*?)</\s*p\s*>`)
 	reDiv  = regexp.MustCompile(`(?is)<div\b[^>]*>([^<]{60,})</\s*div\s*>`)
 	reBody = regexp.MustCompile(`(?is)<body\b[^>]*>(.*)</\s*body\s*>`)
+	// Blok paragraf yang isinya teks + tag SEBARIS saja. Karena isinya dibatasi
+	// begitu, blok yang memuat <div>/<p> lain tidak akan cocok — hasilnya selalu
+	// blok terdalam, bukan pembungkus yang memuat seluruh halaman.
+	reInlineBlock = regexp.MustCompile(
+		`(?is)<(?:p|div|li)\b[^>]*>((?:[^<]|</?(?:a|b|i|u|em|strong|span|br|small|mark|sup|sub|code|abbr|font)\b[^>]*>)*)</\s*(?:p|div|li)\s*>`)
 
 	// Blok yang isinya tidak pernah jadi badan berita — dibuang lebih dulu
 	// beserta isinya, supaya menu & skrip tidak terbaca sebagai paragraf.
@@ -148,7 +153,14 @@ var junkPhrases = []string{
 
 // parseParagraphs memecah HTML jadi paragraf badan berita.
 func parseParagraphs(h string) []Paragraph {
-	if m := reBody.FindStringSubmatch(h); len(m) == 2 {
+	// Dipersempit ke BADAN ARTIKEL lebih dulu bila penandanya dikenali
+	// (post-body, entry-content, article-body, itemprop=articleBody). Di dalam
+	// sana, blok apa pun boleh dianggap paragraf tanpa takut menangkap menu
+	// atau daftar berita lain — dan itu yang membuat lapisan ketiga di bawah
+	// aman dipakai.
+	if body := articleBodyHTML(h); body != "" {
+		h = body
+	} else if m := reBody.FindStringSubmatch(h); len(m) == 2 {
 		h = m[1]
 	}
 	for _, re := range reStrip {
@@ -156,6 +168,19 @@ func parseParagraphs(h string) []Paragraph {
 	}
 
 	candidates := extractBlocks(h, reP)
+	if len(candidates) < 2 {
+		// Blok yang isinya teks + tag SEBARIS (<a>, <b>, <span>, …).
+		//
+		// Inilah bentuk yang dipakai Blogspot: tiap paragraf satu <div>, dan
+		// hampir semuanya memuat tautan atau penebalan. reDiv di bawah menuntut
+		// teks polos, jadi tidak satu pun cocok — halaman dengan 4.759 karakter
+		// tulisan terbaca sebagai NOL paragraf (tabloidlugas.com, 7 Agu 2026).
+		//
+		// Yang membuatnya tidak menangkap pembungkus besar: isinya dibatasi ke
+		// tag sebaris saja, jadi blok yang memuat <div> lain tidak cocok — yang
+		// tersisa selalu blok terdalam.
+		candidates = append(candidates, extractBlocks(h, reInlineBlock)...)
+	}
 	if len(candidates) < 2 {
 		// Situs yang memakai <div> per paragraf. Sengaja hanya <div> yang
 		// isinya teks polos (tanpa tag anak) agar tidak menangkap pembungkus
@@ -288,4 +313,23 @@ func toHashtag(s string) string {
 // SortRankings mengurutkan hasil penilaian dari skor tertinggi.
 func SortRankings(r []Ranking) {
 	sort.SliceStable(r, func(a, b int) bool { return r[a].Score > r[b].Score })
+}
+
+
+// articleBodyHTML memotong HTML jadi badan artikelnya saja, "" bila penandanya
+// tidak dikenali.
+//
+// Penandanya sama dengan yang dipakai firstBodyImage (article.go) — satu daftar
+// untuk dua keperluan, supaya gambar dan teks tidak pernah diambil dari dua
+// wilayah yang berbeda.
+func articleBodyHTML(h string) string {
+	m := reArticleBody.FindStringIndex(h)
+	if m == nil {
+		return ""
+	}
+	body := h[m[0]:]
+	if end := reBodyEnd.FindStringIndex(body); end != nil {
+		body = body[:end[0]]
+	}
+	return body
 }

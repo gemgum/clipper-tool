@@ -49,21 +49,48 @@ func parseArticle(htmlStr string, u *url.URL, lang string) (Article, error) {
 		}
 	}
 	summary := firstNonEmpty(meta["og:description"], meta["twitter:description"], meta["description"])
+	// Gambar dicari berlapis, dari yang paling bisa dipercaya.
+	//
+	// og:image adalah tempat bakunya, tapi tidak semua situs mengisinya —
+	// tabloidlugas.com (Blogspot) tidak punya sama sekali, dan kartunya jadi
+	// tanpa foto (dilaporkan 7 Agustus 2026). Dua lapis di bawahnya menutup
+	// sebagian besar sisanya:
+	//
+	//  2. JSON-LD schema.org `NewsArticle.image` — dipakai luas oleh media, dan
+	//     sering terisi justru ketika og:image kosong.
+	//  3. <img> pertama DI DALAM badan artikel. Dibatasi ke badan artikel dengan
+	//     sengaja: di tingkat halaman, gambar pertama hampir selalu logo situs
+	//     atau iklan. Pada halaman tabloidlugas itu badannya memuat NOL <img>,
+	//     jadi lapisan ini benar-benar mengembalikan kosong — dan kosong memang
+	//     jawaban yang benar untuk artikel yang tidak berfoto.
 	image := clean(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"]))
+	if image == "" {
+		image = clean(jsonLDImage(htmlStr))
+	}
+	if image == "" {
+		image = clean(firstBodyImage(htmlStr))
+	}
 	if image != "" {
 		// Sebagian situs menulis og:image sebagai path relatif.
 		if abs, err := address.Parse(image); err == nil {
 			image = abs.String()
 		}
 	}
-	published := firstNonEmpty(meta["article:published_time"], meta["og:updated_time"], meta["date"])
+	// Tanggal juga berlapis. Dua sumber terakhir yang baru: sebagian media
+	// (termasuk Blogspot) tidak memasang meta tanggal sama sekali, tapi
+	// menuliskannya di JSON-LD `datePublished` ATAU di `<time datetime="…">` —
+	// keduanya baku, dan tanpa keduanya kartu terbit tanpa tanggal.
+	published := firstNonEmpty(
+		meta["article:published_time"], meta["og:updated_time"], meta["date"],
+		jsonLDDate(htmlStr), timeTagDate(htmlStr),
+	)
 
 	return Article{
 		Title:     clean(title),
 		Summary:   truncate(clean(summary), 300),
 		URL:       address.String(),
 		Image:     image,
-		Source:    firstNonEmpty(clean(meta["og:site_name"]), domain(address.String())),
+		Source:    siteBadge(clean(meta["og:site_name"]), domain(address.String())),
 		Domain:    domain(address.String()),
 		Date:      formatDate(published, lang),
 		Published: rfc3339(published),
@@ -109,3 +136,142 @@ func tagTitle(h string) string {
 	}
 	return ""
 }
+
+// jsonLDImage membaca `image` dari blok schema.org di halaman.
+//
+// Bentuknya beragam — string, daftar string, atau objek ImageObject dengan
+// field `url` — jadi yang diambil adalah alamat http(s) PERTAMA yang muncul di
+// dalam nilai `image`. Itu juga yang menyaring isian rusak: template Blogger
+// yang gagal menghasilkan gambar menulis
+// `"<!--Can't find substitution for tag [post.featuredImage.jsonEscaped]-->"`
+// di sana, dan itu bukan alamat, jadi ditolak dengan sendirinya.
+func jsonLDImage(h string) string {
+	for _, m := range reLDBlock.FindAllStringSubmatch(h, -1) {
+		if !strings.Contains(m[1], "\"image\"") {
+			continue
+		}
+		// Dipotong mulai dari kunci "image" supaya alamat lain di blok yang sama
+		// (logo penerbit, foto penulis) tidak ikut terambil.
+		seg := m[1][strings.Index(m[1], "\"image\""):]
+		if u := reLDURL.FindStringSubmatch(seg); len(u) == 2 {
+			return strings.ReplaceAll(u[1], "\\/", "/")
+		}
+	}
+	return ""
+}
+
+// firstBodyImage mengambil <img> pertama DARI DALAM badan artikel.
+//
+// Sengaja tidak dari seluruh halaman: gambar pertama sebuah halaman berita
+// hampir selalu logo situs atau iklan, dan kartu yang memasang logo situs
+// sebagai fotonya lebih buruk daripada kartu tanpa foto.
+func firstBodyImage(h string) string {
+	body := h
+	if m := reArticleBody.FindStringIndex(h); m != nil {
+		body = h[m[0]:]
+		if end := reBodyEnd.FindStringIndex(body); end != nil {
+			body = body[:end[0]]
+		}
+	} else {
+		return "" // badan artikel tidak dikenali — jangan menebak dari halaman
+	}
+	for _, m := range reImgTag.FindAllStringSubmatch(body, -1) {
+		src := m[1]
+		if strings.HasPrefix(src, "data:") || strings.HasPrefix(src, "#") {
+			continue
+		}
+		return src
+	}
+	return ""
+}
+
+var (
+	reLDBlock = regexp.MustCompile(`(?is)<script[^>]+application/ld\+json[^>]*>(.*?)</script>`)
+	reLDURL   = regexp.MustCompile(`(?is)(https?:[^"']+\.(?:jpg|jpeg|png|webp|gif)[^"']*)`)
+	// Penanda badan artikel yang dipakai luas: WordPress (entry-content),
+	// Blogger (post-body), schema.org (itemprop=articleBody), dan <article>.
+	reArticleBody = regexp.MustCompile(`(?is)<(?:div|section|article)\b[^>]*(?:class|id|itemprop)\s*=\s*["'][^"']*(?:post-body|entry-content|article-body|articleBody|post-content)[^"']*["']`)
+	reBodyEnd     = regexp.MustCompile(`(?is)(?:post-footer|entry-footer|comments|<footer\b)`)
+	reImgTag      = regexp.MustCompile(`(?is)<img[^>]+src\s*=\s*["']([^"']+)["']`)
+)
+
+
+// siteBadge memilih nama sumber untuk lencana kartu.
+//
+// og:site_name biasanya nama yang enak dibaca ("Kompas.com", "CNN Indonesia"),
+// jadi ia yang dipakai — TAPI hanya bila ia masih mengenali dirinya sebagai
+// situs itu. Sebagian situs mengisinya dengan slogan atau branding musiman:
+// tabloidlugas.com menulis "LUGAS 28th", dan lencana berbunyi "LUGAS 28th"
+// tidak memberi tahu pembaca dari mana beritanya (dilaporkan 7 Agustus 2026).
+//
+// Ujinya sederhana dan tidak menghakimi isi: salah satu harus memuat yang lain
+// setelah dibersihkan jadi huruf & angka. "kompascom" memuat "kompas" → dipakai;
+// "lugas28th" dan "tabloidlugas" tidak saling memuat → pakai domainnya.
+func siteBadge(siteName, host string) string {
+	name := strings.TrimSpace(siteName)
+	if name == "" {
+		return host
+	}
+	a := alnum(name)
+	b := alnum(mainLabel(host))
+	// Label pendek ("id", "co") terlalu gampang cocok secara kebetulan.
+	if a == "" || len(b) < 4 {
+		return host
+	}
+	if strings.Contains(a, b) || strings.Contains(b, a) {
+		return name
+	}
+	return host
+}
+
+// mainLabel mengambil bagian pertama sebuah host: "tabloidlugas.com" →
+// "tabloidlugas".
+func mainLabel(host string) string {
+	if i := strings.IndexByte(host, '.'); i > 0 {
+		return host[:i]
+	}
+	return host
+}
+
+// alnum menyisakan huruf & angka, dalam huruf kecil.
+func alnum(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// jsonLDDate membaca `datePublished` dari blok schema.org.
+//
+// dateModified sengaja TIDAK dipakai sebagai cadangan: kartu menyebut kapan
+// beritanya terbit, dan tanggal penyuntingan terakhir bisa jauh berbeda.
+func jsonLDDate(h string) string {
+	for _, m := range reLDBlock.FindAllStringSubmatch(h, -1) {
+		if d := reLDPublished.FindStringSubmatch(m[1]); len(d) == 2 {
+			return d[1]
+		}
+	}
+	return ""
+}
+
+// timeTagDate membaca <time datetime="…"> pertama di halaman.
+//
+// ponytail: yang PERTAMA, bukan yang paling tepat — halaman bisa memuat
+// beberapa <time> (mis. daftar "artikel terkait" di bawahnya). Pada susunan yang
+// dijumpai, yang pertama selalu milik artikelnya sendiri. Kalau suatu saat ada
+// situs yang menaruh tanggal lain lebih dulu, saring dengan class/itemprop
+// "published" — jangan menambah tebakan lain.
+func timeTagDate(h string) string {
+	if m := reTimeTag.FindStringSubmatch(h); len(m) == 2 {
+		return m[1]
+	}
+	return ""
+}
+
+var (
+	reLDPublished = regexp.MustCompile(`(?is)"datePublished"\s*:\s*"([^"]+)"`)
+	reTimeTag     = regexp.MustCompile(`(?is)<time\b[^>]*\bdatetime\s*=\s*["']([^"']+)["']`)
+)
