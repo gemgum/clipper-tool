@@ -9,6 +9,7 @@ package news
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -140,6 +141,15 @@ func ListFeed(ctx context.Context, feedURL, name string, max int, lang string) (
 	return parseFeed(raw, name, max, lang)
 }
 
+// errNoArticles = feednya terbaca, isinya nol artikel.
+//
+// Dipisah jadi galat tersendiri karena artinya BERBEDA menurut siapa yang
+// bertanya: untuk alamat feed media, kosong berarti alamatnya keliru; untuk
+// pencarian, kosong berarti kata kuncinya tidak menemukan apa pun — dan
+// menyuruh orang "check the feed URL" padahal ia baru saja mengetik kata kunci
+// adalah petunjuk yang menyesatkan (dilaporkan 7 Agustus 2026).
+var errNoArticles = errors.New("the feed parsed but contains no articles — check the feed URL")
+
 // parseFeed mengubah isi XML jadi daftar artikel. Dipisah dari ListFeed supaya
 // penguraiannya bisa diuji tanpa menyentuh jaringan.
 func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error) {
@@ -206,7 +216,7 @@ func parseFeed(raw []byte, name string, max int, lang string) ([]Article, error)
 		})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("the feed parsed but contains no articles — check the feed URL")
+		return nil, errNoArticles
 	}
 	sortNewestFirst(out)
 	if len(out) > max {

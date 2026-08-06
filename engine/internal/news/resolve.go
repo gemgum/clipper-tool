@@ -30,6 +30,14 @@ func Resolve(ctx context.Context, link string, browse Browser, cacheDir string) 
 	if original, ok := loadResolved(cacheDir, link); ok {
 		return original, nil
 	}
+	// Jalur utama: tanya Google lewat RPC yang dipakai halamannya sendiri
+	// (google.go). Tidak butuh browser, di bawah satu detik, dan berhasil pada
+	// tautan yang tidak pernah berpindah di Chrome headless — itu justru
+	// keluhan aslinya.
+	if original, err := decodeGoogleNews(ctx, link); err == nil && !IsGoogleNewsLink(original) {
+		saveResolved(cacheDir, link, original)
+		return original, nil
+	}
 	if browse == nil {
 		return "", fmt.Errorf("search-result links must be opened in a browser, but no browser is available — install Chrome/Chromium, or open the link yourself")
 	}

@@ -13,7 +13,13 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 OUT="${1:-$ROOT/dist/windows}"
 
 echo "==> engine (windows/amd64)"
-( cd "$ROOT/engine" && GOOS=windows GOARCH=amd64 go build -o "$OUT/clipper.exe" ./cmd/clipper )
+# Versinya dari tauri.conf.json, sama seperti build.sh — biner uji di Windows
+# harus menyebut angka yang sama dengan pemasangnya.
+VER="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+  "$ROOT/desktop/src-tauri/tauri.conf.json" | head -1)"
+[ -n "$VER" ] || { echo "    versi tidak terbaca dari tauri.conf.json" >&2; exit 1; }
+( cd "$ROOT/engine" && GOOS=windows GOARCH=amd64 \
+  go build -ldflags "-X main.version=$VER" -o "$OUT/clipper.exe" ./cmd/clipper )
 
 echo "==> gui (statis)"
 if [ ! -f "$ROOT/gui/out/index.html" ]; then

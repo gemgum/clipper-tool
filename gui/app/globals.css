@@ -957,7 +957,11 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
   background: var(--bad);
 }
 .settings-pop { display: block; }
-.settings-title { font-size: 14px; font-weight: 700; }
+.settings-title {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 14px; font-weight: 700;
+}
+.settings-title .meta { white-space: nowrap; }
 .settings-group { display: flex; flex-direction: column; gap: 8px; }
 .settings-head {
   font-size: 10px;

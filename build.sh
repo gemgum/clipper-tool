@@ -7,9 +7,22 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
+# Nomor versi datang dari tauri.conf.json — SATU tempat.
+#
+# Ia yang tertulis di pemasang, dan workflow rilis sudah menolak tag yang tidak
+# cocok dengannya. Tanpa langkah ini, biner hasil build lokal memakai bawaan
+# `main.version` ("0.1.0-dev") dan panel Settings melaporkan angka yang tidak
+# pernah dirilis siapa pun.
+version() {
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$ROOT/desktop/src-tauri/tauri.conf.json" | head -1
+}
+
 echo "==> engine (Go)"
-( cd "$ROOT/engine" && go build -o "$ROOT/bin/clipper" ./cmd/clipper )
-echo "    bin/clipper"
+VER="$(version)"
+[ -n "$VER" ] || { echo "    versi tidak terbaca dari tauri.conf.json" >&2; exit 1; }
+( cd "$ROOT/engine" && go build -ldflags "-X main.version=$VER" -o "$ROOT/bin/clipper" ./cmd/clipper )
+echo "    bin/clipper $VER"
 
 if [ "${1:-}" = "-engine-only" ]; then
   echo "==> gui dilewati (-engine-only)"

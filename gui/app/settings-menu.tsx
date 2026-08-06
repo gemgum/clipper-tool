@@ -38,6 +38,9 @@ export default function SettingsMenu() {
   const [saving, setSaving] = useState(false);
   // Semua server yang menjawab, bukan cuma yang dipakai.
   const [servers, setServers] = useState<{ url: string; kind: string; name: string }[]>([]);
+  // Versi engine yang SEDANG jalan — bukan angka yang dipaku di GUI. Keduanya
+  // dibangun terpisah, jadi angka yang ditulis di sini bisa berbohong.
+  const [ver, setVer] = useState("");
 
   // Status komponen ditarik saat panel DIBUKA — dan SETIAP kali dibuka.
   //
@@ -60,6 +63,10 @@ export default function SettingsMenu() {
       .then((r) => r.json())
       .then((d) => setServers(d.servers || []))
       .catch(() => setServers([]));
+    fetch(eng(`/api/health`))
+      .then((r) => r.json())
+      .then((d) => setVer(d.version || ""))
+      .catch(() => {});
   }, [open]);
 
   // Menyimpan lalu MEMERIKSA ULANG. Yang ingin dilihat pengguna sesudah menekan
@@ -116,7 +123,16 @@ export default function SettingsMenu() {
     }>
       {(close) => (
         <div className="settings-pop" role="menu">
-          <div className="settings-title">{t("settingsTitle")}</div>
+          {/* Versi menumpang di baris judul, bukan di kelompok "About" sendiri.
+              "Versi berapa yang saya jalankan" memang harus terjawab tanpa
+              membuka terminal — tapi jawabannya satu kata, dan judul + baris
+              sendiri berarti ~40 px diambil dari panel yang tingginya
+              terbatas. Di baris kaki ia sudah dicoba: 12px bersaing dengan
+              tautan Requirements dan keduanya melipat jadi dua baris. */}
+          <div className="settings-title">
+            {t("settingsTitle")}
+            <span className="meta" title={t("aboutVersion")}>{ver || "…"}</span>
+          </div>
 
           <div className="settings-group">
             <div className="settings-head">{t("settingsLanguage")}</div>

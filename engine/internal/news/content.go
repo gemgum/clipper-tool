@@ -53,6 +53,11 @@ func FetchContent(ctx context.Context, page string, browse Browser, cacheDir, la
 		// cepat daripada memanggil browser untuk kedua kalinya.
 		if original, ok := loadResolved(cacheDir, page); ok {
 			page = original
+		} else if original, err := decodeGoogleNews(ctx, page); err == nil && !IsGoogleNewsLink(original) {
+			// Sama seperti Resolve: alamat aslinya ditanyakan langsung ke
+			// Google, dan artikelnya diunduh lewat HTTP biasa di bawah.
+			saveResolved(cacheDir, page, original)
+			page = original
 		} else {
 			if browse == nil {
 				return Content{}, fmt.Errorf("search-result links must be opened in a browser, but no browser is available — install Chrome/Chromium, or open the link yourself and paste the real address")

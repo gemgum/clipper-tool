@@ -246,6 +246,7 @@ func cmdServe(layout config.Layout, args []string) {
 	paths := config.ResolvePaths(layout, opts)
 	mgr := job.NewManager(layout, paths, *jobsN)
 	srv := api.NewServer(mgr, layout)
+	api.Version = version // dilaporkan lewat /api/health, dipakai panel setelan
 
 	listenAddr := *addr
 	if listenAddr == "" {

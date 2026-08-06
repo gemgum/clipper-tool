@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -53,6 +54,11 @@ func Search(ctx context.Context, query string, max int, lang string) ([]Article,
 		return nil, fmt.Errorf("news search failed: %w", err)
 	}
 	articles, err := parseFeed(raw, "", max, lang)
+	// Nol hasil BUKAN feed yang rusak: yang salah kata kuncinya, bukan alamat
+	// yang tidak pernah diketik pengguna. Lihat errNoArticles di rss.go.
+	if errors.Is(err, errNoArticles) {
+		return nil, fmt.Errorf("no news found for %q — try fewer or more common words", query)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("the search results could not be read: %w", err)
 	}

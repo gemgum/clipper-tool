@@ -2,6 +2,7 @@ package news
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -561,5 +562,47 @@ func TestPublishedDateFallbacks(t *testing.T) {
 	}
 	if !strings.HasPrefix(a.Published, "2026-08-07") {
 		t.Errorf("<time>: published = %q", a.Published)
+	}
+}
+
+// Balasan batchexecute bukan JSON utuh: ada penjaga anti-hijack di baris
+// pertama, dan alamatnya bersembunyi di dalam JSON yang berbentuk TEKS.
+// Contoh di bawah disalin apa adanya dari balasan sungguhan.
+func TestParseGarturlres(t *testing.T) {
+	body := ")]}'\n\n" +
+		`[["wrb.fr","Fbv4je","[\"garturlres\",\"https://megapolitan.kompas.com/read/2026/08/06/18140221/kronologi\",1]",null,null,null,"generic"],["di",11],["af.httprm",10,"-397",14]]` + "\n"
+	got, err := parseGarturlres([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://megapolitan.kompas.com/read/2026/08/06/18140221/kronologi"; got != want {
+		t.Errorf("url = %q, want %q", got, want)
+	}
+	if _, err := parseGarturlres([]byte(")]}'\n\n[[\"di\",11]]\n")); err == nil {
+		t.Error("balasan tanpa alamat harus jadi galat, bukan string kosong")
+	}
+}
+
+func TestGoogleArticleID(t *testing.T) {
+	cases := map[string]string{
+		"https://news.google.com/rss/articles/CBMiabc?oc=5": "CBMiabc",
+		"https://news.google.com/articles/CBMiabc":          "CBMiabc",
+		"https://news.google.com/read/CBMiabc?hl=id":        "CBMiabc",
+		"https://kompas.com/read/2026/08/06/judul":          "",
+	}
+	for link, want := range cases {
+		if got := googleArticleID(link); got != want {
+			t.Errorf("googleArticleID(%q) = %q, want %q", link, got, want)
+		}
+	}
+}
+
+// Nol hasil pencarian tidak boleh dilaporkan sebagai feed yang rusak: pengguna
+// mengetik kata kunci, bukan alamat feed (dilaporkan 7 Agustus 2026).
+func TestEmptyFeedIsItsOwnError(t *testing.T) {
+	empty := []byte(`<?xml version="1.0"?><rss version="2.0"><channel><title>x</title></channel></rss>`)
+	_, err := parseFeed(empty, "", 5, "id")
+	if !errors.Is(err, errNoArticles) {
+		t.Fatalf("galat = %v, mau errNoArticles", err)
 	}
 }

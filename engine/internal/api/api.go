@@ -591,8 +591,14 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 	writeErr(w, 400, "no 'file' field found")
 }
 
+// Version diisi main saat program mulai; nomor rilisnya sendiri datang dari
+// tag lewat -ldflags (lihat .github/workflows/desktop.yml). Ditaruh di sini
+// supaya GUI bisa menyebutkannya di panel setelan — pertanyaan "versi berapa
+// yang saya jalankan" tidak boleh dijawab dengan membuka terminal.
+var Version = "dev"
+
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "ok"})
+	writeJSON(w, 200, map[string]string{"status": "ok", "version": Version})
 }
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {

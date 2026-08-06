@@ -85,6 +85,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | setup           | status komponen + unduh/pasang whisper.cpp, ffmpeg, model                     |
 | capture         | foto layar halaman web via Chrome headless (exec, + terjemah path WSL)        |
 | news            | RSS + metadata artikel (Open Graph) + ekstraksi paragraf + pemilih hook (LLM) |
+| news/google.go  | membuka pengalih news.google.com lewat RPC-nya sendiri (tanpa browser)        |
 | card            | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber   |
 
 ## Folder data: dua bentuk, dipilih sendiri

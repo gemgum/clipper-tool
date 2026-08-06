@@ -401,3 +401,84 @@ node scripts/measure-ui.mjs http://127.0.0.1:8787 /tmp/shots
 **Lihat potretnya, bukan cuma angkanya.** Lalu: `go vet ./...` ·
 `go test ./...` · `npx tsc --noEmit --noUnusedLocals --noUnusedParameters` ·
 `npm run build`.
+
+---
+
+## Tambahan 7 Agustus 2026 (sore): butir 3b SELESAI + versi di panel setelan
+
+### Pengalih Google News dibuka TANPA browser
+
+Butir 3b di atas ("tautan hasil pencarian yang tidak bisa diresolusi") ditutup,
+dan bukan dengan menunggu lebih lama. Jalan ketiga yang dulu tidak terpikir:
+**panggil RPC yang dipakai halaman Google itu sendiri saat hendak berpindah.**
+
+`engine/internal/news/google.go`. Dua permintaan HTTP biasa:
+
+1. `GET` halaman pengalihnya → ambil `data-n-a-ts` (stempel waktu) dan
+   `data-n-a-sg` (tanda tangan) yang tertanam di HTML-nya.
+2. `POST news.google.com/_/DotsSplashUi/data/batchexecute` dengan rpcid
+   **`Fbv4je`**, membawa id artikel + kedua nilai itu. Balasannya alamat asli.
+
+Balasan langkah 2 bukan JSON utuh — baris penjaga `)]}'`, lalu array yang salah
+satu elemennya JSON BERBENTUK TEKS. Diurai dua tahap di `parseGarturlres`,
+dijaga `TestParseGarturlres` (tanpa jaringan).
+
+**Terukur, 10 hasil pencarian yang sama seperti sapuan sebelumnya:**
+
+| | browser (sebelum) | RPC (sesudah) |
+| --- | --- | --- |
+| berhasil | 9/10 | **10/10** |
+| waktu per tautan | 3–15 dtk | **112–176 md** |
+
+Ujung ke ujung lewat GUI (CDP, klik sungguhan): cari → klik baris pertama →
+kartu langsung berisi foto, judul, teks, sumber. `POST /api/news/article` untuk
+4 hasil teratas: **4/4 berdapat gambar, 0,1–0,6 detik**.
+
+Browser TIDAK dibuang: ia tetap jalan cadangan di `Resolve` dan `FetchContent`
+bila bentuk halaman Google berubah. Yang berubah cuma urutannya — RPC dulu,
+browser belakangan.
+
+Uji hidupnya ada, dan sengaja dilewati tanpa jaringan:
+
+```bash
+CLIPPER_TEST_NET=1 go test ./internal/news/ -run TestDecodeGoogleNewsManual -v
+```
+
+### Yang MASIH tidak berfoto: baris daftarnya sendiri
+
+RSS Google News tidak membawa gambar sama sekali, jadi 24 baris hasil pencarian
+tetap tanpa thumbnail — yang berfoto adalah kartunya, sesudah diklik. Memberi
+thumbnail pada daftar berarti membuka 24 tautan ke Google tiap kali orang
+mencari (±7 detik dan 24 permintaan). **Keputusan pemilik proyek**, bukan
+sesuatu yang dikerjakan diam-diam.
+
+### Versi engine tampil di panel setelan
+
+`/api/health` kini menjawab `{"status":"ok","version":"…"}`; nilainya dari
+`main.version`. GUI menariknya saat panel dibuka.
+
+Angkanya datang dari **`desktop/src-tauri/tauri.conf.json`**, satu tempat untuk
+seluruh aplikasi: `build.sh` dan `build-windows.sh` membacanya lalu menyuntiknya
+lewat `-ldflags "-X main.version=…"`. Sebelum ini build lokal memakai bawaan
+`main.version` dan panel melaporkan **0.1.0-dev** — angka yang tidak pernah
+dirilis siapa pun. Sekarang `./bin/clipper version` dan `/api/health` sama-sama
+menjawab **0.7.0**. Di CI tidak berubah: workflow rilis memakai nomor tag, dan
+ia SUDAH menolak tag yang tidak cocok dengan tauri.conf.json.
+
+Tempatnya **di baris judul "Settings"**, rata kanan — bukan kelompok "About"
+sendiri. Alasannya terukur: sebagai baris kaki di sebelah tautan Requirements,
+keduanya melipat jadi dua baris dan panel naik 427 px; di baris judul ia nol
+tambahan dan panel tetap **301 px, scroll 0**. Ukur UI tetap **klip 0/0 ·
+kartu 0/0 di 1240×860**.
+
+### "the feed parsed but contains no articles" pada pencarian — pesan yang salah alamat
+
+Dilaporkan langsung sesudah perbaikan di atas. Bukan kegagalan jaringan:
+**pencarian yang nol hasil** memakai pesan milik feed media, jadi orang yang
+baru saja mengetik kata kunci disuruh "check the feed URL" — alamat yang bahkan
+tidak pernah ia ketik. Reproduksi: `?q=asdkjhqwe`.
+
+`parseFeed` sekarang mengembalikan `errNoArticles` (sentinel di `rss.go`), dan
+`Search` menerjemahkannya jadi `no news found for "…" — try fewer or more
+common words`. Feed media tetap memakai kalimat lama, sebab di sana kosong
+memang berarti alamatnya keliru. Dijaga `TestEmptyFeedIsItsOwnError`.
