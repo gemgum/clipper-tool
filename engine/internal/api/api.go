@@ -903,7 +903,11 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vw, vh, _ := s.ff.Dimensions(ctx, path)
-	writeJSON(w, 200, map[string]any{"duration": dur, "width": vw, "height": vh})
+	// has_audio ikut dilaporkan supaya GUI bisa memperingatkan SEBELUM tombol
+	// Mulai ditekan: video tanpa suara tidak bisa dikerjakan sama sekali, dan
+	// mengetahuinya setelah menunggu ekstraksi gagal adalah waktu yang terbuang.
+	hasAudio, _ := s.ff.HasAudio(ctx, path)
+	writeJSON(w, 200, map[string]any{"duration": dur, "width": vw, "height": vh, "has_audio": hasAudio})
 }
 
 // frame mengembalikan 1 frame (JPEG) 9:16 untuk preview subtitle, disesuaikan

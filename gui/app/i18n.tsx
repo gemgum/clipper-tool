@@ -36,6 +36,8 @@ const en = {
   // --- source panel ---
   uploadingPct: "Uploading… {pct}%",
   pickerFileTitle: "Choose a video on this computer",
+  pickerProgramTitle: "Point Clipper at {name}",
+  pickerProgramHint: "Choose the program file. Nothing is copied.",
   pickerFolderTitle: "Choose a folder",
   pickerUp: "Up",
   pickerGo: "Open",
@@ -217,8 +219,9 @@ const en = {
   sampleLine3: "at this pacing",
 
   // --- run + results ---
-  modelMissingWarn: "Model {model} has not been downloaded. Run",
-  modelMissingWarnTail: "then reload.",
+  modelMissingWarn: "Speech model \"{model}\" has not been downloaded yet.",
+  modelMissingWarnTail: "Open Requirements and press Install — it downloads inside the app.",
+  openRequirements: "Open Requirements",
   start: "Start processing",
   processing: "Processing…",
   cancel: "Cancel",
@@ -226,6 +229,8 @@ const en = {
   statusStopped: "Stopped",
   statusIdle: "Not running",
   warning: "Warning",
+  noAudio: "no sound",
+  noAudioWarning: "This video has no sound track. Clipper picks moments from what is said, so there is nothing it can work with — pick a video that has audio.",
   ollamaFoundAt: "Ollama found at {url} ({where})",
   ollamaMissingHeuristic: "Ollama is not running anywhere this app can reach, so scoring was set to the built-in heuristic and transcript correction was turned off. Start Ollama, then check again.",
   logNoOllama: "Ollama not found — using the built-in heuristic, transcript correction off",
@@ -268,6 +273,7 @@ const en = {
   reqGroupApps: "Separate applications",
   reqRequired: "required",
   reqInstall: "Install",
+  reqInstallMissing: "Install {n} missing",
   reqInstalling: "Installing…",
   reqRemove: "Remove",
   reqRemoved: "Removed.",
@@ -299,7 +305,7 @@ const en = {
   errCreateJob: "could not create the job",
   errReadVideo: "could not read the video",
   errOldEngine:
-    "the response is not JSON — old engine? Stop it and run ./bin/clipper serve again",
+    "the app answered with something unexpected — close Clipper and open it again",
 
   // --- news card page ---
   groupSource: "Article",
@@ -418,6 +424,8 @@ const id: Record<MessageKey, string> = {
 
   uploadingPct: "Mengunggah… {pct}%",
   pickerFileTitle: "Pilih video di komputer ini",
+  pickerProgramTitle: "Tunjukkan letak {name}",
+  pickerProgramHint: "Pilih berkas programnya. Tidak ada yang disalin.",
   pickerFolderTitle: "Pilih folder",
   pickerUp: "Naik",
   pickerGo: "Buka",
@@ -591,8 +599,9 @@ const id: Record<MessageKey, string> = {
   sampleLine2: "subtitle Anda nanti",
   sampleLine3: "pada kecepatan ini",
 
-  modelMissingWarn: "Model {model} belum diunduh. Jalankan",
-  modelMissingWarnTail: "lalu muat ulang.",
+  modelMissingWarn: "Model suara \"{model}\" belum diunduh.",
+  modelMissingWarnTail: "Buka Requirements lalu tekan Install — pengunduhannya di dalam aplikasi.",
+  openRequirements: "Buka Requirements",
   start: "Mulai proses",
   processing: "Memproses…",
   cancel: "Batalkan",
@@ -600,6 +609,8 @@ const id: Record<MessageKey, string> = {
   statusStopped: "Berhenti",
   statusIdle: "Belum berjalan",
   warning: "Peringatan",
+  noAudio: "tanpa suara",
+  noAudioWarning: "Video ini tidak punya trek suara. Clipper memilih momen dari apa yang diucapkan, jadi tidak ada yang bisa dikerjakan — pilih video yang ada suaranya.",
   ollamaFoundAt: "Ollama ditemukan di {url} ({where})",
   ollamaMissingHeuristic: "Ollama tidak berjalan di tempat mana pun yang bisa dijangkau aplikasi ini, jadi penilaian memakai heuristik bawaan dan koreksi transkrip dimatikan. Nyalakan Ollama, lalu cek ulang.",
   logNoOllama: "Ollama tidak ditemukan — memakai heuristik bawaan, koreksi transkrip mati",
@@ -641,6 +652,7 @@ const id: Record<MessageKey, string> = {
   reqGroupApps: "Aplikasi terpisah",
   reqRequired: "wajib",
   reqInstall: "Pasang",
+  reqInstallMissing: "Pasang {n} yang kurang",
   reqInstalling: "Memasang…",
   reqRemove: "Hapus",
   reqRemoved: "Dihapus.",
@@ -672,7 +684,7 @@ const id: Record<MessageKey, string> = {
   errCreateJob: "gagal membuat job",
   errReadVideo: "gagal membaca video",
   errOldEngine:
-    "respons bukan JSON — engine versi lama? Hentikan lalu jalankan ulang ./bin/clipper serve",
+    "aplikasi menjawab dengan sesuatu yang tidak terduga — tutup Clipper lalu buka lagi",
 
   groupSource: "Artikel",
   groupParagraph: "Paragraf",

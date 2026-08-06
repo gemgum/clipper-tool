@@ -45,11 +45,16 @@ export default function Picker({
   start,
   onPick,
   onClose,
+  title,
+  hint,
 }: {
   mode: "file" | "folder";
   start?: string;
   onPick: (path: string) => void;
   onClose: () => void;
+  /** Judul & keterangan khusus; tanpa ini dipakai kalimat untuk memilih video. */
+  title?: string;
+  hint?: string;
 }) {
   const { t } = useI18n();
   const [dir, setDir] = useState(start || "");
@@ -95,7 +100,7 @@ export default function Picker({
     <div className="modal-back" onClick={onClose}>
       <div className="modal" onClick={(ev) => ev.stopPropagation()}>
         <div className="modal-head">
-          <strong>{mode === "folder" ? t("pickerFolderTitle") : t("pickerFileTitle")}</strong>
+          <strong>{title || (mode === "folder" ? t("pickerFolderTitle") : t("pickerFileTitle"))}</strong>
           <button className="ghost" onClick={onClose}>
             ✕
           </button>
@@ -157,7 +162,7 @@ export default function Picker({
         </div>
 
         <div className="modal-foot">
-          <span className="meta">{mode === "folder" ? t("pickerFolderHint") : t("pickerFileHint")}</span>
+          <span className="meta">{hint || (mode === "folder" ? t("pickerFolderHint") : t("pickerFileHint"))}</span>
           <span style={{ flex: 1 }} />
           {mode === "folder" && (
             <button onClick={() => onPick(listing?.dir || dir)}>{t("pickerUseFolder")}</button>

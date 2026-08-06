@@ -29,12 +29,15 @@ func New(bin, model string) *Whisper {
 func (w *Whisper) Available() error {
 	if _, err := exec.LookPath(w.Bin); err != nil {
 		if _, err2 := os.Stat(w.Bin); err2 != nil {
-			return fmt.Errorf("whisper binary not found (%s) — run ./setup.sh", w.Bin)
+			// Pesan untuk PENGGUNA aplikasi, bukan pengembang: ./setup.sh
+			// adalah skrip repo yang tidak ikut dipasang, jadi menyebutnya sama
+			// dengan menyuruh orang berhenti di tengah jalan.
+			return fmt.Errorf("the speech recogniser (whisper) is not installed yet — open the Requirements page and press Install")
 		}
 	}
 	if _, err := os.Stat(w.Model); err != nil {
-		return fmt.Errorf("whisper model not found (%s) — run: ./setup.sh %s",
-			w.Model, modelName(w.Model))
+		return fmt.Errorf("the speech model %q has not been downloaded yet — open the Requirements page and press Install next to it",
+			modelName(w.Model))
 	}
 	return nil
 }

@@ -105,6 +105,27 @@ export default function Home() {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString(locale)}] ${text}`]);
   }, [locale]);
 
+  // Daftar model ditarik ulang setiap jendela kembali fokus.
+  //
+  // Model diunduh di HALAMAN LAIN (Requirements), dan tanpa penarikan ulang
+  // halaman ini terus mengira modelnya belum ada — peringatannya bertahan dan
+  // tombol Mulai tetap mati sampai aplikasi ditutup. Itu yang membuat "harus
+  // direstart dulu".
+  useEffect(() => {
+    const loadModels = () =>
+      fetch(eng(`/api/models`)).then((r) => r.json()).then((m: WhisperModel[]) => {
+        setModels(m);
+        setModel((cur) => {
+          // Pilihan pengguna dipertahankan selama modelnya benar-benar ada;
+          // kalau tidak, ambil yang sudah terunduh.
+          if (m.some((x) => x.name === cur && x.downloaded)) return cur;
+          return m.find((x) => x.downloaded)?.name ?? cur;
+        });
+      }).catch(() => {});
+    window.addEventListener("focus", loadModels);
+    return () => window.removeEventListener("focus", loadModels);
+  }, []);
+
   useEffect(() => {
     fetch(eng(`/api/models`)).then((r) => r.json()).then((m: WhisperModel[]) => {
       setModels(m);
@@ -441,7 +462,12 @@ export default function Home() {
       <Alerts items={[
         error && { kind: "error" as const, text: error },
         modelMissing && { kind: "warn" as const, key: `model-${model}`,
-          text: <>{t("modelMissingWarn", { model })} <code>./setup.sh {model}</code> {t("modelMissingWarnTail")}</> },
+          // Tautan ke halaman yang bisa MEMASANGNYA, bukan perintah terminal:
+          // `./setup.sh` adalah skrip pengembang yang bahkan tidak ada di
+          // aplikasi Windows, dan menyuruh orang menjalankannya sama dengan
+          // menyuruhnya berhenti.
+          text: <>{t("modelMissingWarn", { model })} {t("modelMissingWarnTail")}{" "}
+            <a href="/requirements">{t("openRequirements")}</a></> },
       ]} />
 
       {/* Pemilih berkas: modal, jadi ia berdiri di luar grid kolom. */}

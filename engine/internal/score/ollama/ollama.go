@@ -255,7 +255,7 @@ func Status(ctx context.Context, url string) StatusInfo {
 			Bytes:   m.Size,
 			Context: m.Details.ContextLength,
 		}
-		mi.Ready, mi.Note = judge(m.Details.ParameterSize, m.Details.ContextLength, m.Capabilities)
+		mi.Ready, mi.Note = judge(m.Name, m.Size, m.Details.ParameterSize, m.Details.ContextLength, m.Capabilities)
 		info.Models = append(info.Models, m.Name)
 		info.Installed = append(info.Installed, mi)
 	}
@@ -271,7 +271,14 @@ func BaseName(name string) string {
 }
 
 // judge menilai apakah sebuah model terpasang layak dipakai memilih momen.
-func judge(paramSize string, ctxLen int, caps []string) (bool, string) {
+func judge(name string, bytes int64, paramSize string, ctxLen int, caps []string) (bool, string) {
+	// Model CLOUD Ollama ("gpt-oss:120b-cloud") terdaftar seperti model biasa
+	// tapi berukuran 0 byte: ia berjalan di server Ollama, butuh akun, dan
+	// bukan model lokal. Dilaporkan dari lapangan: ia tampil "ready" lalu
+	// jobnya gagal di tengah jalan.
+	if strings.HasSuffix(name, "-cloud") || bytes == 0 {
+		return false, "runs on Ollama's servers, not on this computer — it needs an Ollama account, and Clipper is built around a local model"
+	}
 	if len(caps) > 0 && !slices.Contains(caps, "completion") {
 		return false, "this model does not generate text (e.g. an embedding model)"
 	}

@@ -98,6 +98,8 @@ export default function PreviewPanel({
   const [grid, setGrid] = useState<number>(20);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [duration, setDuration] = useState(0);
+  // null = belum diperiksa. false = video tanpa trek suara.
+  const [hasAudio, setHasAudio] = useState<boolean | null>(null);
   const [previewTime, setPreviewTime] = useState(5);
   // Dinaikkan tiap muat ulang manual supaya URL frame berubah — kalau URL-nya
   // sama persis, browser memakai gambar lama meski videonya sudah ditimpa.
@@ -135,6 +137,8 @@ export default function PreviewPanel({
       catch { throw new Error(t("errOldEngine")); }
       if (!res.ok) throw new Error(data.error || t("errReadVideo"));
       setDuration(data.duration || 0);
+      setHasAudio(data.has_audio !== false);
+      setHasAudio(data.has_audio !== false);
       setPreviewTime(Math.min(5, (data.duration || 10) / 2));
       setPreviewNonce((n) => n + 1);
       setPreviewOn(true);
@@ -147,6 +151,8 @@ export default function PreviewPanel({
   // tombol "reset" dan otomatis saat videonya berganti.
   const resetPreview = useCallback(() => {
     setPreviewOn(false);
+    setHasAudio(null);
+    setHasAudio(null);
     setPreviewBusy(false);
     setDuration(0);
     setPreviewTime(5);
@@ -293,6 +299,12 @@ export default function PreviewPanel({
               <div className={`guide h${atCenterY ? " on" : ""}`} />
               {atCenterX && atCenterY && <div className="guide xy" />}
             </>
+          )}
+          {/* Video tanpa suara: seluruh pipeline berdiri di atas ucapan, jadi
+              ini harus terlihat SEBELUM tombol Mulai ditekan. Lencana melayang
+              di atas gambar — tidak menambah baris, tidak menggeser apa pun. */}
+          {hasAudio === false && (
+            <div className="no-audio"><Warn width={280}>{t("noAudioWarning")}</Warn>{t("noAudio")}</div>
           )}
           {/* Sumbu pada posisi subtitle SEKARANG, berikut angkanya. Tanpa angka,
               "pasti" hanya terasa — tidak bisa diulang di klip berikutnya. */}
@@ -513,14 +525,16 @@ export default function PreviewPanel({
         {/* Penggeser waktu SATU baris: dulu label di atas + penggeser di bawah
             memakan 67 px, dan tiap piksel di kolom ini diambil dari bingkai
             pratinjaunya sendiri. Angkanya pindah ke ujung kanan barisnya. */}
-        {previewOn && (
-          <div className="frame-time" title={t("previewTime", { t: previewTime.toFixed(1) })}>
-            <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
-              aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
-              value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
-            <span className="meta">{previewTime.toFixed(1)}s</span>
-          </div>
-        )}
+        {/* SELALU dirender, dimatikan sebelum pratinjau termuat: baris ini dulu
+            muncul bersama gambar pertama, dan kemunculannya menggeser seluruh
+            kolom 22 px tepat saat pengguna sedang menatap gambar itu. */}
+        <div className="frame-time" title={t("previewTime", { t: previewTime.toFixed(1) })}>
+          <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
+            disabled={!previewOn}
+            aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
+            value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
+          <span className="meta">{previewOn ? `${previewTime.toFixed(1)}s` : "—"}</span>
+        </div>
       </div>
     </div>
   );

@@ -21,16 +21,20 @@ export default function SettingsMenu() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Component[] | null>(null);
 
-  // Status komponen ditarik saat panel DIBUKA, bukan saat halaman dimuat: ia
-  // keterangan sesekali, dan menariknya di awal berarti tiap halaman membayar
-  // satu permintaan yang mungkin tidak pernah dilihat.
+  // Status komponen ditarik saat panel DIBUKA — dan SETIAP kali dibuka.
+  //
+  // Sebelumnya hasil pertama disimpan selamanya (`if (!open || items) return`),
+  // jadi daftar yang terbaca sebelum komponennya dipasang tetap berbunyi
+  // "missing" sampai aplikasi ditutup — sementara halaman Requirements di
+  // belakangnya sudah hijau semua. Dua tempat yang menjawab pertanyaan sama
+  // dengan jawaban berbeda, dan yang salah justru yang paling gampang dilihat.
   useEffect(() => {
-    if (!open || items) return;
+    if (!open) return;
     fetch(eng(`/api/requirements`))
       .then((r) => r.json())
       .then((d) => setItems(d.components || []))
       .catch(() => setItems([]));
-  }, [open, items]);
+  }, [open]);
 
   // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
   // penanda kapan status komponen perlu ditarik.

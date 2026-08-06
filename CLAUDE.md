@@ -41,7 +41,7 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
 ./bin/clipper serve -token on    # + kunci sesi (otomatis menyala saat terpasang)
 cd gui && npm run dev            # GUI mode pengembangan di 3000 (hot reload)
 cd desktop && npm run dev        # jendela aplikasi (Tauri) — butuh Rust
-````
+```
 
 Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
 mencarinya sendiri; timpa dengan `CLIPPER_CHROME=/path/ke/chrome`.
@@ -250,8 +250,9 @@ node scripts/measure-ui.mjs http://127.0.0.1:8787 /tmp/shots
 
 Ia mencetak `scrollHeight` vs `clientHeight` tiap kolom di 900×600 dan
 1240×860, tema terang dan gelap, sekaligus memotret tiap halaman. Angka `over`
+
 > 0 berarti kotak itu bergulir. **Baseline 6 Agustus 2026: klip & kartu berita
-`0/0` di 1240×860.** Kalau angkanya naik lagi, perubahanmu yang menaikkannya.
+> `0/0` di 1240×860.** Kalau angkanya naik lagi, perubahanmu yang menaikkannya.
 
 Potretnya juga wajib dilihat, bukan cuma angkanya: kotak kosong, teks terpotong,
 dan lambang yang tidak ada di font hanya ketahuan dari gambar. `ⓘ` (U+24D8)
@@ -311,6 +312,8 @@ pilihannya. Rinciannya di `notes/29`.
 - Biner eksternal & model besar TIDAK di-commit (lihat .gitignore).
 - Model whisper default engine: `small` (produksi). Uji cepat: `base`.
 - Video besar: audio di-stream via ffmpeg (tidak dimuat ke RAM).
+- TGanti Teks Warna Merah untuk task yang belum dikerjakan
+- Ganti Teks Warna Kunin untuk task yang perlu keputusan dari pemilik proyek
 
 ## Cara mengarahkan pemilik proyek (mode belajar)
 
@@ -350,4 +353,7 @@ meleset karena suntingannya ternyata belum sesuai yang dikira.
 
 CLI + HTTP + GUI semua berfungsi (mode offline diverifikasi
 end-to-end). Lihat notes/08-status-mvp.md untuk yang sudah/belum.
-`````````````````````````````
+
+```
+
+```

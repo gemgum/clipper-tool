@@ -45,6 +45,13 @@ type Component struct {
 	Installable bool   `json:"installable"`
 	Hint        string `json:"hint"` // cara memasang manual, bila engine tak bisa
 	URL         string `json:"url"`  // halaman unduh untuk pemasangan manual
+	// Pointable = boleh ditunjuk ke berkas pilihan pengguna.
+	//
+	// Ada karena GUI tidak boleh menebaknya sendiri: Ollama TERPASANG sebagai
+	// layanan jaringan, bukan berkas yang bisa dipilih, dan tombol "pakai berkas
+	// lain" di barisnya membuka pemilih video — dialog yang tidak berarti apa
+	// pun di sana (dilaporkan dari lapangan).
+	Pointable bool `json:"pointable"`
 }
 
 // modelRevision = commit repo HuggingFace tempat model diambil.
@@ -137,7 +144,7 @@ func Status(l config.Layout, ollamaOK bool, ollamaDetail string) []Component {
 	out = append(out, ollama)
 
 	chrome := Component{
-		ID: "chrome", Name: "Chrome / Edge", Kind: KindApp,
+		ID: "chrome", Name: "Chrome / Edge", Kind: KindApp, Pointable: true,
 		Detail:      "Renders the news cards. Not needed for video clips.",
 		Hint:        "Install Chrome or Chromium — the Edge that ships with Windows works too.",
 		URL:         "https://www.google.com/chrome/",
@@ -179,7 +186,7 @@ func modelNote(name string) string {
 // toolStatus memeriksa satu biner: yang dipasang engine lebih dulu, baru PATH.
 func toolStatus(l config.Layout, id, bin, detail string) Component {
 	c := Component{
-		ID: id, Name: bin, Kind: KindTool, Required: true, Detail: detail,
+		ID: id, Name: bin, Kind: KindTool, Required: true, Detail: detail, Pointable: true,
 		Size: ffmpegSize(), Installable: ffmpegRecipe() != nil,
 		Hint: ffmpegHint(), URL: "https://ffmpeg.org/download.html",
 	}
@@ -227,7 +234,7 @@ func checkRuns(c Component) Component {
 // whisperStatus memeriksa whisper-cli.
 func whisperStatus(l config.Layout) Component {
 	c := Component{
-		ID: "whisper", Name: "whisper.cpp", Kind: KindTool, Required: true,
+		ID: "whisper", Name: "whisper.cpp", Kind: KindTool, Required: true, Pointable: true,
 		Detail:      "Turns speech into a timed transcript.",
 		Size:        whisperSize(),
 		Installable: whisperRecipe() != nil,

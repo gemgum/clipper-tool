@@ -145,7 +145,7 @@ func whisperHint() string {
 	if runtime.GOOS == "darwin" {
 		return "On macOS, install it with: brew install whisper-cpp"
 	}
-	return "Or build it yourself with ./setup.sh"
+	return "No ready-made build for this system — it has to be compiled from source"
 }
 
 func ffmpegRecipe() *recipe {

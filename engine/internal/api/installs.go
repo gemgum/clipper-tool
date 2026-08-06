@@ -159,6 +159,14 @@ func (s *Server) installComponent(w http.ResponseWriter, r *http.Request) {
 			}
 			st.Value, st.Message = 1, "Installed"
 		})
+		if err == nil {
+			// Letak program dibaca ulang SEKARANG, bukan saat aplikasi
+			// dijalankan lagi. Server menyimpan Paths sejak dibuat, jadi ffmpeg
+			// yang baru saja diunduh tidak akan terpakai sampai proses ini
+			// dimulai ulang — dilaporkan dari lapangan sebagai "sudah install
+			// tapi harus restart dulu".
+			s.applyPaths()
+		}
 	}()
 
 	writeJSON(w, 202, map[string]any{"id": id, "started": true})

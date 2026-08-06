@@ -1,6 +1,9 @@
 package ffmpeg
 
 import (
+	"context"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -54,5 +57,41 @@ func TestErrorHint(t *testing.T) {
 	}
 	if got := errorHint("some unrecognised failure"); got != "" {
 		t.Errorf("galat tak dikenal seharusnya tanpa petunjuk, dapat %q", got)
+	}
+}
+
+// Video tanpa trek suara harus dikenali SEBELUM ekstraksi — kalau tidak,
+// ffmpeg gagal dengan "Error opening output file …: Invalid argument" yang
+// menunjuk berkas keluaran dan tidak menyebut sebab sebenarnya.
+func TestHasAudio(t *testing.T) {
+	bin, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		t.Skip("ffmpeg tidak ada di mesin ini")
+	}
+	probe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		t.Skip("ffprobe tidak ada di mesin ini")
+	}
+	dir := t.TempDir()
+	silent := filepath.Join(dir, "sunyi.mp4")
+	withSound := filepath.Join(dir, "bersuara.mp4")
+	mk := func(path string, args ...string) {
+		t.Helper()
+		full := append([]string{"-y"}, args...)
+		full = append(full, path)
+		if out, err := exec.Command(bin, full...).CombinedOutput(); err != nil {
+			t.Fatalf("menyiapkan %s: %v: %s", path, err, out)
+		}
+	}
+	mk(silent, "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p")
+	mk(withSound, "-f", "lavfi", "-i", "color=c=blue:s=64x64:d=1", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+		"-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest")
+
+	c := New(bin, probe)
+	if ok, err := c.HasAudio(context.Background(), silent); err != nil || ok {
+		t.Fatalf("video sunyi dilaporkan punya audio (ok=%v err=%v)", ok, err)
+	}
+	if ok, err := c.HasAudio(context.Background(), withSound); err != nil || !ok {
+		t.Fatalf("video bersuara dilaporkan tanpa audio (ok=%v err=%v)", ok, err)
 	}
 }

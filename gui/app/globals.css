@@ -576,6 +576,28 @@ a.dl { color: var(--accent); font-size: 12px; text-decoration: none; }
 .warn-pop button { margin-left: 0; }
 .warn-pop code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 
+/* Lencana "tanpa suara" di atas bingkai pratinjau: melayang, jadi ia tidak
+   menambah satu baris pun ke kolomnya. */
+.no-audio {
+  position: absolute;
+  /* Kiri-BAWAH: tepi atas bingkai sudah dipakai label zona "covered by top UI",
+     dan lencana yang menimpanya menyembunyikan keterangan yang justru sedang
+     dijelaskan. */
+  bottom: 8px; left: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--warn-text);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  border: 1px solid var(--warn);
+}
+.no-audio .warn-chip { margin-left: 0; }
+
 /* Notifikasi melayang (lihat alerts.tsx). Fixed, jadi munculnya tidak menggeser
    satu piksel pun dari halaman di belakangnya — itu seluruh alasan lapisan ini
    ada. Menempel di kanan-bawah: rail berdiri di kiri, dan sudut itu satu-satunya

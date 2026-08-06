@@ -22,6 +22,12 @@ import (
 
 // requirements melaporkan status semua komponen.
 func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
+	// Letak program dibaca ulang tiap kali halaman ini bertanya. "Check again"
+	// karenanya benar-benar memeriksa ulang SEGALANYA — termasuk program yang
+	// baru dipasang di luar aplikasi (mis. Ollama, atau ffmpeg lewat winget) —
+	// bukan cuma membaca ulang jawaban yang sama.
+	s.applyPaths()
+
 	// Ollama diperiksa lewat jaringan; itu bagian paling lambat di halaman ini,
 	// tapi tanpa hasilnya barisnya cuma bisa bilang "tidak tahu".
 	oll := ollama.Status(r.Context(), r.URL.Query().Get("ollama_url"))

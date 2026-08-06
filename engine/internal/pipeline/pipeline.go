@@ -123,6 +123,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	if needAudio {
 		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Extracting audio"})
 		t0 := time.Now()
+		// Tanpa trek suara tidak ada yang bisa dikerjakan Clipper: seluruh
+		// pipeline berdiri di atas ucapan. Diperiksa di sini supaya pesannya
+		// menyebut sebabnya, bukan nama berkas keluaran yang gagal dibuat.
+		if ok, err := p.ff.HasAudio(ctx, input); err == nil && !ok {
+			return nil, fmt.Errorf(
+				"this video has no sound track, so there is nothing to transcribe — Clipper picks moments from what is said. Pick a video that has audio")
+		}
 		if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
 			return nil, err
 		}

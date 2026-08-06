@@ -46,6 +46,35 @@ func CLIPath(p string) string {
 	return "." + string(filepath.Separator) + p
 }
 
+// HasAudio melaporkan apakah berkas punya trek suara sama sekali.
+//
+// Diperiksa SEBELUM ekstraksi, bukan sesudah gagal: video tanpa audio membuat
+// ffmpeg berhenti dengan
+//
+//	Output file does not contain any stream
+//	Error opening output file …\tmp\audio.wav.
+//	Error opening output files: Invalid argument
+//
+// — tiga baris yang menunjuk berkas KELUARAN dan tidak menyebut sebab
+// sebenarnya sama sekali. Dilaporkan dari lapangan sebagai "error di audio.wav",
+// dan tebakan pertamanya (spasi di nama berkas, ukuran video, bahasanya)
+// semuanya salah. Reproduksinya: satu mp4 tanpa trek audio, pesan yang sama
+// persis.
+func (c *Client) HasAudio(ctx context.Context, input string) (bool, error) {
+	args := []string{
+		"-v", "error",
+		"-select_streams", "a",
+		"-show_entries", "stream=index",
+		"-of", "csv=p=0",
+		CLIPath(input),
+	}
+	out, err := exec.CommandContext(ctx, c.FFprobe, args...).Output()
+	if err != nil {
+		return false, fmt.Errorf("ffprobe audio streams: %w", err)
+	}
+	return strings.TrimSpace(string(out)) != "", nil
+}
+
 // Duration mengembalikan durasi video (detik) via ffprobe.
 func (c *Client) Duration(ctx context.Context, input string) (float64, error) {
 	args := []string{

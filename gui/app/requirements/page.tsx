@@ -26,6 +26,7 @@ type Component = {
   installable: boolean;
   hint: string;
   url: string;
+  pointable: boolean;
 };
 
 type Folders = {
@@ -196,6 +197,13 @@ export default function RequirementsPage() {
     []
   );
 
+  // Yang kurang DAN bisa dipasang engine — dipakai tombol "pasang semua" di
+  // notifikasi. Yang tidak bisa dipasang (Ollama, Chrome) tidak ikut: tombol
+  // yang menjanjikan sesuatu yang tidak bisa dikerjakan lebih buruk daripada
+  // tidak ada tombol.
+  const installable = (req?.components || []).filter((c) => c.required && !c.installed && c.installable);
+  const anyInstalling = Object.values(installs).some((st) => st.running);
+
   const groups: { title: string; kind: Component["kind"] }[] = [
     { title: t("reqGroupTools"), kind: "tool" },
     { title: t("reqGroupModels"), kind: "model" },
@@ -216,6 +224,8 @@ export default function RequirementsPage() {
       {picking && (
         <Picker
           mode="file"
+          title={t("pickerProgramTitle", { name: picking.name })}
+          hint={t("pickerProgramHint")}
           start={picking.path}
           onPick={(p) => setPath(picking, p)}
           onClose={() => setPicking(null)}
@@ -230,7 +240,16 @@ export default function RequirementsPage() {
       <Alerts items={[
         error && { kind: "error" as const, text: error },
         missing.length > 0 && { kind: "warn" as const, key: `missing-${missing.join(",")}`,
-          text: t("reqMissing", { list: missing.join(", ") }) },
+          // Notifikasi yang cuma menyebut apa yang kurang menyuruh orang mencari
+          // barisnya sendiri di daftar sepanjang sebelas komponen. Tombolnya
+          // ada DI SINI: satu klik memasang semua yang kurang dan bisa dipasang.
+          text: <>{t("reqMissing", { list: missing.join(", ") })}{" "}
+            {installable.length > 0 && (
+              <button className="ghost tiny" disabled={anyInstalling}
+                onClick={() => installable.forEach(install)}>
+                {anyInstalling ? t("reqInstalling") : t("reqInstallMissing", { n: installable.length })}
+              </button>
+            )}</> },
       ]} />
 
       <div className="screen-body">
@@ -277,10 +296,12 @@ export default function RequirementsPage() {
                         {live ? t("reqInstalling") : t("reqInstall")}
                       </button>
                     )}
-                    {/* Menunjuk sendiri berlaku untuk program, bukan model:
-                        model adalah berkas milik kita yang namanya sudah pasti,
-                        sedangkan program bisa ada di mana saja. */}
-                    {c.kind !== "model" && (
+                    {/* Menunjuk sendiri hanya untuk yang MEMANG berkas — engine
+                        yang menentukannya (Component.Pointable), bukan halaman
+                        ini. Ollama terpasang sebagai layanan jaringan, dan
+                        tombol "pakai berkas lain" di barisnya dulu membuka
+                        pemilih video: dialog yang tidak berarti apa pun. */}
+                    {c.pointable && (
                       <button className="ghost" disabled={live} onClick={() => setPicking(c)}>
                         {c.installed ? t("reqPathChange") : t("reqPathPick")}
                       </button>

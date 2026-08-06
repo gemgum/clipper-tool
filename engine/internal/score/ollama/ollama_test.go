@@ -33,23 +33,28 @@ func TestParseParams(t *testing.T) {
 
 func TestJudge(t *testing.T) {
 	// Model 7B berkonteks panjang: siap.
-	if ok, note := judge("7.6B", 32768, []string{"completion", "tools"}); !ok {
+	if ok, note := judge("qwen2.5:latest", 4_700_000_000, "7.6B", 32768, []string{"completion", "tools"}); !ok {
 		t.Errorf("qwen2.5 seharusnya siap, malah ditolak: %s", note)
 	}
 	// Model 4B: kasus di notes/12 — balasannya isian kosong.
-	if ok, _ := judge("4B", 32768, []string{"completion"}); ok {
+	if ok, _ := judge("kecil:latest", 2_000_000_000, "4B", 32768, []string{"completion"}); ok {
 		t.Error("model 4B seharusnya ditandai kurang memadai")
 	}
 	// Konteks lebih kecil dari yang diminta engine.
-	if ok, _ := judge("7B", 4096, []string{"completion"}); ok {
+	if ok, _ := judge("sempit:latest", 4_000_000_000, "7B", 4096, []string{"completion"}); ok {
 		t.Error("konteks 4096 < 8192 seharusnya ditolak")
 	}
 	// Model embedding tak bisa membuat teks.
-	if ok, _ := judge("335M", 8192, []string{"embedding"}); ok {
+	if ok, _ := judge("embed:latest", 700_000_000, "335M", 8192, []string{"embedding"}); ok {
 		t.Error("model embedding seharusnya ditolak")
 	}
+	// Model cloud: terdaftar seperti model biasa, berukuran 0 byte, dan
+	// jalannya di server Ollama — bukan di komputer ini.
+	if ok, note := judge("gpt-oss:120b-cloud", 0, "116.8B", 131072, []string{"completion"}); ok {
+		t.Errorf("model cloud seharusnya ditolak, malah lolos: %s", note)
+	}
 	// Metadata kosong (Ollama lama): jangan menuduh, anggap siap.
-	if ok, note := judge("", 0, nil); !ok {
+	if ok, note := judge("lawas:latest", 4_000_000_000, "", 0, nil); !ok {
 		t.Errorf("metadata kosong seharusnya lolos, malah: %s", note)
 	}
 }
