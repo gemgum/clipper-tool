@@ -91,6 +91,13 @@ export default function News() {
 
   // Pintu 1: tempel link.
   const [link, setLink] = useState("");
+  // Apakah artikelnya benar-benar TERBACA, bukan sekadar ringkasan RSS-nya.
+  //
+  // Bedanya menentukan: kalau pengambilan gagal, form tetap memegang judul &
+  // sumber dari daftar — dan tanpa penanda ini, peringatan "artikel ini tidak
+  // berfoto" ikut menyala. Itu keterangan yang SALAH: fotonya bukan tidak ada,
+  // artikelnya yang belum terbaca (7 Agustus 2026).
+  const [articleRead, setArticleRead] = useState(false);
   const [fetching, setFetching] = useState(false);
 
   // Pintu 2: jelajah RSS.
@@ -309,6 +316,7 @@ export default function News() {
   // lengkapnya begitu terbaca.
   const openItem = useCallback(async (a: Article) => {
     useArticle(a);
+    setArticleRead(false);
     setFetching(true);
     setError("");
     try {
@@ -319,7 +327,23 @@ export default function News() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errReadArticle"));
-      useArticle(data);
+      // Apa yang SUDAH diketahui dari daftar tidak dibuang.
+      //
+      // Halaman artikel tidak selalu lebih kaya daripada ringkasan RSS-nya:
+      // sebagian media tidak memasang og:image, dan sebagian tidak memasang
+      // tanggal. Menimpa seluruh objek berarti thumbnail yang sudah terlihat di
+      // daftar justru HILANG begitu barisnya diklik — informasi yang sudah ada
+      // di tangan dibuang oleh langkah yang seharusnya menambah.
+      //
+      // Jadi yang kosong saja yang diisi dari daftar; sisanya tetap dari
+      // artikelnya, yang memang lebih tepat.
+      useArticle({
+        ...data,
+        image: data.image || a.image,
+        source: data.source || a.source,
+        date: data.date || a.date,
+      });
+      setArticleRead(true);
       // Alamat yang sudah diresolusi disimpan ke daftarnya: baris yang sama
       // tidak perlu dibuka ulang lewat browser, dan sorotan "sedang dipilih"
       // tetap cocok sesudah alamatnya berubah.
@@ -346,6 +370,7 @@ export default function News() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errReadArticle"));
       useArticle(data);
+      setArticleRead(true);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -733,7 +758,7 @@ export default function News() {
                           Sebabnya nyata: sebagian media tidak memasang og:image
                           sama sekali, dan kartu jadi polos tanpa ada yang
                           menjelaskan kenapa. */}
-                      {article.url && !article.image && (
+                      {articleRead && !article.image && (
                         <Warn>{t("imageNone")}</Warn>
                       )}</label>
                     {/* Kotak kosong tidak bisa membedakan "belum diambil" dari
@@ -743,7 +768,7 @@ export default function News() {
                         tanpa ada yang menjelaskan kenapa. Pesannya masuk ke
                         placeholder, jadi tidak ada baris baru yang muncul. */}
                     <input value={article.image} onChange={edit("image")}
-                      placeholder={article.url ? t("imageNonePlaceholder") : ""} />
+                      placeholder={articleRead ? t("imageNonePlaceholder") : ""} />
                   </div>
                   <div className="field">
                     <label>{t("hashtags")}</label>

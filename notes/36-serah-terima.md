@@ -296,6 +296,34 @@ dari `<img>` terbesar di halaman. Yang pertama lebih benar, yang kedua lebih
 mudah dan gampang salah mengambil logo situs — halaman itu punya dua logo
 "LUGAS 28th" sebagai dua `<img>` pertamanya.
 
+### 3b. Tautan hasil pencarian yang TIDAK BISA diresolusi — BELUM SELESAI
+
+Ditemukan 7 Agustus 2026 saat menelusuri keluhan "harus copy dulu baru gambarnya
+muncul". Yang sudah dibetulkan ada di butir 3; yang ini tersisa.
+
+Sebagian tautan `news.google.com/rss/articles/CBMi…` **tidak pernah berpindah**
+ke alamat medianya di Chrome headless. Bukan soal terlalu cepat — anggaran waktu
+virtualnya sudah 15 detik (`DumpDOM(ctx, url, 15000)`), dan tiga percobaan
+berturut-turut pun gagal dengan hasil yang sama.
+
+Dua jalan pintas sudah DIUJI dan tidak bisa dipakai:
+
+- **`curl -L`** tidak menolong: Google menjawab 200 dengan halaman JavaScript,
+  tidak ada pengalihan HTTP sama sekali.
+- **Membongkar blob di dalam tautannya** tidak menolong: base64 `CBMi…` tidak
+  memuat URL apa pun dalam bentuk polos.
+
+Sisa jalan yang masuk akal, belum dikerjakan:
+
+1. Meminta DOM SESUDAH perpindahan, bukan sesudah anggaran waktu habis — mis.
+   memantau `document.location` lewat CDP alih-alih `--dump-dom` sekali tembak.
+2. Menerima kegagalannya dan mengatakannya terus terang: baris yang tidak bisa
+   dibuka ditandai di daftar, bukan gagal diam-diam saat diklik.
+
+Yang PENTING dicatat supaya tidak salah diagnosis lagi: saat tautan itu gagal,
+**tombol copy juga gagal** — keduanya memakai `news.Resolve` yang sama. Jadi
+"copy berhasil, klik tidak" sudah tidak berlaku sejak butir 3 diperbaiki.
+
 ### 4. Layar 1366×768 — BELUM
 
 `desktop/src-tauri/tauri.conf.json` masih `minWidth: 1240`, `minHeight: 860`;

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Resolve menerjemahkan pengalih Google News jadi alamat artikel yang
@@ -32,24 +33,58 @@ func Resolve(ctx context.Context, link string, browse Browser, cacheDir string) 
 	if browse == nil {
 		return "", fmt.Errorf("search-result links must be opened in a browser, but no browser is available — install Chrome/Chromium, or open the link yourself")
 	}
-	dom, err := browse(ctx, link)
-	if err != nil {
-		return "", err
-	}
 	u, err := url.Parse(link)
 	if err != nil {
 		return "", err
 	}
-	art, err := parseArticle(dom, u, "")
-	if err != nil {
-		return "", err
+
+	// DICOBA BEBERAPA KALI, bukan sekali.
+	//
+	// Pengalih Google berpindah lewat JavaScript, dan DOM bisa terpotret tepat
+	// sebelum perpindahannya selesai — hasilnya masih halaman Google. Sebelum
+	// ini kegagalan itu langsung dilempar ke pengguna dengan pesan "try again in
+	// a moment": kode menyuruh orang mengerjakan hal yang bisa dikerjakannya
+	// sendiri. Akibatnya terlihat di lapangan sebagai "klik tidak memunculkan
+	// gambar, tapi copy lalu tempel berhasil" — sebab menekan copy adalah
+	// percobaan KEDUA yang kebetulan berhasil (7 Agustus 2026).
+	var last error
+	for attempt := 0; attempt < resolveTries; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(resolveWait):
+			}
+		}
+		dom, err := browse(ctx, link)
+		if err != nil {
+			last = err
+			continue
+		}
+		art, err := parseArticle(dom, u, "")
+		if err != nil {
+			last = err
+			continue
+		}
+		if IsGoogleNewsLink(art.URL) {
+			last = fmt.Errorf("the redirect has not finished yet")
+			continue
+		}
+		saveResolved(cacheDir, link, art.URL)
+		return art.URL, nil
 	}
-	if IsGoogleNewsLink(art.URL) {
-		return "", fmt.Errorf("the link has not reached the original article yet — try again in a moment")
-	}
-	saveResolved(cacheDir, link, art.URL)
-	return art.URL, nil
+	return "", fmt.Errorf("could not reach the original article behind that search result (%v) — open the link in a browser and paste the address that appears", last)
 }
+
+const (
+	// resolveTries: tiga percobaan sudah menutup hampir semua kegagalan yang
+	// terlihat; lebih dari itu hanya membuat pengguna menunggu lebih lama untuk
+	// tautan yang memang rusak.
+	resolveTries = 3
+	// resolveWait: jeda antar percobaan. Yang ditunggu bukan jaringan melainkan
+	// JavaScript Google yang belum sempat berpindah halaman.
+	resolveWait = 1200 * time.Millisecond
+)
 
 // --- cache resolusi ---
 
