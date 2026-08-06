@@ -121,6 +121,7 @@ export default function SetupPanel({
     } catch { addLog(t("logKeyFailed")); }
   }, [apiKey, addLog, t]);
 
+
   // "Terpasang" tidak sama dengan "bisa dipakai": model bisa terdaftar di
   // `ollama list` tapi gagal dimuat karena RAM kurang, atau perlu belasan menit
   // untuk masuk memori. Tombol ini membuktikannya dengan menyapa modelnya —
@@ -227,9 +228,13 @@ export default function SetupPanel({
                 <label title={ollamaStatus?.url
                   ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
                   : undefined}>{t("localModel")}
-                  {/* Sistem asalnya dalam SATU kata, di dalam label — bukan baris
-                      sendiri. Kalimat panjangnya ada di tooltip. */}
-                  {ollamaStatus?.os && <span className="meta"> · {ollamaStatus.os}</span>}
+                  {/* NAMA SERVER, bukan sistemnya, sejak engine bisa memakai
+                      selain Ollama: "Model · WSL" tidak memberitahu apakah yang
+                      menjawab Ollama atau LM Studio. Keduanya sekaligus tidak
+                      muat — labelnya terpotong jadi "Model · Ollama …" — dan
+                      sistemnya masih terbaca di tiap baris daftar model serta
+                      di tooltip label ini. */}
+                  {ollamaStatus?.server && <span className="meta"> · {ollamaStatus.server}</span>}
                   {/* Keadaan yang butuh tindakan jadi LAMBANG di label, lengkap
                       dengan tombolnya di dalam popup. Sebagai baris teks, ia
                       menggeser seluruh kolom tiap kali Ollama dinyalakan atau
@@ -258,7 +263,7 @@ export default function SetupPanel({
                   options={modelOptions(ollamaInstalled, {
                     ready: t("modelReady"), notCapable: t("modelNotCapable"),
                     needsDownload: t("modelNeedsDownload"),
-                  }, ollamaStatus?.os)} />
+                  }, ollamaStatus?.os, ollamaStatus?.kind !== "openai")} />
               </div>
               {/* Tombol uji berdiri di kolom KETIGA, sejajar dengan kedua kotak
                   di kirinya. Hasilnya tidak menambah baris: berhasil → tombol
@@ -271,6 +276,10 @@ export default function SetupPanel({
                   {pinging ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
                 </button>
               </div>
+              {/* Alamat & kunci server jadi sel KEEMPAT dan KELIMA dari grid3
+                  yang sama, bukan baris .row baru: dengan begitu keduanya jatuh
+                  ke baris kedua kisi yang sudah ada dan tepinya tetap sejajar
+                  dengan mesin/model/uji di atasnya. */}
               </>
             )}
           </div>

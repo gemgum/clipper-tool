@@ -110,6 +110,65 @@ func resetDiscoverCache() {
 	foundMu.Unlock()
 }
 
+// ResetCache membuang alamat yang tersimpan supaya penemuan berikutnya
+// benar-benar mengetuk lagi.
+//
+// Wajib dipanggil setelah pengguna mengubah alamat server dari GUI: tanpa itu
+// alamat LAMA masih dipakai sampai 30 detik berikutnya (cacheFor), dan kotak
+// isian terlihat seperti tidak berpengaruh apa-apa.
+func ResetCache() { resetDiscoverCache() }
+
+// apiKey = kunci yang dikirim ke server LLM.
+//
+// Bawaannya "local" karena sebagian server (LiteLLM, vLLM di belakang gerbang)
+// MENSYARATKAN header ini walau isinya tidak diperiksa. Yang memeriksanya
+// sungguhan menolak dengan 401 — dan karena probeJSON menganggap apa pun selain
+// 200 sebagai "bukan server LLM", tanpa kunci yang benar server itu tidak
+// terlihat sama sekali, bukan terlihat sebagai "salah kunci".
+func apiKey() string {
+	if k := strings.TrimSpace(os.Getenv("LLM_API_KEY")); k != "" {
+		return k
+	}
+	return "local"
+}
+
+// serverName menebak NAMA server dari portnya, untuk ditampilkan di GUI.
+//
+// Berguna karena "Local LLM server at 127.0.0.1:1337" tidak memberitahu apa pun,
+// sedangkan "Jan" langsung dikenali pengguna yang memasangnya sendiri.
+//
+// ponytail: tebakan dari port, bukan fakta — tidak satu pun server ini
+// menyebutkan namanya di /v1/models dengan cara yang seragam (llama.cpp mengisi
+// owned_by "llamacpp", sisanya tidak). Kalau nanti ada yang salah nama, ganti
+// dengan sidik jari dari isi balasannya, bukan tambah tebakan.
+// PORTNYA diperiksa lebih dulu, baru jenis protokolnya. Terukur 6 Agustus 2026:
+// KoboldCpp MENIRU /api/tags milik Ollama secara lengkap, jadi kindOf
+// melaporkannya sebagai KindOllama — dan barisnya di halaman Requirements akan
+// menyala di "Ollama" padahal yang jalan KoboldCpp.
+func serverName(url, kind string) string {
+	for _, s := range []struct{ port, name string }{
+		{":1234", "LM Studio"},
+		{":1337", "Jan"},
+		{":5001", "KoboldCpp"},
+		{":4891", "GPT4All"},
+		// llamafile ikut nama ini: isinya memang server llama.cpp, dan label
+		// "llama.cpp / llamafile" cukup panjang untuk melipat labelnya jadi dua
+		// baris — dan baris yang melipat menambah tinggi seluruh kolom.
+		{":8080", "llama.cpp"},
+		{":8000", "vLLM"},
+		{":4000", "LiteLLM"},
+		{":52415", "Exo"},
+	} {
+		if strings.Contains(url, s.port) {
+			return s.name
+		}
+	}
+	if kind == KindOllama {
+		return "Ollama"
+	}
+	return "Local LLM server"
+}
+
 // Candidates menyusun daftar alamat yang mungkin, dari yang paling mungkin.
 func Candidates() []string {
 	out := []string{}
@@ -140,7 +199,9 @@ func Candidates() []string {
 	// LLM bila benar-benar menjawab /v1/models — lihat probeJSON.
 	add(defaultURL)
 	add("http://127.0.0.1:11434")
-	for _, port := range []string{"8080", "8000", "4000", "52415", "1234"} {
+	// Port lama lebih dulu supaya susunan yang sudah jalan tidak berubah
+	// pemenangnya; yang baru (Jan, KoboldCpp, GPT4All) menyusul di belakang.
+	for _, port := range []string{"8080", "8000", "4000", "52415", "1234", "1337", "5001", "4891"} {
 		add("http://127.0.0.1:" + port)
 	}
 
@@ -199,7 +260,7 @@ func probeJSON(ctx context.Context, url, key string) bool {
 	if err != nil {
 		return false
 	}
-	req.Header.Set("authorization", "Bearer local")
+	req.Header.Set("authorization", "Bearer "+apiKey())
 	resp, err := (&http.Client{Timeout: probeTimeout}).Do(req)
 	if err != nil {
 		return false

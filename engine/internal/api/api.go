@@ -601,6 +601,11 @@ func (s *Server) config(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"has_key": s.mgr.HasAPIKey(),
+		// Alamat server LLM yang disetel sendiri; kosong = penemuan otomatis.
+		// Kuncinya hanya dilaporkan ADA/TIDAK — isinya tidak pernah dikirim
+		// balik, sama seperti kunci Claude.
+		"llm_url":     os.Getenv("OLLAMA_HOST"),
+		"has_llm_key": os.Getenv("LLM_API_KEY") != "",
 		// Kosong = mengikuti folder data. GUI menampilkan letak sebenarnya,
 		// bukan kekosongan itu, supaya pengguna tahu di mana berkasnya sekarang.
 		"clips_dir":      s.layout.ClipsDir,
@@ -665,21 +670,60 @@ func (s *Server) postFolders(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// postSettings menyimpan API key Claude (dari GUI) — di memori + .env.
+// postSettings menyimpan kunci Claude dan alamat/kunci server LLM lokal — di
+// memori (env proses) + .env.
+//
+// Tiap field POINTER, bukan string: GUI menyimpan setelan ini dari tiga tombol
+// berbeda, dan badan permintaan yang hanya memuat satu field TIDAK boleh
+// mengosongkan dua lainnya. Dengan string biasa, menyimpan alamat server akan
+// menghapus API key Claude tanpa ada yang memintanya.
 func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AnthropicAPIKey string `json:"anthropic_api_key"`
+		AnthropicAPIKey *string `json:"anthropic_api_key"`
+		LLMURL          *string `json:"llm_url"`
+		LLMAPIKey       *string `json:"llm_api_key"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	key := strings.TrimSpace(req.AnthropicAPIKey)
-	s.mgr.SetAPIKey(key)
-	if key != "" {
-		_ = writeEnvKey(s.paths.EnvFile, "ANTHROPIC_API_KEY", key)
+	if req.AnthropicAPIKey != nil {
+		key := strings.TrimSpace(*req.AnthropicAPIKey)
+		s.mgr.SetAPIKey(key)
+		if key != "" {
+			_ = writeEnvKey(s.paths.EnvFile, "ANTHROPIC_API_KEY", key)
+		}
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "has_key": s.mgr.HasAPIKey()})
+	// Alamat disimpan sebagai OLLAMA_HOST, bukan nama sendiri, dan itu disengaja:
+	// Candidates() SUDAH membaca variabel itu lebih dulu dan memenangkannya atas
+	// semua tebakan. Menambah variabel baru berarti menulis ulang jalur yang
+	// sudah bekerja — termasuk untuk CLI, yang membaca .env yang sama.
+	//
+	// Namanya menyebut Ollama karena begitulah ia lahir; isinya boleh alamat
+	// server apa pun (LM Studio, Jan, llama.cpp), dan kindOf yang menentukan
+	// protokolnya.
+	if req.LLMURL != nil {
+		u := strings.TrimRight(strings.TrimSpace(*req.LLMURL), "/")
+		if u != "" && !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			u = "http://" + u
+		}
+		_ = os.Setenv("OLLAMA_HOST", u)
+		_ = writeEnvKey(s.paths.EnvFile, "OLLAMA_HOST", u)
+		// Kosong = kembali ke penemuan otomatis, dan itu harus terasa SEKARANG.
+		ollama.ResetCache()
+	}
+	if req.LLMAPIKey != nil {
+		k := strings.TrimSpace(*req.LLMAPIKey)
+		_ = os.Setenv("LLM_API_KEY", k)
+		_ = writeEnvKey(s.paths.EnvFile, "LLM_API_KEY", k)
+		// Kunci ikut menentukan apakah server MENJAWAB probe sama sekali, jadi
+		// cache alamat ikut dibuang.
+		ollama.ResetCache()
+	}
+	writeJSON(w, 200, map[string]any{
+		"ok": true, "has_key": s.mgr.HasAPIKey(),
+		"llm_url": os.Getenv("OLLAMA_HOST"), "has_llm_key": os.Getenv("LLM_API_KEY") != "",
+	})
 }
 
 // ollamaStatus memeriksa apakah Ollama jalan & model yang terpasang.

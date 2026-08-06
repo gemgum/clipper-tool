@@ -1809,7 +1809,17 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Baris "pilih dari komputer ini" di bawah kotak seret & lepas. */
 .path-row { display: flex; gap: 8px; align-items: center; }
 .path-row input { flex: 1; }
-.path-row button { padding: 10px 14px; font-size: 13px; white-space: nowrap; }
+/* Tingginya IKUT --ctl-h seperti kendali sebaris lainnya. Dengan padding 10px
+   ia jadi 35 px sementara kotak di sebelahnya 32 px, dan selisih 3 px itu
+   menaikkan tinggi seluruh baris kisi — terukur saat baris alamat server LLM
+   ditambahkan (notes/32: semua kendali sebaris memakai satu tinggi). */
+.path-row button {
+  min-height: var(--ctl-h);
+  height: var(--ctl-h);
+  padding: 0 14px;
+  font-size: 13px;
+  white-space: nowrap;
+}
 
 /* Halaman Requirements: satu baris per komponen. */
 .req-row {

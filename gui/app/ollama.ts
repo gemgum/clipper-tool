@@ -23,6 +23,11 @@ export type OllamaStatus = {
   where?: string;
   /** Satu kata: "Windows" | "WSL" | "Linux" | "macOS" | "remote". */
   os?: string;
+  /** Nama server yang dikenali pengguna: "Ollama", "LM Studio", "Jan", … */
+  server?: string;
+  /** Protokolnya: "ollama" atau "openai". Menentukan apa yang BISA dilakukan
+   *  aplikasi ini — hanya Ollama yang modelnya bisa diunduh dari sini. */
+  kind?: string;
   models?: string[];
   installed?: OllamaModel[];
 };
@@ -86,11 +91,24 @@ export function modelOptions(
   labels: { ready: string; notCapable: string; needsDownload: string },
   /** Sistem tempat Ollama-nya berjalan ("WSL", "Windows", …) — ikut di tiap baris. */
   os?: string,
+  /**
+   * Boleh menawarkan model yang belum ada? Hanya untuk Ollama.
+   *
+   * Tombol unduhnya memanggil `/api/ollama/pull`, dan itu API Ollama. Pada
+   * llama.cpp, LM Studio, atau KoboldCpp, baris "needs download" adalah janji
+   * yang tidak bisa ditepati aplikasi ini — modelnya diurus aplikasi itu
+   * sendiri, atau berkas .gguf yang dipilih pengguna.
+   */
+  canPull = true,
 ) {
   return [
     ...installed.map((m) => ({
       value: m.name,
-      label: m.name,
+      // Nilainya TETAP nama asli — itu yang dikirim balik ke servernya. Yang
+      // dipendekkan cuma labelnya, dan hanya bila nama aslinya sebuah path:
+      // llama.cpp memakai path lengkap berkas .gguf sebagai nama model, dan 60
+      // karakter path melebarkan kotak pilihan tanpa memberitahu apa pun.
+      label: /[\\/]/.test(m.name) ? m.base : m.name,
       // Spesifikasi jadi keterangan kecil, bukan sambungan nama: satu baris
       // "llama3.1:latest — 8.0B · Q4_K_M · 4.9 GB ✓ ready" membuat daftarnya
       // sesak dan justru tidak terbaca.
@@ -101,7 +119,9 @@ export function modelOptions(
       note: [m.params, sizeGB(m.bytes), m.ready ? labels.ready : labels.notCapable, os]
         .filter(Boolean).join(" · "),
     })),
-    ...SUGGESTED.filter((x) => !installed.some((m) => sameModel(m.name, x)))
-      .map((x) => ({ value: x, label: x, note: labels.needsDownload })),
+    ...(canPull
+      ? SUGGESTED.filter((x) => !installed.some((m) => sameModel(m.name, x)))
+          .map((x) => ({ value: x, label: x, note: labels.needsDownload }))
+      : []),
   ];
 }

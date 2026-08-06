@@ -235,7 +235,7 @@ func TestStatusFindsAnInstalledModel(t *testing.T) {
 	}
 
 	var small Component
-	for _, c := range Status(l, false, "") {
+	for _, c := range Status(l) {
 		if c.ID == ModelID("small") {
 			small = c
 		}
@@ -254,7 +254,7 @@ func TestStatusFindsAnInstalledModel(t *testing.T) {
 func TestMissingNamesTheRequiredComponents(t *testing.T) {
 	l := config.Layout{ModelsDir: t.TempDir(), ToolsDir: t.TempDir()}
 
-	missing := Missing(Status(l, false, ""))
+	missing := Missing(Status(l))
 
 	found := false
 	for _, m := range missing {
@@ -483,5 +483,40 @@ func TestCheckRunsRejectsBrokenBinary(t *testing.T) {
 	}
 	if !strings.Contains(c.Detail, broken) {
 		t.Fatalf("Detail tidak menyebut pathnya: %q", c.Detail)
+	}
+}
+
+// Tiap server LLM yang ditawarkan harus benar-benar bisa dicari pengguna:
+// tanpa tautan, barisnya cuma nama yang tidak bisa ditindaklanjuti.
+func TestLLMServersAreActionable(t *testing.T) {
+	seen := map[string]bool{}
+	for _, s := range LLMServers {
+		if s.ID == "" || s.Name == "" || s.URL == "" || s.Hint == "" {
+			t.Errorf("baris tidak lengkap: %+v", s)
+		}
+		if seen[s.ID] {
+			t.Errorf("ID ganda: %q", s.ID)
+		}
+		seen[s.ID] = true
+	}
+	// Semuanya muncul di halaman Requirements, tidak ada yang tercecer.
+	comps := Status(config.Layout{ModelsDir: t.TempDir(), ToolsDir: t.TempDir()})
+	for _, s := range LLMServers {
+		found := false
+		for _, c := range comps {
+			if c.ID == "llm:"+s.ID {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s tidak ada di Status()", s.Name)
+		}
+	}
+	// Dan tidak satu pun WAJIB: mode heuristik jalan tanpa LLM apa pun, jadi
+	// titik merah "ada yang kurang" tidak boleh menyala karenanya.
+	for _, c := range comps {
+		if strings.HasPrefix(c.ID, "llm:") && c.Required {
+			t.Errorf("%s ditandai wajib", c.Name)
+		}
 	}
 }

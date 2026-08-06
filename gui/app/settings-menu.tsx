@@ -20,6 +20,16 @@ export default function SettingsMenu() {
   const { lang, setLang, t } = useI18n();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Component[] | null>(null);
+  // Alamat & kunci server LLM. Di SINI, bukan di halaman klip: keduanya disetel
+  // sekali lalu dilupakan — persis sifat isi panel ini — sedangkan halaman klip
+  // hanya memuat yang diubah tiap job. Menaruhnya di sana juga memaksa kisi
+  // mesin skor melipat ke baris kedua, dan baris itu tinggi yang diambil dari
+  // pratinjau tiap kali halaman dibuka.
+  const [llmUrl, setLlmUrl] = useState("");
+  const [llmKey, setLlmKey] = useState("");
+  const [hasLlmKey, setHasLlmKey] = useState(false);
+  const [llmServer, setLlmServer] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Status komponen ditarik saat panel DIBUKA — dan SETIAP kali dibuka.
   //
@@ -34,7 +44,34 @@ export default function SettingsMenu() {
       .then((r) => r.json())
       .then((d) => setItems(d.components || []))
       .catch(() => setItems([]));
+    fetch(eng(`/api/settings`))
+      .then((r) => r.json())
+      .then((d) => { setLlmUrl(d.llm_url || ""); setHasLlmKey(!!d.has_llm_key); })
+      .catch(() => {});
+    fetch(eng(`/api/ollama/status`))
+      .then((r) => r.json())
+      .then((d) => setLlmServer(d.running ? d.server || "" : ""))
+      .catch(() => setLlmServer(""));
   }, [open]);
+
+  // Menyimpan lalu MEMERIKSA ULANG. Yang ingin dilihat pengguna sesudah menekan
+  // Save bukan kata "tersimpan", melainkan nama server yang menjawab di alamat
+  // itu — dan kalau tidak ada, itu harus ketahuan sekarang, bukan saat job
+  // pertama berhenti di tengah jalan.
+  const saveLLM = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(eng(`/api/settings`), {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ llm_url: llmUrl, llm_api_key: llmKey }),
+      });
+      const d = await res.json();
+      setHasLlmKey(!!d.has_llm_key);
+      setLlmKey("");
+      const st = await (await fetch(eng(`/api/ollama/status`))).json();
+      setLlmServer(st.running ? st.server || "" : "");
+    } catch { setLlmServer(""); } finally { setSaving(false); }
+  };
 
   // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
   // penanda kapan status komponen perlu ditarik.
@@ -69,6 +106,25 @@ export default function SettingsMenu() {
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="settings-group">
+            <div className="settings-head">{t("llmServer")}</div>
+            {/* Nama server yang MENJAWAB, bukan yang diketik: itu satu-satunya
+                jawaban yang berguna di sini. Kosong = tidak ada yang menjawab. */}
+            <div className="meta" style={{ marginBottom: 6 }}>
+              {llmServer ? `✓ ${llmServer}` : t("llmServerNone")}
+            </div>
+            <div className="path-row">
+              <input type="text" value={llmUrl} title={t("llmServerTip")}
+                placeholder={t("llmServerAuto")}
+                onChange={(e) => setLlmUrl(e.target.value)} />
+              <button onClick={saveLLM} disabled={saving}>{t("save")}</button>
+            </div>
+            <input type="password" value={llmKey} title={t("llmApiKeyTip")}
+              style={{ marginTop: 6, width: "100%" }}
+              placeholder={hasLlmKey ? t("keyPlaceholderStored") : t("llmApiKeyPlaceholder")}
+              onChange={(e) => setLlmKey(e.target.value)} />
           </div>
 
           <div className="settings-group">

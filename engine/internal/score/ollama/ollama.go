@@ -240,6 +240,10 @@ type StatusInfo struct {
 	OS string `json:"os"`
 	// Kind = "ollama" atau "openai" (llama.cpp, LocalAI, vLLM, …).
 	Kind string `json:"kind"`
+	// Server = nama yang dikenali pengguna ("LM Studio", "Jan", "Ollama"),
+	// bukan jenis protokolnya. Dipakai GUI sebagai label; "openai" tidak
+	// berarti apa-apa bagi orang yang memasang LM Studio.
+	Server string `json:"server"`
 	// Models = daftar nama lengkap; dipertahankan agar pemakai lama tetap jalan.
 	Models    []string    `json:"models"`
 	Installed []ModelInfo `json:"installed"`
@@ -263,7 +267,8 @@ func Status(ctx context.Context, url string) StatusInfo {
 	// Server bergaya OpenAI: metadatanya cuma daftar nama (lihat openai.go).
 	if ep.Kind == KindOpenAI {
 		models := openAIModels(ctx, ep.URL)
-		info := StatusInfo{Running: true, URL: ep.URL, Where: Where(ep.URL), OS: OS(ep.URL), Kind: ep.Kind}
+		info := StatusInfo{Running: true, URL: ep.URL, Where: Where(ep.URL), OS: OS(ep.URL),
+			Kind: ep.Kind, Server: serverName(ep.URL, ep.Kind)}
 		for _, m := range models {
 			info.Models = append(info.Models, m.Name)
 		}
@@ -292,7 +297,8 @@ func Status(ctx context.Context, url string) StatusInfo {
 	}
 	raw, _ := io.ReadAll(resp.Body)
 	_ = json.Unmarshal(raw, &parsed)
-	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url), Kind: KindOllama}
+	info := StatusInfo{Running: true, URL: url, Where: Where(url), OS: OS(url),
+		Kind: KindOllama, Server: serverName(url, KindOllama)}
 	for _, m := range parsed.Models {
 		mi := ModelInfo{
 			Name:    m.Name,

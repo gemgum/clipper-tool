@@ -103,3 +103,123 @@ func TestParamsFromName(t *testing.T) {
 		t.Errorf("formatParams(1.5) = %q", got)
 	}
 }
+
+// Metadata yang DIKIRIM server harus dipakai, bukan ditebak dari nama.
+//
+// Bentuk balasan di bawah disalin dari llama-server b10295 yang benar-benar
+// dijalankan (6 Agustus 2026), bukan dikarang: nama modelnya path lengkap
+// berkas .gguf, dan spesifikasinya ada di `meta`. Yang paling menentukan
+// `n_ctx` — resolveOllama memakainya sebagai Client.NumCtx, dan 0 membuat
+// koreksi transkrip menebak sendiri besar potongan yang muat.
+func TestOpenAIModelMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			w.WriteHeader(404)
+		case "/v1/models":
+			w.Write([]byte(`{"object":"list","data":[{"id":"/home/x/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf",` +
+				`"meta":{"n_ctx":4096,"n_params":3085938688,"size":1923946496,"ftype":"Q4_K - Medium"}}]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	t.Setenv("OLLAMA_HOST", srv.URL)
+	resetDiscoverCache()
+
+	st := Status(context.Background(), "")
+	if len(st.Installed) != 1 {
+		t.Fatalf("model = %+v", st.Installed)
+	}
+	m := st.Installed[0]
+	// Nama TETAP utuh: itu yang dikirim balik ke servernya saat job jalan.
+	if m.Name != "/home/x/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf" {
+		t.Errorf("Name = %q, harus id apa adanya", m.Name)
+	}
+	// Base yang dipendekkan untuk dilihat.
+	if m.Base != "Qwen2.5-3B-Instruct-Q4_K_M" {
+		t.Errorf("Base = %q", m.Base)
+	}
+	if m.Context != 4096 {
+		t.Errorf("Context = %d, mau 4096 — inilah yang jadi NumCtx", m.Context)
+	}
+	if m.Bytes != 1923946496 {
+		t.Errorf("Bytes = %d", m.Bytes)
+	}
+	if m.Quant != "Q4_K - Medium" {
+		t.Errorf("Quant = %q", m.Quant)
+	}
+	// 3.085.938.688 parameter → "3.1B", dari metadata; bukan "3B" dari namanya.
+	if m.Params != "3.1B" {
+		t.Errorf("Params = %q, mau 3.1B (dari n_params, bukan dari nama)", m.Params)
+	}
+}
+
+// Server dikenali dengan NAMA yang dipakai pengguna, bukan nomor portnya.
+func TestServerName(t *testing.T) {
+	for _, c := range []struct{ url, kind, want string }{
+		{"http://127.0.0.1:11434", KindOllama, "Ollama"},
+		{"http://127.0.0.1:1234", KindOpenAI, "LM Studio"},
+		{"http://127.0.0.1:1337", KindOpenAI, "Jan"},
+		{"http://127.0.0.1:5001", KindOpenAI, "KoboldCpp"},
+		{"http://127.0.0.1:4891", KindOpenAI, "GPT4All"},
+		{"http://127.0.0.1:9999", KindOpenAI, "Local LLM server"},
+	} {
+		if got := serverName(c.url, c.kind); got != c.want {
+			t.Errorf("serverName(%s) = %q, mau %q", c.url, got, c.want)
+		}
+	}
+}
+
+// Kunci server ikut terkirim: server dengan auth menyala membalas 401, dan
+// probeJSON menganggap apa pun selain 200 sebagai "bukan server LLM" — jadi
+// tanpa kunci yang benar server itu TIDAK TERLIHAT, bukan terlihat salah kunci.
+func TestAPIKeySent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("authorization") != "Bearer rahasia" {
+			w.WriteHeader(401)
+			return
+		}
+		switch r.URL.Path {
+		case "/api/tags":
+			w.WriteHeader(404)
+		case "/v1/models":
+			w.Write([]byte(`{"object":"list","data":[{"id":"m"}]}`))
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+
+	// Diuji lewat kindOf, BUKAN lewat Status(ctx, ""): penemuan otomatis
+	// mengetuk localhost, jadi server LLM sungguhan di mesin yang menjalankan
+	// uji ini akan menjawab menggantikan server uji yang sengaja menolak — dan
+	// ujinya lulus/gagal tergantung apa yang kebetulan hidup di komputer itu.
+	t.Setenv("LLM_API_KEY", "rahasia")
+	if k := kindOf(context.Background(), srv.URL); k != KindOpenAI {
+		t.Fatalf("kunci benar: kind = %q, mau openai", k)
+	}
+	if ms := openAIModels(context.Background(), srv.URL); len(ms) != 1 {
+		t.Fatalf("kunci benar: model = %+v", ms)
+	}
+
+	t.Setenv("LLM_API_KEY", "salah")
+	if k := kindOf(context.Background(), srv.URL); k != "" {
+		t.Fatalf("kunci salah: kind = %q, seharusnya tidak dikenali sama sekali", k)
+	}
+}
+
+// KoboldCpp MENIRU /api/tags milik Ollama (terukur 6 Agustus 2026), jadi
+// kindOf melaporkannya KindOllama. Namanya tetap harus KoboldCpp: kalau ia
+// disebut "Ollama", baris yang menyala di halaman Requirements adalah baris
+// aplikasi yang bahkan tidak terpasang.
+func TestKoboldCppIsNotCalledOllama(t *testing.T) {
+	if got := serverName("http://127.0.0.1:5001", KindOllama); got != "KoboldCpp" {
+		t.Errorf("serverName = %q, mau KoboldCpp", got)
+	}
+	// Ollama asli tetap Ollama.
+	if got := serverName("http://127.0.0.1:11434", KindOllama); got != "Ollama" {
+		t.Errorf("serverName = %q, mau Ollama", got)
+	}
+}

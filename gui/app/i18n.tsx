@@ -106,7 +106,7 @@ const en = {
   noKeyWarning:
     "No API key yet — hybrid mode will fail. Enter a key, or switch to offline mode.",
   offlineEngine: "Scoring engine",
-  offlineOllama: "Local AI (Ollama)",
+  offlineOllama: "Local AI (local LLM)",
   offlineHeuristic: "Rules only (no AI)",
   transcriptFix: "Correct transcript with AI",
   transcriptFixTip:
@@ -233,6 +233,12 @@ const en = {
   noAudioWarning: "This video has no sound track. Clipper picks moments from what is said, so there is nothing it can work with — pick a video that has audio.",
   ollamaFoundAt: "Ollama found at {url} ({where})",
   ollamaMissingHeuristic: "Ollama is not running anywhere this app can reach, so scoring was set to the built-in heuristic and transcript correction was turned off. Start Ollama, then check again.",
+  llmServer: "Server",
+  llmServerAuto: "found automatically",
+  llmServerNone: "no local LLM server is answering",
+  llmServerTip: "Address of your local LLM server. Leave it empty and Clipper looks for one itself — Ollama, LM Studio, Jan, llama.cpp, KoboldCpp, GPT4All. Fill it in only if yours listens somewhere else, e.g. http://127.0.0.1:1234",
+  llmApiKeyPlaceholder: "only if your server asks for one",
+  llmApiKeyTip: "Most local servers need no key. Servers with authentication on (LiteLLM, a gateway) reject Clipper without one — and a rejected server looks like a server that is not running at all.",
   logNoOllama: "Ollama not found — using the built-in heuristic, transcript correction off",
   historyDownload: "Download",
   log: "Process log",
@@ -492,7 +498,7 @@ const id: Record<MessageKey, string> = {
   noKeyWarning:
     "Belum ada API key — mode hybrid akan gagal. Masukkan key, atau pindah ke mode offline.",
   offlineEngine: "Mesin skor",
-  offlineOllama: "AI lokal (Ollama)",
+  offlineOllama: "AI lokal (LLM lokal)",
   offlineHeuristic: "Aturan saja (tanpa AI)",
   transcriptFix: "Koreksi transkrip dengan AI",
   transcriptFixTip:
@@ -613,6 +619,12 @@ const id: Record<MessageKey, string> = {
   noAudioWarning: "Video ini tidak punya trek suara. Clipper memilih momen dari apa yang diucapkan, jadi tidak ada yang bisa dikerjakan — pilih video yang ada suaranya.",
   ollamaFoundAt: "Ollama ditemukan di {url} ({where})",
   ollamaMissingHeuristic: "Ollama tidak berjalan di tempat mana pun yang bisa dijangkau aplikasi ini, jadi penilaian memakai heuristik bawaan dan koreksi transkrip dimatikan. Nyalakan Ollama, lalu cek ulang.",
+  llmServer: "Server",
+  llmServerAuto: "dicari otomatis",
+  llmServerNone: "tidak ada server LLM lokal yang menjawab",
+  llmServerTip: "Alamat server LLM lokalmu. Biarkan kosong dan Clipper mencarinya sendiri — Ollama, LM Studio, Jan, llama.cpp, KoboldCpp, GPT4All. Isi hanya bila punyamu mendengarkan di tempat lain, mis. http://127.0.0.1:1234",
+  llmApiKeyPlaceholder: "hanya bila servermu memintanya",
+  llmApiKeyTip: "Kebanyakan server lokal tidak butuh kunci. Server dengan autentikasi menyala (LiteLLM, gerbang) menolak Clipper tanpa kunci — dan server yang menolak terlihat sama persis seperti server yang tidak menyala.",
   logNoOllama: "Ollama tidak ditemukan — memakai heuristik bawaan, koreksi transkrip mati",
   historyDownload: "Unduh",
   log: "Log proses",

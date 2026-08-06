@@ -601,7 +601,7 @@ export default function News() {
                         options={modelOptions(ollamaInstalled, {
                           ready: t("modelReady"), notCapable: t("modelNotCapable"),
                           needsDownload: t("modelNeedsDownload"),
-                        }, ollamaStatus?.os)} />
+                        }, ollamaStatus?.os, ollamaStatus?.kind !== "openai")} />
                     ) : (
                       <Select value={claudeModel} onChange={setClaudeModel} options={[
                         { value: "claude-haiku-4-5", label: "claude-haiku-4-5" },

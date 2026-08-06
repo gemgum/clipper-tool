@@ -103,12 +103,64 @@ func RemoveModel(l config.Layout, name string) error {
 	return fmt.Errorf("unknown whisper model %q", name)
 }
 
+// LLMServers = server LLM lokal yang boleh dipakai engine ini.
+//
+// Daftarnya TERTUTUP dan disusun tangan. Yang belum diuji DIKATAKAN belum
+// diuji, di barisnya sendiri — daftar yang menyiratkan "semua ini beres"
+// padahal separuhnya tebakan lebih buruk daripada daftar pendek yang jujur.
+//
+// Keadaan per 6 Agustus 2026, diuji dengan Qwen2.5 3B Q4_K_M:
+//
+//   - Ollama      — dipakai sejak awal; `format` benar-benar memaksa bentuk JSON.
+//   - llama.cpp   — DIUJI (llama-server b10295). /api/tags 404 → dikenali
+//     sebagai KindOpenAI, `response_format: json_schema` + `strict` dihormati,
+//     balasannya persis sesuai skema, dan `meta` memberi n_ctx/n_params.
+//   - KoboldCpp   — DIUJI. Ia MENIRU /api/tags Ollama, jadi engine memakainya
+//     lewat /api/chat dan itu berhasil — TAPI `format` diabaikan: diminta
+//     {"picks":[…]} ia menjawab {"moment2":45}. Bentuk balasannya bergantung
+//     pada model yang menuruti prompt, bukan pada pagar server.
+//   - LM Studio, Jan, GPT4All — BELUM diuji. Ketiganya butuh jendela untuk
+//     menyalakan servernya, jadi tidak bisa diuji dari terminal.
+//
+// Tidak satu pun dipasang engine: semuanya aplikasi berdiri sendiri, jadi
+// barisnya menunjuk ke halaman unduhannya — pola yang sama dengan baris Chrome
+// (notes/25: yang dipasang engine punya resep, yang tidak punya tautan).
+//
+// Nama di sini HARUS sama dengan yang dikembalikan ollama.OS/serverName, sebab
+// itulah cara baris yang sedang berjalan dikenali.
+var LLMServers = []struct{ ID, Name, Detail, Hint, URL string }{
+	{"ollama", "Ollama",
+		"Local LLM. Manages its own models — the simplest place to start.",
+		"Install it, start it, then pull a model. llama3.1 is the best pick for the term list.",
+		"https://ollama.com/download"},
+	{"lmstudio", "LM Studio",
+		"Local LLM with a window and a built-in model browser. Port 1234. Not tested with Clipper yet.",
+		"Install it, download a model inside the app, then Developer → Start Server.",
+		"https://lmstudio.ai/download"},
+	{"jan", "Jan",
+		"Local LLM with a window and its own model hub. Port 1337. Not tested with Clipper yet.",
+		"Install it, download a model, then Settings → Local API Server.",
+		"https://jan.ai/download"},
+	{"llamacpp", "llama.cpp",
+		"What the others are built on. Port 8080. Tested: keeps JSON replies in shape.",
+		"Get llama-server plus a .gguf model, then run it with --port 8080.",
+		"https://github.com/ggml-org/llama.cpp/releases"},
+	{"koboldcpp", "KoboldCpp",
+		"One file, no install. Port 5001. Tested: works, but does not enforce the JSON shape.",
+		"Download it, make it runnable, then run with --model and --port 5001.",
+		"https://github.com/LostRuins/koboldcpp/releases"},
+	{"gpt4all", "GPT4All",
+		"Local LLM with a window and a curated model list. Port 4891. Not tested with Clipper yet.",
+		"Install it, download a model, then turn on the Local API Server in Settings.",
+		"https://gpt4all.io"},
+}
+
 // Status melaporkan keadaan semua komponen.
 //
 // Urutannya sengaja: yang wajib dulu, lalu model, lalu yang opsional. Halaman
 // Requirements menampilkannya apa adanya — pengguna membaca dari atas, dan yang
 // paling menghalanginya harus muncul lebih dulu.
-func Status(l config.Layout, ollamaOK bool, ollamaDetail string) []Component {
+func Status(l config.Layout) []Component {
 	out := []Component{
 		toolStatus(l, "ffmpeg", "ffmpeg", "Cuts and renders video. Required."),
 		toolStatus(l, "ffprobe", "ffprobe", "Reads video length and size. Comes with ffmpeg."),
@@ -130,18 +182,16 @@ func Status(l config.Layout, ollamaOK bool, ollamaDetail string) []Component {
 		out = append(out, c)
 	}
 
-	ollama := Component{
-		ID: "ollama", Name: "Ollama", Kind: KindApp,
-		Detail:      "Local LLM, used by offline mode and by transcript correction.",
-		Installed:   ollamaOK,
-		Hint:        "Install Ollama, start it, then pull a model (llama3.1 is the best pick for the term list).",
-		URL:         "https://ollama.com/download",
-		Installable: false,
+	// Semua server LLM yang bisa dipakai, bukan cuma Ollama. Baris pertama yang
+	// TERDETEKSI diberi tanda oleh pemanggil (lihat api/requirements.go).
+	for _, srv := range LLMServers {
+		c := Component{
+			ID: "llm:" + srv.ID, Name: srv.Name, Kind: KindApp,
+			Detail: srv.Detail, Hint: srv.Hint, URL: srv.URL,
+			Installable: false,
+		}
+		out = append(out, c)
 	}
-	if ollamaDetail != "" {
-		ollama.Detail = ollamaDetail
-	}
-	out = append(out, ollama)
 
 	chrome := Component{
 		ID: "chrome", Name: "Chrome / Edge", Kind: KindApp, Pointable: true,

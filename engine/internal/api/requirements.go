@@ -43,14 +43,21 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		detail = "Running, but no model is installed yet — pull one below."
 	}
 
-	comps := setup.Status(s.layout, oll.Running, detail)
-	// Ollama bukan berkas yang engine pasang, jadi ia tidak punya path. Yang
+	comps := setup.Status(s.layout)
+	// Server LLM bukan berkas yang engine pasang, jadi ia tidak punya path. Yang
 	// setara — dan yang justru dicari orang saat susunannya Windows+WSL — adalah
 	// ALAMAT dan DI SISTEM MANA ia berjalan.
+	//
+	// Hanya SATU baris yang ditandai berjalan: engine memakai satu server per
+	// job, dan menandai dua baris hijau akan menyiratkan keduanya terpakai.
 	for i := range comps {
-		if comps[i].ID == "ollama" && oll.Running {
-			comps[i].Name = "Ollama — " + oll.Where
+		if oll.Running && comps[i].ID == "llm:"+llmID(oll.Server) {
+			comps[i].Installed = true
+			comps[i].Name = comps[i].Name + " — " + oll.Where
 			comps[i].Path = oll.URL
+			if detail != "" {
+				comps[i].Detail = detail
+			}
 		}
 	}
 	writeJSON(w, 200, map[string]any{
@@ -87,7 +94,7 @@ func (s *Server) removeComponent(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, map[string]any{
 		"ok":         true,
-		"components": setup.Status(s.layout, false, ""),
+		"components": setup.Status(s.layout),
 	})
 }
 
@@ -146,7 +153,7 @@ func (s *Server) setComponentPath(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, 200, map[string]any{
 		"ok":         true,
-		"components": setup.Status(s.layout, false, ""),
+		"components": setup.Status(s.layout),
 	})
 }
 
@@ -174,10 +181,31 @@ func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
 // yang mana. Tanpa ini pesannya baru muncul dari ffmpeg belasan detik kemudian,
 // dalam bahasa yang tidak menyebut apa yang harus dipasang.
 func (s *Server) missingRequirement() error {
-	missing := setup.Missing(setup.Status(s.layout, false, ""))
+	missing := setup.Missing(setup.Status(s.layout))
 	if len(missing) == 0 {
 		return nil
 	}
 	return fmt.Errorf("%s is not installed yet — open the Requirements page to install it",
 		strings.Join(missing, " and "))
+}
+
+// llmID memetakan nama server yang terdeteksi kembali ke ID barisnya di
+// setup.LLMServers. Dipisah supaya kedua daftar tidak perlu memakai ejaan yang
+// sama persis ("llama.cpp" bukan ID yang sah).
+func llmID(server string) string {
+	switch server {
+	case "Ollama":
+		return "ollama"
+	case "LM Studio":
+		return "lmstudio"
+	case "Jan":
+		return "jan"
+	case "llama.cpp":
+		return "llamacpp"
+	case "KoboldCpp":
+		return "koboldcpp"
+	case "GPT4All":
+		return "gpt4all"
+	}
+	return ""
 }

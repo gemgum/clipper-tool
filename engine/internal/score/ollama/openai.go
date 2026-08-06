@@ -88,8 +88,8 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	// Sebagian server (LiteLLM, vLLM di belakang gateway) mensyaratkan header
-	// ini walau kuncinya tidak diperiksa.
-	httpReq.Header.Set("authorization", "Bearer local")
+	// ini walau kuncinya tidak diperiksa. Isinya dari LLM_API_KEY bila diisi.
+	httpReq.Header.Set("authorization", "Bearer "+apiKey())
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
@@ -113,17 +113,21 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 
 // openAIModels membaca daftar model dari /v1/models.
 //
-// Metadatanya jauh lebih miskin daripada Ollama — tidak ada jumlah parameter,
-// ukuran berkas, panjang konteks, maupun daftar kemampuan. Yang tersisa cuma
-// NAMANYA, dan nama dipakai sebagai petunjuk: ia boleh memberi catatan, tidak
-// boleh menolak. Yang benar-benar menentukan tetap apakah modelnya sanggup
-// membalas, dan itu ditangani pemecahan potongan di correct.Correct.
+// Bentuk minimum yang dijamin standar cuma `data[].id` — nama, tanpa spesifikasi
+// apa pun. Tapi sebagian server memberi lebih: llama.cpp menyertakan `meta`
+// berisi jumlah parameter, panjang konteks, ukuran, dan kuantisasi yang
+// SEBENARNYA (terukur 6 Agustus 2026 pada llama-server b10295). Yang ada dipakai
+// apa adanya, dan nama cuma jadi cadangan bila `meta` tidak dikirim.
+//
+// `n_ctx` yang paling penting dan bukan sekadar hiasan: resolveOllama
+// memakainya sebagai Client.NumCtx, dan nilai 0 membuat koreksi transkrip
+// menebak sendiri seberapa besar potongan yang muat.
 func openAIModels(ctx context.Context, url string) []ModelInfo {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/v1/models", nil)
 	if err != nil {
 		return nil
 	}
-	req.Header.Set("authorization", "Bearer local")
+	req.Header.Set("authorization", "Bearer "+apiKey())
 	resp, err := (&http.Client{Timeout: probeTimeout}).Do(req)
 	if err != nil {
 		return nil
@@ -131,7 +135,13 @@ func openAIModels(ctx context.Context, url string) []ModelInfo {
 	defer resp.Body.Close()
 	var parsed struct {
 		Data []struct {
-			ID string `json:"id"`
+			ID   string `json:"id"`
+			Meta struct {
+				NParams int64  `json:"n_params"`
+				NCtx    int    `json:"n_ctx"`
+				Size    int64  `json:"size"`
+				FType   string `json:"ftype"`
+			} `json:"meta"`
 		} `json:"data"`
 	}
 	raw, _ := io.ReadAll(resp.Body)
@@ -143,21 +153,47 @@ func openAIModels(ctx context.Context, url string) []ModelInfo {
 		if strings.TrimSpace(m.ID) == "" {
 			continue
 		}
-		mi := ModelInfo{Name: m.ID, Base: BaseName(m.ID), Ready: true,
-			Note: "served by an OpenAI-compatible server"}
-		// Satu-satunya petunjuk ukuran yang ada di sini adalah NAMANYA, dan itu
-		// dipakai sebagai petunjuk — bukan sebagai fakta. Penilaiannya pun cuma
-		// memberi catatan, tidak pernah menolak: salah baca nama tidak boleh
-		// membuat model yang sebenarnya baik jadi tidak bisa dipilih.
-		if b := paramsFromName(m.ID); b > 0 {
-			mi.Params = formatParams(b)
-			if b < minParams {
-				mi.Note = fmt.Sprintf("looks like a %s model (from its name) — fine for transcript correction, but small models often return empty fields when picking moments", mi.Params)
+		// Base = nama yang layak dilihat. Perlu karena llama.cpp memakai PATH
+		// LENGKAP berkas .gguf sebagai id, dan path 60 karakter di kotak pilihan
+		// tidak memberitahu apa pun selain melebarkan kolomnya.
+		mi := ModelInfo{Name: m.ID, Base: shortModelName(m.ID), Ready: true,
+			Note:    "served by an OpenAI-compatible server",
+			Bytes:   m.Meta.Size,
+			Context: m.Meta.NCtx,
+			Quant:   m.Meta.FType,
+		}
+		// Ukuran dari metadata selalu menang atas tebakan dari nama.
+		params := float64(m.Meta.NParams) / 1e9
+		if params == 0 {
+			params = paramsFromName(m.ID)
+		}
+		// Penilaiannya cuma memberi catatan, tidak pernah menolak: salah baca
+		// ukuran tidak boleh membuat model yang sebenarnya baik jadi tidak bisa
+		// dipilih.
+		if params > 0 {
+			mi.Params = formatParams(params)
+			if params < minParams {
+				mi.Note = fmt.Sprintf("%s model — fine for transcript correction, but small models often return empty fields when picking moments", mi.Params)
 			}
 		}
 		out = append(out, mi)
 	}
 	return out
+}
+
+// shortModelName memangkas id menjadi nama yang layak dibaca:
+// "/home/x/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf" → "Qwen2.5-3B-Instruct-Q4_K_M".
+// Id yang memang sudah pendek dikembalikan apa adanya.
+func shortModelName(id string) string {
+	s := id
+	if i := strings.LastIndexAny(s, `/\`); i >= 0 {
+		s = s[i+1:]
+	}
+	s = strings.TrimSuffix(s, ".gguf")
+	if s == "" {
+		return BaseName(id)
+	}
+	return s
 }
 
 // paramsFromName membaca ukuran model dari namanya: "Qwen2.5-1.5B-Instruct" →
