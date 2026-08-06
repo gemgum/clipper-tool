@@ -482,3 +482,69 @@ tidak pernah ia ketik. Reproduksi: `?q=asdkjhqwe`.
 `Search` menerjemahkannya jadi `no news found for "…" — try fewer or more
 common words`. Feed media tetap memakai kalimat lama, sebab di sana kosong
 memang berarti alamatnya keliru. Dijaga `TestEmptyFeedIsItsOwnError`.
+
+---
+
+## Tambahan 7 Agustus 2026 (malam): uninstaller & panel setelan
+
+### Uninstaller meninggalkan data pengguna
+
+Dilaporkan: uninstall tidak membuang semuanya. Benar, dan sebabnya bisa
+disebut: uninstaller Tauri hanya tahu folder programnya, sedangkan SEMUA data
+Clipper ada di `%LOCALAPPDATA%\Clipper` (`config.userDataDir`) — model whisper
+(sampai 3 GB), whisper.cpp & ffmpeg hasil unduhan halaman Requirements, cache
+transkrip, riwayat job, `.env`, plus klip & kartu yang tersimpan di folder
+bawaan. Tidak satu pun ikut terhapus.
+
+Perbaikannya `desktop/src-tauri/installer-hooks.nsh` + `installerHooks` di
+`tauri.windows.conf.json`: hook `NSIS_HOOK_POSTUNINSTALL` MENAWARKAN membuang
+folder itu.
+
+Tiga keputusan di dalamnya, semuanya sengaja:
+
+- **Ditawarkan, bukan dipaksa.** Memasang ulang versi baru jauh lebih enak
+  kalau model 3 GB-nya tidak perlu diunduh lagi.
+- **Tombol bawaannya "No"** (`MB_DEFBUTTON2`). Di antara menyisakan berkas dan
+  menghapus klip orang, yang kedua jauh lebih mahal.
+- **Uninstall senyap tidak menghapus apa pun** (`IfSilent`): tidak ada yang
+  bisa menjawab, dan diamnya bukan berarti setuju.
+
+Yang TIDAK tertutup, dan jangan diklaim tertutup: **.msi (WiX) tidak punya
+hook ini** — butuh custom action tersendiri. Situs menautkan
+`Clipper-setup.exe` (NSIS), jadi jalur yang dipakai orang sudah benar. Paket
+`.deb`/AppImage juga tidak menyentuh `~/.local/share/clipper`, sesuai kebiasaan
+Linux.
+
+Diverifikasi sejauh yang bisa dari Linux: nama & letak kuncinya dicocokkan ke
+`config.schema.json` milik `@tauri-apps/cli` yang benar-benar dipakai
+(`BundleConfig.windows` → `WindowsConfig.nsis` → `NsisConfig.installerHooks`,
+bertipe string). **Perilaku dialognya sendiri baru terbukti pada pemasang
+Windows** — uji sekali saat rilis berikutnya turun.
+
+### Panel setelan: 16 baris komponen jadi 4
+
+Diminta begitu, dan memang benar — panel ini melaporkan keadaan, bukan
+mengelola komponen. Enam model whisper yang cukup dipunya satu dan enam
+aplikasi LLM yang cukup jalan satu menjawab "siap atau belum" dengan menyuruh
+orang membaca dulu.
+
+| Baris | Hijau kalau |
+| --- | --- |
+| Library | ffmpeg DAN ffprobe ada |
+| Transcribe | whisper.cpp ada DAN setidaknya satu model ada |
+| LLM | setidaknya satu server LLM terdeteksi |
+| Chrome | Chrome/Edge/Chromium ketemu |
+
+Isi tiap kelompok pindah ke `title` — yang ditanya orang begitu satu baris
+merah adalah "yang mana yang kurang".
+
+Ini juga MEMPERBAIKI titik merah di gerigi: model whisper ditandai
+`required: false` satu per satu (karena cukup punya salah satu), jadi mesin
+yang punya whisper tanpa satu pun model dulu tampil hijau — padahal job
+pertamanya pasti berhenti. Sekarang hitungannya per KELOMPOK.
+
+Terukur: panel 415 px → **379 px**, scroll 0; halaman tetap klip 0/0 ·
+kartu 0/0 di 1240×860. Keadaan kurang diuji sungguhan dengan
+`CLIPPER_MODELS_DIR` kosong: baris Transcribe merah + "missing", titik merah di
+gerigi menyala, dan notifikasi lama ("Speech model … has not been downloaded")
+tetap muncul.

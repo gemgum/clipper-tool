@@ -110,7 +110,34 @@ export default function SettingsMenu() {
   // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
   // penanda kapan status komponen perlu ditarik.
 
-  const missing = items?.filter((c) => c.required && !c.installed).length ?? 0;
+  // EMPAT baris, bukan enam belas.
+  //
+  // Panel ini melaporkan keadaan, bukan mengelola komponen: yang ingin dilihat
+  // orang saat membukanya adalah "siap atau tidak", dan enam belas baris —
+  // enam model whisper yang cukup dipunya satu, enam aplikasi LLM yang cukup
+  // jalan satu — menjawab pertanyaan itu dengan menyuruhnya membaca dulu.
+  // Rinciannya tetap lengkap di halaman Requirements.
+  //
+  // Kelompoknya juga MEMPERBAIKI hitungan "ada yang kurang": model whisper
+  // ditandai `required: false` satu per satu (sebab cukup punya salah satu),
+  // jadi mesin yang punya whisper tanpa satu pun model dulu tampil hijau —
+  // padahal job pertamanya pasti berhenti.
+  const groups = (() => {
+    if (!items) return [];
+    const some = (f: (c: Component) => boolean) => items.some((c) => f(c) && c.installed);
+    const every = (f: (c: Component) => boolean) => {
+      const part = items.filter(f);
+      return part.length > 0 && part.every((c) => c.installed);
+    };
+    return [
+      { key: "compLibrary", ok: every((c) => c.id === "ffmpeg" || c.id === "ffprobe"), required: true },
+      { key: "compTranscribe", ok: some((c) => c.id === "whisper") && some((c) => c.id.startsWith("model:")), required: true },
+      { key: "compLLM", ok: some((c) => c.id.startsWith("llm:")), required: false },
+      { key: "compChrome", ok: some((c) => c.id === "chrome"), required: false },
+    ] as const;
+  })();
+
+  const missing = groups.filter((g) => g.required && !g.ok).length;
 
   return (
     <Popover width={300} buttonClass="rail-tool" side="beside" onOpen={() => setOpen(true)} label={
@@ -196,15 +223,18 @@ export default function SettingsMenu() {
             {items === null ? (
               <div className="meta">{t("loading")}</div>
             ) : (
-              <div className="settings-scroll">
-                {items.map((c) => (
-                  <div className="settings-row" key={c.id}>
-                    <span className={"req-dot " + (c.installed ? "on" : c.required ? "off" : "idle")} />
-                    <span className="settings-name">{c.name}</span>
-                    <span className="meta">{c.installed ? t("settingsReady") : t("settingsMissing")}</span>
-                  </div>
-                ))}
-              </div>
+              groups.map((g) => (
+                <div className="settings-row" key={g.key}>
+                  <span className={"req-dot " + (g.ok ? "on" : g.required ? "off" : "idle")} />
+                  {/* Judulnya satu kata; ISI kelompoknya di title, sebab yang
+                      ditanya orang begitu satu baris merah adalah "yang mana
+                      yang kurang". */}
+                  <span className="settings-name" title={t(`${g.key}Tip` as "compLibraryTip")}>
+                    {t(g.key as "compLibrary")}
+                  </span>
+                  <span className="meta">{g.ok ? t("settingsReady") : t("settingsMissing")}</span>
+                </div>
+              ))
             )}
           </div>
 
