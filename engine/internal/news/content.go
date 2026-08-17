@@ -152,8 +152,17 @@ func blockTagPatterns(tags ...string) []*regexp.Regexp {
 var junkPhrases = []string{
 	"baca juga", "simak juga", "lihat juga", "berita terkait", "artikel terkait",
 	"copyright", "hak cipta", "all rights reserved", "editor:", "penyunting:",
-	"ikuti kami", "berlangganan", "unduh aplikasi", "advertisement",
+	"pewarta:", "ikuti kami", "berlangganan", "unduh aplikasi", "advertisement",
 	"cookie", "kebijakan privasi", "syarat dan ketentuan",
+	// Pemberitahuan lisensi di kaki artikel. "copyright"/"hak cipta" tidak
+	// menangkapnya — Antara menulisnya sebagai kalimat larangan penuh:
+	// "Dilarang keras mengambil konten, melakukan crawling atau pengindeksan
+	// otomatis untuk AI di situs web ini tanpa izin tertulis dari Kantor Berita
+	// ANTARA." Ia lolos ke tahap 1 dan keluar sebagai FAKTA, lalu tertulis di
+	// artikel jadi ("Dilarang keras mengambil konten, tetapi informasi tentang
+	// Paskibraka dapat diperoleh…", 18 Agustus 2026).
+	"dilarang keras mengambil", "dilarang mengambil konten", "dilarang memperbanyak",
+	"pengindeksan otomatis", "tanpa izin tertulis dari", "hak kekayaan intelektual",
 }
 
 // parseParagraphs memecah HTML jadi paragraf badan berita.
@@ -319,7 +328,6 @@ func toHashtag(s string) string {
 func SortRankings(r []Ranking) {
 	sort.SliceStable(r, func(a, b int) bool { return r[a].Score > r[b].Score })
 }
-
 
 // articleBodyHTML memotong HTML jadi badan artikelnya saja, "" bila penandanya
 // tidak dikenali.

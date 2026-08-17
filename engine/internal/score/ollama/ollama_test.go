@@ -65,3 +65,32 @@ func TestJudge(t *testing.T) {
 		t.Errorf("metadata kosong seharusnya lolos, malah: %s", note)
 	}
 }
+
+// TestCtxForMuatPromptDanKeluaran menjaga temuan 18 Agustus 2026: pembuat
+// berita meminta 8192 token keluaran DI DALAM jendela 8192, jadi Ollama
+// berhenti di dinding konteks dan mengembalikan JSON terpotong tanpa satu pun
+// pesan galat. Jendelanya harus memuat prompt DAN keluaran yang diminta.
+func TestCtxForMuatPromptDanKeluaran(t *testing.T) {
+	besar := &Client{NumCtx: 131072}
+	if got := besar.ctxFor(9000, 8192); got <= 8192 {
+		t.Errorf("ctxFor = %d — jendela tidak dilebarkan untuk prompt+keluaran", got)
+	}
+
+	// Permintaan kecil tidak menurunkan jendela di bawah angka bawaan.
+	if got := besar.ctxFor(100, 512); got != numCtx {
+		t.Errorf("ctxFor = %d, mau %d untuk permintaan kecil", got, numCtx)
+	}
+
+	// Model kecil tidak boleh dilampaui: meminta lebih dari yang ia sanggup
+	// membuat Ollama membalas KOSONG, kegagalan yang lebih sulit dilacak.
+	kecil := &Client{NumCtx: 4096}
+	if got := kecil.ctxFor(9000, 8192); got != 4096 {
+		t.Errorf("ctxFor = %d, mau 4096 — batas model dilampaui", got)
+	}
+
+	// Kemampuan model tidak diketahui → jangan menaikkan apa pun.
+	tak := &Client{}
+	if got := tak.ctxFor(9000, 8192); got != numCtx {
+		t.Errorf("ctxFor = %d, mau %d saat kemampuan model tidak diketahui", got, numCtx)
+	}
+}

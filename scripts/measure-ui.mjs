@@ -29,6 +29,7 @@ mkdirSync(OUT, { recursive: true });
 const pages = [
   ["clips", "/"],
   ["news", "/news"],
+  ["writer", "/writer"],
   ["requirements", "/requirements"],
   ["history", "/history"],
 ];

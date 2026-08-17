@@ -51,6 +51,35 @@ type Client struct {
 	// yang bicara /v1/chat/completions — llama.cpp, LocalAI, llamafile, vLLM,
 	// Aphrodite, LiteLLM, Exo. Lihat openai.go.
 	Kind string
+	// Path = awalan jalur di bawah URL, tanpa garis miring di ujung. Kosong
+	// berarti "/v1", yang benar untuk hampir semua server.
+	//
+	// Ada karena endpoint OpenAI-compatible milik Gemini bukan "/v1" melainkan
+	// "/v1beta/openai" — dan tanpa field ini, satu-satunya jalan memakainya
+	// adalah klien kedua yang isinya sama persis.
+	Path string
+	// APIKey = kunci untuk server INI. Kosong berarti pakai LLM_API_KEY.
+	//
+	// Dulu semua server berbagi satu variabel global, dan itu cukup selama
+	// isinya cuma server lokal di belakang gateway. Dengan beberapa penyedia
+	// cloud sekaligus, tiap klien harus membawa kuncinya sendiri.
+	APIKey string
+}
+
+// path mengembalikan awalan jalur API yang berlaku untuk klien ini.
+func (c *Client) path() string {
+	if p := strings.TrimRight(strings.TrimSpace(c.Path), "/"); p != "" {
+		return p
+	}
+	return "/v1"
+}
+
+// key mengembalikan kunci yang berlaku untuk klien ini.
+func (c *Client) key() string {
+	if k := strings.TrimSpace(c.APIKey); k != "" {
+		return k
+	}
+	return apiKey()
 }
 
 // temperature mengembalikan suhu yang berlaku untuk klien ini.
@@ -72,17 +101,34 @@ const defaultTemperature = 0.4
 // sebagai kegagalan di lapangan; 5 menit terlalu ketat.
 const chatTimeout = 12 * time.Minute
 
-// ctxSize = jendela konteks yang diminta ke Ollama untuk klien ini.
+// ctxFor = jendela konteks yang diminta ke Ollama untuk satu panggilan.
 //
-// Bukan angka tetap: model kecil sering hanya mendukung 4096 atau 2048, dan
-// meminta 8192 padanya membuat Ollama memuat model dengan konteks yang tidak
-// bisa dipenuhi — balasannya kosong, tanpa satu pun pesan galat. NumCtx diisi
-// pemanggil dari metadata model (lihat pipeline/ollama_resolve.go); 0 berarti
-// "tidak tahu", dan di situ angka bawaan yang dipakai.
-func (c *Client) ctxSize() int {
+// Bukan angka tetap, dan dua batasnya berlawanan arah.
+//
+// Batas ATAS: model kecil sering hanya mendukung 4096 atau 2048, dan meminta
+// lebih membuat Ollama memuat model dengan konteks yang tidak bisa dipenuhi —
+// balasannya kosong, tanpa satu pun pesan galat. NumCtx diisi pemanggil dari
+// metadata model (lihat pipeline/ollama_resolve.go dan api.EngineFor); 0 berarti
+// "tidak tahu", dan di situ tidak ada yang boleh dinaikkan.
+//
+// Batas BAWAH: promptChars = panjang system+user, numPredict = keluaran yang
+// diminta, dan keduanya harus MUAT dalam satu jendela. Meminta 8192 token
+// keluaran di dalam jendela 8192 berarti promptnya sendiri sudah memakan jatah,
+// dan Ollama berhenti diam-diam di dinding konteks — balasannya JSON terpotong
+// tanpa satu pun pesan galat. Terlihat pertama kali saat pembuat berita meminta
+// artikel utuh (18 Agustus 2026). ~3 karakter per token cukup untuk menaksir.
+// Keduanya harus MUAT dalam satu jendela: meminta 8192 token keluaran di dalam
+// jendela 8192 berarti promptnya sendiri sudah memakan jatah, dan Ollama
+// berhenti diam-diam di dinding konteks — balasannya JSON terpotong tanpa satu
+// pun pesan galat. Terlihat pertama kali saat pembuat berita meminta artikel
+// utuh (18 Agustus 2026). ~3 karakter per token cukup untuk menaksir prompt.
+func (c *Client) ctxFor(promptChars, numPredict int) int {
+	want := max(numCtx, numPredict+promptChars/3+256)
 	if c.NumCtx >= 512 {
-		return min(c.NumCtx, numCtx)
+		return min(want, c.NumCtx)
 	}
+	// Kemampuan model tidak diketahui: JANGAN naikkan. Meminta 16k pada model
+	// yang cuma sanggup 4k adalah kegagalan yang lebih buruk — balasan kosong.
 	return numCtx
 }
 
@@ -133,9 +179,10 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
 		},
-		Stream:  false,
-		Format:  schema,
-		Options: map[string]any{"temperature": temperature, "num_ctx": c.ctxSize(), "num_predict": numPredict},
+		Stream: false,
+		Format: schema,
+		Options: map[string]any{"temperature": temperature,
+			"num_ctx": c.ctxFor(len(system)+len(user), numPredict), "num_predict": numPredict},
 	}
 	buf, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/api/chat", bytes.NewReader(buf))
@@ -318,6 +365,21 @@ func Status(ctx context.Context, url string) StatusInfo {
 		info.Installed = append(info.Installed, mi)
 	}
 	return info
+}
+
+// ContextOf menyebut konteks maksimum satu model menurut servernya, 0 bila
+// tidak diketahui. Pemanggil mengisikannya ke Client.NumCtx — tanpa itu jendela
+// terkunci di angka bawaan, dan permintaan keluaran besar terpotong diam-diam.
+//
+// Nama dicocokkan tanpa tag: yang tersimpan di setelan bisa "llama3.1"
+// sementara yang terpasang bernama "llama3.1:latest".
+func ContextOf(ctx context.Context, url, model string) int {
+	for _, m := range Status(ctx, url).Installed {
+		if m.Name == model || BaseName(m.Name) == BaseName(model) {
+			return m.Context
+		}
+	}
+	return 0
 }
 
 // BaseName membuang tag Ollama: "qwen2.5:latest" → "qwen2.5".

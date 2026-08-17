@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 )
@@ -71,4 +72,31 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 		label = "Local LLM server"
 	}
 	return c, fmt.Sprintf("%s (%s) at %s — %s", label, name, st.URL, ollama.Where(st.URL)), nil
+}
+
+// cloudClient merakit klien untuk penyedia yang bicara /chat/completions.
+//
+// Koordinatnya (alamat, jalur, nama variabel kuncinya) DIISI SERVER dari daftar
+// mesin di internal/api — bukan dari permintaan HTTP, dan bukan tabel kedua di
+// sini. Dua alasannya berbeda: kuncinya sendiri tidak pernah lewat JSON
+// (LLMKeyEnv hanya menyebut NAMA variabelnya), dan tabel penyedia yang ada di
+// dua tempat cepat atau lambat berbeda isi.
+func (p *Pipeline) cloudClient() (*ollama.Client, string, error) {
+	name := p.Opts.EngineName
+	if name == "" {
+		name = p.Opts.Provider
+	}
+	if p.Opts.LLMBase == "" {
+		return nil, "", fmt.Errorf("unknown score engine %q — pick one on the Requirements page, or choose ollama or heuristic", p.Opts.Provider)
+	}
+	key := ""
+	if p.Opts.LLMKeyEnv != "" {
+		key = os.Getenv(p.Opts.LLMKeyEnv)
+	}
+	if key == "" {
+		return nil, "", fmt.Errorf("%s has no API key yet — add it on the Requirements page", name)
+	}
+	c := ollama.New(p.Opts.LLMBase, p.Opts.LLMModel)
+	c.Kind, c.Path, c.APIKey = ollama.KindOpenAI, p.Opts.LLMPath, key
+	return c, name, nil
 }

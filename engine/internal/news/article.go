@@ -195,7 +195,6 @@ var (
 	reImgTag      = regexp.MustCompile(`(?is)<img[^>]+src\s*=\s*["']([^"']+)["']`)
 )
 
-
 // siteBadge memilih nama sumber untuk lencana kartu.
 //
 // og:site_name biasanya nama yang enak dibaca ("Kompas.com", "CNN Indonesia"),

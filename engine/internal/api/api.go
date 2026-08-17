@@ -25,7 +25,6 @@ import (
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/news"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
-	"github.com/gemgum/clipper/engine/internal/score/llm"
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 )
 
@@ -38,6 +37,8 @@ type Server struct {
 	cards  *card.Builder
 	// installs = pemasangan komponen yang berjalan di latar (lihat installs.go).
 	installs installs
+	// posts = job pembuat berita yang berjalan di latar (lihat posts.go).
+	posts posts
 	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
 	token string
 	// hosts = nama host tambahan yang boleh dipakai menghubungi engine, di luar
@@ -84,6 +85,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/requirements/events", s.installEvents)
 	mux.HandleFunc("POST /api/requirements/remove", s.removeComponent)
 	mux.HandleFunc("POST /api/requirements/path", s.setComponentPath)
+	// Mesin LLM: satu daftar untuk seluruh aplikasi (notes/39).
+	mux.HandleFunc("GET /api/engines", s.listEngines)
+	mux.HandleFunc("POST /api/engines", s.saveEngine)
+	mux.HandleFunc("POST /api/engines/test", s.testEngine)
+	mux.HandleFunc("GET /api/engines/{id}/models", s.engineModels)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.postSettings)
 	mux.HandleFunc("POST /api/settings/folders", s.postFolders)
@@ -125,6 +131,14 @@ func (s *Server) Handler() http.Handler {
 	// Unduh sekaligus apa pun yang dicentang di halaman riwayat — lihat bulk.go.
 	mux.HandleFunc("GET /api/download", s.bulkZip)
 	mux.HandleFunc("DELETE /api/cards/{id}", s.deleteCard)
+	// Pembuat berita (notes/38). Job berjalan di latar; kemajuannya lewat SSE.
+	mux.HandleFunc("POST /api/posts", s.createPost)
+	mux.HandleFunc("GET /api/posts", s.listPosts)
+	mux.HandleFunc("GET /api/posts/events", s.postEvents)
+	mux.HandleFunc("GET /api/posts/{id}", s.getPost)
+	mux.HandleFunc("GET /api/posts/{id}/file", s.postFile)
+	mux.HandleFunc("POST /api/posts/{id}/cancel", s.cancelPost)
+	mux.HandleFunc("GET /api/posts/limits", s.postLimits)
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.
 	if ui := webUI(s.layout.GUIDir); ui != nil {
@@ -227,11 +241,16 @@ func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
 // browser menyediakan pembuka halaman berbasis browser untuk paket news.
 // Mengembalikan nil bila browser tidak ada — news yang menerjemahkannya jadi
 // pesan yang bisa ditindaklanjuti pengguna.
-func (s *Server) browser() news.Browser {
-	if s.paths.Chrome == "" {
+func (s *Server) browser() news.Browser { return Browser(s.paths.Chrome) }
+
+// Browser merakit pembuka halaman dari letak Chrome. Diekspor karena CLI
+// membutuhkan yang persis sama — tautan hasil pencarian Google News hanya bisa
+// dibuka lewat browser (notes/13).
+func Browser(chrome string) news.Browser {
+	if chrome == "" {
 		return nil
 	}
-	cap := capture.New(s.paths.Chrome)
+	cap := capture.New(chrome)
 	return func(ctx context.Context, url string) (string, error) {
 		return cap.DumpDOM(ctx, url, 15000)
 	}
@@ -302,11 +321,14 @@ func (s *Server) newsResolve(w http.ResponseWriter, r *http.Request) {
 // verbatim dari sumbernya.
 func (s *Server) newsAnalyze(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		URL         string `json:"url"`
-		Provider    string `json:"provider"`     // claude | ollama
-		LLMModel    string `json:"llm_model"`    // model Claude
-		OllamaModel string `json:"ollama_model"` // model lokal
-		OllamaURL   string `json:"ollama_url"`
+		URL string `json:"url"`
+		// Engine + Model = bentuk baku pemilih mesin (notes/39). Nama lama
+		// masih diterima supaya halaman yang belum diperbarui tetap jalan.
+		Engine      string `json:"engine"`
+		Model       string `json:"model"`
+		Provider    string `json:"provider"`
+		LLMModel    string `json:"llm_model"`
+		OllamaModel string `json:"ollama_model"`
 		Lang        string `json:"lang"`
 	}
 	if err := readJSON(r, &req); err != nil {
@@ -319,7 +341,9 @@ func (s *Server) newsAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	complete, engineName, err := s.llmEngine(req.Provider, req.LLMModel, req.OllamaModel, req.OllamaURL)
+	complete, engineName, err := s.llmEngine(
+		firstNonEmpty(req.Engine, req.Provider),
+		firstNonEmpty(req.Model, req.LLMModel, req.OllamaModel))
 	if err != nil {
 		writeErr(w, 400, err.Error())
 		return
@@ -340,32 +364,15 @@ func (s *Server) newsAnalyze(w http.ResponseWriter, r *http.Request) {
 }
 
 // llmEngine merangkai satu fungsi pemanggil LLM sesuai mesin yang dipilih.
-func (s *Server) llmEngine(provider, claudeModel, ollamaModel, ollamaURL string) (news.Completer, string, error) {
-	switch provider {
-	case "claude":
-		key := s.mgr.APIKey()
-		if key == "" {
-			return nil, "", fmt.Errorf("the Claude API key is empty — set it in the Video clips tab, AI engine panel, or ANTHROPIC_API_KEY in .env")
-		}
-		c := llm.New(key, claudeModel)
-		name := "Claude (" + c.Model + ")"
-		return func(ctx context.Context, system, user string) (string, error) {
-			return c.Complete(ctx, system, user, 4096)
-		}, name, nil
-	case "ollama", "":
-		// Alamat kosong = cari sendiri (WSL/Windows/lokal), bukan "pakai
-		// localhost" — lihat score/ollama/discover.go.
-		if ollamaURL == "" {
-			ollamaURL = ollama.Discover(context.Background())
-		}
-		c := ollama.New(ollamaURL, ollamaModel)
-		name := "Ollama (" + c.Model + ")"
-		return func(ctx context.Context, system, user string) (string, error) {
-			return c.Complete(ctx, system, user, news.SelectionSchema(), 2048)
-		}, name, nil
-	}
-	return nil, "", fmt.Errorf("unknown engine %q — choose \"claude\" or \"ollama\"", provider)
-}
+// llmMaxTokens membatasi panjang balasan. Untuk Ollama ini num_predict — batas
+// atas, bukan target, jadi menaikkannya tidak membuat balasan jadi bertele-tele:
+// skema JSON yang menghentikannya.
+//
+// 8192, bukan 4096: artikel 700 kata BESERTA peta klaimnya (tiap kalimat
+// disalin ulang dengan nomor sumbernya) melewati 4096 token, dan akibatnya
+// bukan artikel yang pendek melainkan JSON yang terpotong di tengah — job
+// gagal total. Terjadi di uji lapangan dengan tiga artikel Antara.
+const llmMaxTokens = 8192
 
 // makeCard merender kartu jadi PNG dan membalas id-nya.
 //
@@ -721,6 +728,10 @@ func (s *Server) postSettings(w http.ResponseWriter, r *http.Request) {
 	if req.AnthropicAPIKey != nil {
 		key := strings.TrimSpace(*req.AnthropicAPIKey)
 		s.mgr.SetAPIKey(key)
+		// os.Setenv, bukan cuma menulis berkas: .env adalah sumber kebenaran
+		// pemilih mesin (engines.go), dan tanpa ini kunci yang baru disimpan
+		// belum terbaca sampai aplikasinya dijalankan ulang.
+		_ = os.Setenv("ANTHROPIC_API_KEY", key)
 		if key != "" {
 			_ = writeEnvKey(s.paths.EnvFile, "ANTHROPIC_API_KEY", key)
 		}
@@ -1127,6 +1138,11 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	// memperlakukan masukan yang sama persis: klien boleh mengirim satu string
 	// berisi koma maupun daftar yang sudah dipecah.
 	opts.Terms = correct.ParseTerms(strings.Join(opts.Terms, ","))
+	// Koordinat mesin diisi DI SINI, dari daftar mesin yang sama dengan tab
+	// kartu berita dan pembuat berita (notes/39). Pipeline menerima alamat,
+	// jalur, dan NAMA variabel kuncinya — bukan kuncinya, dan bukan tabel
+	// penyedia kedua.
+	fillEngine(&opts)
 	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

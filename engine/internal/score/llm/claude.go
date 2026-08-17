@@ -14,7 +14,9 @@ import (
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
-const endpoint = "https://api.anthropic.com/v1/messages"
+// defaultBase = alamat resmi Claude. Bisa ditimpa lewat Client.BaseURL supaya
+// pengguna bisa menunjuk ke gateway/proxy sendiri tanpa kode baru (notes/39).
+const defaultBase = "https://api.anthropic.com"
 
 // Client Claude API.
 type Client struct {
@@ -24,6 +26,17 @@ type Client struct {
 	// Temperature dikirim hanya bila > 0; selain itu dipakai bawaan API.
 	// Tugas menyalin-ulang seperti koreksi transkrip butuh angka rendah.
 	Temperature float64
+	// BaseURL menimpa alamat resmi. Kosong = defaultBase.
+	BaseURL string
+}
+
+// endpoint menyusun alamat penuh /v1/messages untuk klien ini.
+func (c *Client) endpoint() string {
+	base := strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
+	if base == "" {
+		base = defaultBase
+	}
+	return base + "/v1/messages"
 }
 
 func New(apiKey, model string) *Client {
@@ -91,7 +104,7 @@ func (c *Client) Complete(ctx context.Context, system, user string, maxTokens in
 		reqBody.Temperature = &c.Temperature
 	}
 	buf, _ := json.Marshal(reqBody)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(buf))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.endpoint(), bytes.NewReader(buf))
 	if err != nil {
 		return "", err
 	}

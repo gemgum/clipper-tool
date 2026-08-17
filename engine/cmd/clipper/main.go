@@ -19,6 +19,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
+	"github.com/gemgum/clipper/engine/internal/writer"
 )
 
 // version diisi saat rilis lewat -ldflags "-X main.version=…" dari nomor tag,
@@ -37,6 +38,8 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		cmdRun(layout, os.Args[2:])
+	case "write":
+		cmdWrite(layout, os.Args[2:])
 	case "serve":
 		cmdServe(layout, os.Args[2:])
 	case "version", "-v", "--version":
@@ -52,11 +55,24 @@ func usage() {
 
 Usage:
   clipper run <video> [flags]    Process a single video (CLI)
+  clipper write <url>... [flags] Write one article from up to 5 source articles
   clipper serve [flags]          Run the HTTP API for the GUI
   clipper version
 
+'write' flags:
+  -engine      ollama|claude|openai|gemini|deepseek (default ollama). Cloud engines
+               need their key in .env — see the Requirements page in the app.
+  -model       model name; empty uses the engine's own default
+  -write-engine  engine for the WRITING stage, when it should differ from the one
+               that reads the facts. Reading is five cheap calls; writing is one
+               call where model quality shows. Empty uses -engine for both.
+  -write-model   model for -write-engine
+  -url         address of the local server (default: found automatically)
+  -lang        en|id — language of the fixed text the engine writes (default en)
+  -out         where to write the article folder (default <data>/posts)
+  -max-words   article body budget sent to the model per source (default 1500)
+
 'run' flags:
-  -mode        offline|hybrid (default offline)
   -model       whisper model: tiny|base|small|medium|large-v3 (default small)
   -reframe     how the video is fitted into the 9:16 frame (default center):
                  center      Center of the Picture — crop to fill
@@ -76,7 +92,8 @@ Usage:
   -sub-speed   slow|normal|dense — subtitle pacing (default normal)
   -save        burn|clean|both — burned-in / clean / both (default burn)
   -duration    auto|30|60|90|120|180 — clip length (default auto)
-  -provider    claude|ollama|heuristic — moment selector (default follows -mode)
+  -provider    moment selector: ollama (default), heuristic, claude, or any
+               engine configured on the Requirements page
   -ollama-model  local model for the ollama provider (default qwen2.5)
   -transcript-fix on|off — let an LLM fix the transcript's punctuation, sentence
                structure and misheard words before clips are cut (default on).
@@ -109,7 +126,6 @@ func cmdRun(layout config.Layout, args []string) {
 
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	opts := config.DefaultOptions()
-	mode := fs.String("mode", string(opts.Mode), "")
 	model := fs.String("model", opts.WhisperModel, "")
 	reframe := fs.String("reframe", string(opts.Reframe), "")
 	background := fs.String("background", opts.Background, "")
@@ -136,7 +152,6 @@ func cmdRun(layout config.Layout, args []string) {
 		os.Exit(1)
 	}
 
-	opts.Mode = config.Mode(*mode)
 	opts.WhisperModel = *model
 	opts.Reframe = config.Reframe(*reframe)
 	opts.Background = *background
@@ -180,8 +195,8 @@ func cmdRun(layout config.Layout, args []string) {
 		os.Exit(1)
 	}
 	paths := config.ResolvePaths(layout, opts)
-	if opts.Mode != config.ModeOffline && paths.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "warning: mode", opts.Mode, "but ANTHROPIC_API_KEY is empty — the job will stop when the selected engine is called")
+	if opts.Provider == "claude" && paths.APIKey == "" {
+		fmt.Fprintln(os.Stderr, "warning: -provider claude but ANTHROPIC_API_KEY is empty — the job will stop when the engine is called")
 	}
 
 	dir := "cli_" + time.Now().Format("2006-01-02_15-04-05")
@@ -219,6 +234,125 @@ func cmdRun(layout config.Layout, args []string) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(clips)
+}
+
+// cmdWrite menjalankan pembuat berita dari CLI.
+//
+// Ada supaya fitur ini bisa dipakai dan diukur sebelum tab GUI-nya dibuat —
+// dan supaya ada satu jalan yang tidak bergantung pada browser sama sekali.
+func cmdWrite(layout config.Layout, args []string) {
+	urls, flagArgs := splitURLs(args)
+
+	fs := flag.NewFlagSet("write", flag.ExitOnError)
+	engine := fs.String("engine", "ollama", "")
+	model := fs.String("model", "", "")
+	writeEngine := fs.String("write-engine", "", "")
+	writeModel := fs.String("write-model", "", "")
+	llmURL := fs.String("url", "", "")
+	lang := fs.String("lang", "en", "")
+	outDir := fs.String("out", "", "")
+	maxWords := fs.Int("max-words", 0, "")
+	_ = fs.Parse(flagArgs)
+
+	if len(urls) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one source article URL is required. Example: clipper write https://… https://…")
+		os.Exit(1)
+	}
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	paths := config.ResolvePaths(layout, config.DefaultOptions())
+
+	// Alamat ditimpa lewat lingkungan, bukan lewat parameter: pemilih mesin
+	// membaca .env sebagai satu-satunya sumber kebenaran (notes/39), dan satu
+	// jalur berarti CLI dan GUI tidak bisa berbeda pendapat.
+	if *llmURL != "" {
+		_ = os.Setenv("OLLAMA_HOST", *llmURL)
+	}
+	read, readName, err := api.EngineFor(*engine, *model)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	var write writer.Completer
+	writeName := readName
+	if *writeEngine != "" {
+		write, writeName, err = api.EngineFor(*writeEngine, *writeModel)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+	}
+	out := *outDir
+	if out == "" {
+		out = filepath.Join(paths.DataDir, "posts")
+	}
+	if writeName != readName {
+		fmt.Fprintf(os.Stderr, "engine: read %s · write %s\n", readName, writeName)
+	} else {
+		fmt.Fprintf(os.Stderr, "engine: %s\n", readName)
+	}
+
+	res, err := writer.Run(context.Background(),
+		writer.Options{URLs: urls, Lang: *lang, MaxWords: *maxWords},
+		writer.Deps{
+			Read:        read,
+			ReadEngine:  readName,
+			Write:       write,
+			WriteEngine: writeName,
+			Browse:      api.Browser(paths.Chrome),
+			CacheDir:    paths.DataDir,
+			OutDir:      out,
+		},
+		func(p writer.Progress) {
+			// Ringkasan waktu itu tabel multi-baris; awalan "[100%] done" di
+			// depannya merusak perataan kolomnya.
+			if p.Stage == "done" {
+				fmt.Fprintln(os.Stderr, p.Message)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "[%3.0f%%] %-10s %s\n", p.Value*100, p.Stage, p.Message)
+		})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAILED:", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "\nWritten to %s\n", res.Post.Dir)
+	if n := len(res.Draft.Violations); n > 0 {
+		fmt.Fprintf(os.Stderr, "%d unverified item(s) — listed at the top of artikel.md\n", n)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(res)
+}
+
+// splitURLs memisahkan alamat (positional) dari flag, sehingga urutan argumen
+// bebas — paket flag standar berhenti di positional pertama.
+func splitURLs(args []string) (urls []string, flagArgs []string) {
+	valueFlags := map[string]bool{
+		"-engine": true, "-model": true, "-url": true,
+		"-write-engine": true, "-write-model": true,
+		"-lang": true, "-out": true, "-max-words": true,
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if valueFlags[a] {
+			flagArgs = append(flagArgs, a)
+			if i+1 < len(args) {
+				flagArgs = append(flagArgs, args[i+1])
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			flagArgs = append(flagArgs, a)
+			continue
+		}
+		urls = append(urls, a)
+	}
+	return urls, flagArgs
 }
 
 func cmdServe(layout config.Layout, args []string) {

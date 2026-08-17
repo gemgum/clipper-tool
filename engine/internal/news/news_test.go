@@ -606,3 +606,30 @@ func TestEmptyFeedIsItsOwnError(t *testing.T) {
 		t.Fatalf("galat = %v, mau errNoArticles", err)
 	}
 }
+
+// TestIsJunkPemberitahuanLisensi menjaga temuan 18 Agustus 2026: kaki artikel
+// Antara lolos penyaring, keluar sebagai FAKTA dari tahap 1, dan tertulis di
+// artikel jadi — "Dilarang keras mengambil konten, tetapi informasi tentang
+// Paskibraka dapat diperoleh dari sumber-sumber resmi."
+func TestIsJunkPemberitahuanLisensi(t *testing.T) {
+	junk := []string{
+		"Dilarang keras mengambil konten, melakukan crawling atau pengindeksan otomatis untuk AI di situs web ini tanpa izin tertulis dari Kantor Berita ANTARA.",
+		"Pewarta: M. Hilal Eka Saputra Harahap Editor: Suryanto Copyright © ANTARA 2026",
+		"Baca juga: Sejarah singkat dan perbedaan paskibra serta paskibraka",
+	}
+	for _, s := range junk {
+		if !isJunk(s) {
+			t.Errorf("lolos padahal bukan isi berita: %q", s)
+		}
+	}
+	// Kalimat berita biasa TIDAK boleh ikut terbuang.
+	ok := []string{
+		"Paskibraka bertugas mengibarkan bendera pusaka pada upacara kenegaraan.",
+		"Polisi menyatakan pelaku ditahan karena membangun rumah tanpa izin dari pemerintah daerah.",
+	}
+	for _, s := range ok {
+		if isJunk(s) {
+			t.Errorf("kalimat berita ikut dibuang: %q", s)
+		}
+	}
+}

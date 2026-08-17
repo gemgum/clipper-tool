@@ -15,9 +15,11 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
 - **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, pemasangan
   komponen, dan penyaji antarmuka. Standard library saja (tanpa dependency
   eksternal).
-- **gui/** (Next.js) — tiga tab: `/` klip video (form → progress SSE → daftar
-  klip), `/news` kartu berita (tempel link / jelajah RSS → kartu PNG), dan
-  `/requirements` status & pemasangan komponen. Ada pemilih bahasa antarmuka
+- **gui/** (Next.js) — empat tab: `/` klip video (form → progress SSE → daftar
+  klip), `/news` kartu berita (tempel link / jelajah RSS → kartu PNG),
+  `/writer` pembuat berita (sampai 5 artikel sumber → satu artikel baru +
+  pagar fakta, lihat `notes/38`), dan `/requirements` status & pemasangan
+  komponen. Ada pemilih bahasa antarmuka
   EN/ID di bilah navigasi (default EN, disimpan di localStorage). Dibangun jadi
   berkas statis (`gui/out`) yang disajikan engine.
 - **desktop/** (Tauri) — jendela aplikasi. Setipis mungkin: menjalankan engine,
@@ -31,11 +33,13 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
 ```bash
 ./setup.sh [base|small|medium|large-v3|large-v3-turbo]   # build whisper.cpp + unduh model
 ./build.sh                       # build engine (Go) + gui statis (gui/out)
-./bin/clipper run <video> [-mode -model -duration -max -min-score \
+./bin/clipper run <video> [-model -duration -max -min-score \
                            -reframe center|fit -background blur|black -zoom 5..200 \
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
                            -transcript-fix on|off -terms "Londo Ireng,Mahfud MD" \
                            -save burn|clean|both]                # CLI
+./bin/clipper write <url>... [-provider claude|ollama -ollama-model -lang -out]
+                                 # pembuat berita: sampai 5 artikel → satu artikel
 ./bin/clipper serve              # API + GUI di 127.0.0.1:8787 (port acak bila terpasang)
                                  # banner mencetak satu alamat "open:" — tinggal dibuka
 ./bin/clipper serve -token on    # + kunci sesi (otomatis menyala saat terpasang)
@@ -69,14 +73,14 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 
 | Paket           | Isi                                                                           |
 | --------------- | ----------------------------------------------------------------------------- |
-| config          | Options, mode, Layout (folder), ResolvePaths                                  |
+| config          | Options, Layout (folder), ResolvePaths                                        |
 | ffmpeg          | ekstrak audio, clip + zoom/reframe, burn subtitle                             |
 | transcribe      | wrapper whisper-cli (-ojf), parse segmen + kata bertimestamp                  |
 | audio           | baca WAV (PCM 16-bit) + hitung RMS energi per hop                             |
 | segment         | bangun kandidat klip (incar durasi ideal, potong di kalimat/jeda)             |
 | score/heuristic | aturan Indonesia (emosi, hook, energi, durasi)                                |
 | score/llm       | Claude API (pilih momen, skor + judul + hashtag)                              |
-| score/ollama    | LLM lokal via Ollama (pilih momen, mode offline)                              |
+| score/ollama    | LLM lokal via Ollama + klien OpenAI-compatible (OpenAI/Gemini/DeepSeek)       |
 | subtitle        | tulis .ass (normal/karaoke/word) & .srt                                       |
 | correct         | koreksi transkrip via LLM + penyejajaran ulang timestamp per kata             |
 | pipeline        | orkestrasi + progress callback                                                |
@@ -87,6 +91,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | news            | RSS + metadata artikel (Open Graph) + ekstraksi paragraf + pemilih hook (LLM) |
 | news/google.go  | membuka pengalih news.google.com lewat RPC-nya sendiri (tanpa browser)        |
 | card            | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber   |
+| writer          | pembuat berita: fakta per artikel → satu artikel + pagar fakta (notes/38)     |
 
 ## Folder data: dua bentuk, dipilih sendiri
 
@@ -144,10 +149,17 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
   alamatnya sendiri. Penjaganya di `internal/api/guard.go`; path yang diteruskan
   ke ffmpeg lewat `ffmpeg.CLIPath` (notes/30).
 
-## Mode & mesin skor
+## Mesin skor
 
-offline (gratis: Ollama lokal atau heuristik) · hybrid (Claude). Mode hybrid
-butuh `ANTHROPIC_API_KEY` di `.env` atau lewat GUI.
+Satu daftar mesin untuk SELURUH aplikasi (`internal/api/engines.go`, notes/39):
+Ollama lokal, Claude, ChatGPT, Gemini, DeepSeek — plus `heuristic` (tanpa LLM)
+khusus halaman klip. Kunci API diisi sekali di halaman Requirements; mesin &
+model dipilih tiap kali bekerja lewat `<EnginePicker>` yang sama di semua tab.
+
+`-mode offline|hybrid` **dibuang 18 Agustus 2026**: ia tinggal menentukan nilai
+bawaan `-provider` dan mesin koreksi transkrip, dan keduanya kini dijawab
+pemilih mesin. Setelan yang cuma menentukan bawaan setelan lain adalah satu cara
+lagi untuk tidak sinkron.
 
 Mode `online` dan reframe `face_follow` **dibuang 5 Agustus 2026**: keduanya cuma
 nama tanpa isi — `online` berperilaku persis sama dengan hybrid, `face_follow`
@@ -185,8 +197,9 @@ kata salah dengar. Semuanya ikut terbakar ke subtitle DAN menyesatkan segmentasi
 (`BuildCandidates` memotong di akhir kalimat). Karena itu transkrip dikoreksi LLM
 lebih dulu — menyala secara default, matikan dengan `-transcript-fix off`.
 
-Butuh LLM walau mesin skornya heuristik: Claude di mode hybrid, selain itu
-Ollama. Bila tak terjangkau, job berhenti dengan pesan sebabnya.
+Butuh LLM walau mesin skornya heuristik: memakai mesin yang sama dengan
+pemilihan momen, dan bila mesin itu `heuristic` ia memakai Ollama. Bila tak
+terjangkau, job berhenti dengan pesan sebabnya.
 
 Paket `correct` MENGOREKSI, bukan menulis ulang: tiap segmen dijaga empat pagar
 deterministik (panjang, jatah kata isi yang berubah, tanda kutip hilang, balasan
@@ -252,8 +265,9 @@ node scripts/measure-ui.mjs http://127.0.0.1:8787 /tmp/shots
 Ia mencetak `scrollHeight` vs `clientHeight` tiap kolom di 900×600 dan
 1240×860, tema terang dan gelap, sekaligus memotret tiap halaman. Angka `over`
 
-> 0 berarti kotak itu bergulir. **Baseline 6 Agustus 2026: klip & kartu berita
-> `0/0` di 1240×860.** Kalau angkanya naik lagi, perubahanmu yang menaikkannya.
+> 0 berarti kotak itu bergulir. **Baseline 17 Agustus 2026: klip, kartu berita,
+> dan pembuat berita `0/0` di 1240×860.** Kalau angkanya naik lagi, perubahanmu
+> yang menaikkannya.
 
 Potretnya juga wajib dilihat, bukan cuma angkanya: kotak kosong, teks terpotong,
 dan lambang yang tidak ada di font hanya ketahuan dari gambar. `ⓘ` (U+24D8)

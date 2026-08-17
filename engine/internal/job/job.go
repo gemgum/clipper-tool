@@ -182,7 +182,7 @@ func (m *Manager) run(j *Job) {
 	// lognya cuma daftar tahap tanpa satu pun keterangan tentang JOB MANA —
 	// dan justru itu yang ditanyakan pertama kali saat log dilampirkan.
 	m.logf(j.ID, "job %s started — %s", j.ID, filepath.Base(j.Input))
-	m.logf(j.ID, "mode=%s whisper=%s scoring=%s output=%s", j.Options.Mode, j.Options.WhisperModel, j.Options.Provider, outDir)
+	m.logf(j.ID, "whisper=%s scoring=%s output=%s", j.Options.WhisperModel, j.Options.Provider, outDir)
 
 	clips, err := p.Run(ctx, j.ID, j.Input, workDir, outDir, func(pr pipeline.Progress) {
 		j.mu.Lock()

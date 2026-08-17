@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Server LLM lokal SELAIN Ollama.
@@ -55,12 +56,110 @@ type openAIResp struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		// FinishReason membedakan "modelnya memang tidak menjawab" dari
+		// "jatahnya habis" — dan tanpa itu keduanya sampai ke pemanggil sebagai
+		// balasan kosong yang sama.
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Error any `json:"error"`
 }
 
 // completeOpenAI mengirim satu pasang prompt ke server bergaya OpenAI.
 func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema any, numPredict int) (string, error) {
+	// Dua kelonggaran, dan keduanya harus bisa BERLAKU BERSAMA. Ditulis sebagai
+	// dua penambalan berurutan, DeepSeek mematahkannya: ia menolak skema dulu,
+	// lalu percobaan tanpa skema kehabisan jatah — dan penanganan jatah tidak
+	// pernah terpakai karena percobaan itu sudah keburu dikembalikan.
+	//
+	// Yang dilonggarkan cuma CARA MEMINTA; mesin yang dipilih pengguna tetap
+	// dipakai apa adanya (notes/12). Keduanya juga terbaca: tombol Test
+	// melaporkan skema yang tidak dipaksakan.
+	if schema != nil {
+		if _, refuses := noSchema.Load(c.URL); refuses {
+			schema = nil
+		}
+	}
+	budget := numPredict
+	if _, roomy := needsRoom.Load(c.roomKey()); roomy {
+		budget = withRoom(numPredict)
+	}
+
+	// Paling banyak tiga percobaan: sekali untuk tiap kelonggaran, plus yang
+	// pertama. Batasnya ada supaya server yang selalu menolak tidak dicoba
+	// selamanya.
+	for i := 0; i < 3; i++ {
+		out, err := c.postChat(ctx, system, user, schema, budget)
+		if err == nil {
+			return out, nil
+		}
+		switch {
+		case schema != nil && isSchemaRefusal(err):
+			// DeepSeek membalas "This response_format type is unavailable now"
+			// dan MENOLAK seluruh permintaan. Dugaan lama — "server yang tidak
+			// sanggup akan mengabaikan field ini" — ternyata salah, dan
+			// akibatnya bukan balasan longgar melainkan job yang tidak jalan.
+			noSchema.Store(c.URL, true)
+			schema = nil
+		case budget == numPredict && isBudgetExhausted(err):
+			// Model bernalar memakai jatah yang sama untuk berpikir dan
+			// menjawab; pada masukan panjang ia habis sebelum satu huruf
+			// jawaban keluar.
+			needsRoom.Store(c.roomKey(), true)
+			budget = withRoom(numPredict)
+		default:
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("%s kept refusing the request even after loosening the reply format and the token budget (model %s)", c.URL, c.Model)
+}
+
+// noSchema mengingat server yang menolak json_schema, per alamat.
+var noSchema sync.Map
+
+// needsRoom mengingat model yang jatahnya perlu dilipatkan, per alamat+model.
+// Per MODEL, bukan per alamat: satu penyedia bisa menyajikan model bernalar dan
+// model biasa sekaligus.
+var needsRoom sync.Map
+
+func (c *Client) roomKey() string { return c.URL + "|" + c.Model }
+
+// roomFactor & roomCap: seberapa banyak ruang tambahan diberikan.
+//
+// Empat kali cukup untuk penalaran atas satu artikel berita; batas atasnya ada
+// supaya angka masukan yang besar tidak berlipat jadi tagihan yang mengagetkan.
+const (
+	roomFactor = 4
+	roomCap    = 32768
+)
+
+func withRoom(n int) int { return min(n*roomFactor, roomCap) }
+
+// isBudgetExhausted mengenali balasan yang habis jatah SEBELUM menjawab.
+func isBudgetExhausted(err error) bool {
+	return strings.Contains(err.Error(), "before answering")
+}
+
+// SchemaEnforced melaporkan apakah server di alamat itu MENERIMA balasan
+// berskema.
+//
+// Bedanya dengan "balasannya kebetulan berbentuk benar" nyata: tanpa skema,
+// bentuk balasan cuma dijaga prompt, dan itu paling sering patah justru pada
+// balasan panjang — persis yang diminta tahap menulis pembuat berita.
+func SchemaEnforced(url string) bool {
+	_, refuses := noSchema.Load(strings.TrimRight(url, "/"))
+	return !refuses
+}
+
+// isSchemaRefusal membedakan penolakan KARENA response_format dari penolakan
+// lain — kunci salah, model tidak ada, kuota habis. Menyamakan semuanya berarti
+// mencoba ulang permintaan yang memang mustahil.
+func isSchemaRefusal(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "response_format") || strings.Contains(msg, "json_schema")
+}
+
+// postChat mengirim satu permintaan chat.
+func (c *Client) postChat(ctx context.Context, system, user string, schema any, numPredict int) (string, error) {
 	req := openAIReq{
 		Model: c.Model,
 		Messages: []chatMsg{
@@ -71,10 +170,9 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 		MaxTokens:   numPredict,
 	}
 	if schema != nil {
-		// json_schema kalau servernya sanggup; kalau tidak, ia mengabaikan
-		// field ini dan promptnya yang menjaga bentuk balasan. json_object
-		// tidak dipakai sebagai cadangan otomatis karena sebagian server
-		// MENOLAK permintaan yang memuat keduanya.
+		// json_object tidak dipakai sebagai cadangan otomatis: sebagian server
+		// MENOLAK permintaan yang memuat keduanya, dan promptnya sendiri sudah
+		// meminta JSON.
 		req.ResponseFormat = map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
@@ -85,15 +183,15 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 		}
 	}
 	body, _ := json.Marshal(req)
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.URL+"/v1/chat/completions", bytes.NewReader(body))
+	url := c.URL + c.path() + "/chat/completions"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	// Sebagian server (LiteLLM, vLLM di belakang gateway) mensyaratkan header
 	// ini walau kuncinya tidak diperiksa. Isinya dari LLM_API_KEY bila diisi.
-	httpReq.Header.Set("authorization", "Bearer "+apiKey())
+	httpReq.Header.Set("authorization", "Bearer "+c.key())
 
 	resp, err := c.HTTP.Do(httpReq)
 	if err != nil {
@@ -104,15 +202,48 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 
 	var parsed openAIResp
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return "", fmt.Errorf("the reply from %s could not be read (status %d): %s", c.URL, resp.StatusCode, trunc(string(raw), 200))
+		// Alamat LENGKAP, bukan cuma base-nya: alamat yang salah isi (mis.
+		// endpoint gaya Anthropic milik DeepSeek) membalas 404 berbadan kosong,
+		// dan tanpa jalur penuh pesan itu tidak menunjukkan apa pun.
+		return "", fmt.Errorf("the reply from %s could not be read (status %d): %s", url, resp.StatusCode, trunc(string(raw), 200))
 	}
 	if parsed.Error != nil {
-		return "", fmt.Errorf("%s refused the request: %s", c.URL, trunc(fmt.Sprint(parsed.Error), 200))
+		return "", fmt.Errorf("%s refused the request: %s", url, trunc(errorMessage(parsed.Error), 200))
 	}
 	if len(parsed.Choices) == 0 {
 		return "", nil // balasan kosong: pemanggil yang memutuskan artinya
 	}
-	return parsed.Choices[0].Message.Content, nil
+	out := parsed.Choices[0].Message.Content
+	if parsed.Choices[0].FinishReason == "length" {
+		// Jatah habis. Dilaporkan sebagai galat WALAU sebagian isinya sudah
+		// keluar: yang diminta selalu JSON, dan JSON yang terpotong di tengah
+		// sama tidak bergunanya dengan balasan kosong — bedanya cuma ia gagal
+		// beberapa lapis kemudian, dengan pesan yang tidak menyebut sebabnya.
+		//
+		// Model BERNALAR (DeepSeek v4-pro, o-series, R1) memakai jatah yang sama
+		// untuk berpikir dan untuk menjawab, jadi pada masukan panjang jatahnya
+		// bisa habis sebelum satu huruf jawaban keluar.
+		return "", fmt.Errorf("%s spent its whole %d-token budget before answering (model %s). Reasoning models need more room: pick a non-reasoning model, or send less text at a time",
+			c.URL, numPredict, c.Model)
+	}
+	return out, nil
+}
+
+// errorMessage mengambil kalimat yang bisa dibaca dari objek galat penyedia.
+//
+// Bentuknya `{"error": {"message": "...", "code": ...}}` di hampir semua
+// server. Dicetak apa adanya, ia jadi sintaks map Go ("map[code:... message:...]")
+// — dan yang membaca pesan itu adalah pengguna, bukan pemrogram.
+func errorMessage(v any) string {
+	if m, ok := v.(map[string]any); ok {
+		if s, ok := m["message"].(string); ok && s != "" {
+			return s
+		}
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
 }
 
 // openAIModels membaca daftar model dari /v1/models.
@@ -127,11 +258,31 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 // memakainya sebagai Client.NumCtx, dan nilai 0 membuat koreksi transkrip
 // menebak sendiri seberapa besar potongan yang muat.
 func openAIModels(ctx context.Context, url string) []ModelInfo {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/v1/models", nil)
+	return openAIModelsAt(ctx, url, "/v1", "")
+}
+
+// Models membaca daftar model satu server OpenAI-compatible, dengan jalur dan
+// kunci yang ditentukan pemanggil. Diekspor karena halaman setelan memakainya
+// untuk mengisi sendiri pilihan model tiap penyedia — supaya nama model tidak
+// perlu diketik dari ingatan (notes/39).
+func Models(ctx context.Context, url, path, key string) []ModelInfo {
+	if path == "" {
+		path = "/v1"
+	}
+	return openAIModelsAt(ctx, url, path, key)
+}
+
+// openAIModelsAt sama, dengan jalur dan kunci yang ditentukan pemanggil —
+// itulah yang dibutuhkan penyedia cloud.
+func openAIModelsAt(ctx context.Context, url, path, key string) []ModelInfo {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+path+"/models", nil)
 	if err != nil {
 		return nil
 	}
-	req.Header.Set("authorization", "Bearer "+apiKey())
+	if key == "" {
+		key = apiKey()
+	}
+	req.Header.Set("authorization", "Bearer "+key)
 	resp, err := (&http.Client{Timeout: probeTimeout}).Do(req)
 	if err != nil {
 		return nil

@@ -214,7 +214,14 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	case "heuristic":
 		engineName = "heuristic"
 	default:
-		return nil, fmt.Errorf("unknown score engine %q — choose claude, ollama, or heuristic", p.Opts.Provider)
+		// Penyedia cloud yang bicara /chat/completions (OpenAI, Gemini,
+		// DeepSeek, …). Koordinatnya diisi server dari daftar mesin — pipeline
+		// tidak menyimpan tabel penyedia sendiri.
+		c, name, err := p.cloudClient()
+		if err != nil {
+			return nil, err
+		}
+		sel, engineName = c, name
 	}
 
 	tSel := time.Now()
@@ -345,13 +352,18 @@ const correctionTemperature = 0.1
 
 // correctionProvider memilih LLM untuk koreksi transkrip.
 //
-// Koreksi butuh LLM walau mesin skornya heuristik, jadi providernya diturunkan
-// dari MODE, bukan dari Provider: hybrid → Claude, selain itu → Ollama.
+// Mesin yang SAMA dengan pemilihan momen — pengguna menyebutnya sekali, dan
+// tidak ada setelan kedua yang bisa tidak sinkron dengan yang pertama. Dulu
+// diturunkan dari Mode ("hybrid → Claude"), dan mode itu dibuang bersama
+// pemilih mesin bersama (notes/39).
+//
+// Kekecualiannya cuma satu: koreksi tetap butuh LLM walau skornya heuristik.
+// Di situ Ollama yang dipakai — mesin lokal yang tidak menagih apa pun.
 func correctionProvider(o config.Options) string {
-	if o.Mode == config.ModeHybrid {
-		return "claude"
+	if o.Provider == "" || o.Provider == "heuristic" {
+		return "ollama"
 	}
-	return "ollama"
+	return o.Provider
 }
 
 // correctionNote menyebut mesin & jumlah istilah yang dipakai tahap koreksi,
@@ -385,14 +397,25 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 	switch provider {
 	case "claude":
 		c := llm.New(p.Paths.APIKey, p.Opts.LLMModel)
+		c.BaseURL = p.Opts.LLMBase
 		c.Temperature = correctionTemperature
 		engineName = "Claude (" + c.Model + ")"
 		// Claude tidak punya parameter skema; bentuk balasannya dijaga prompt.
 		complete = func(ctx context.Context, system, user string, _ any) (string, error) {
 			return c.Complete(ctx, system, user, 8192)
 		}
-	default:
+	case "ollama":
 		c, name, err := resolveOllama(ctx, p.Opts.OllamaURL, p.Opts.OllamaModel)
+		if err != nil {
+			return types.Transcript{}, err
+		}
+		c.Temperature = correctionTemperature
+		engineName = name
+		complete = func(ctx context.Context, system, user string, schema any) (string, error) {
+			return c.Complete(ctx, system, user, schema, 4096)
+		}
+	default:
+		c, name, err := p.cloudClient()
 		if err != nil {
 			return types.Transcript{}, err
 		}

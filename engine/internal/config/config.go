@@ -9,14 +9,6 @@ import (
 	"github.com/gemgum/clipper/engine/internal/capture"
 )
 
-// Mode operasi engine.
-type Mode string
-
-const (
-	ModeOffline Mode = "offline"
-	ModeHybrid  Mode = "hybrid"
-)
-
 // Reframe menentukan cara membuat rasio 9:16.
 type Reframe string
 
@@ -172,7 +164,6 @@ func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 
 // Options untuk satu job clipping.
 type Options struct {
-	Mode           Mode     `json:"mode"`
 	Language       string   `json:"language"`
 	WhisperModel   string   `json:"whisper_model"`
 	Resolution     string   `json:"resolution"` // 720p | 1080p | 1440p
@@ -193,19 +184,27 @@ type Options struct {
 	// mengenal nama daerah atau istilah Jawa, jadi ia menuliskannya sebagai kata
 	// Indonesia terdekat ("Londo Ireng" → "Londo Irang"), dan tanpa daftar ini
 	// tahap koreksi justru diperintahkan membiarkan kata asing apa adanya.
-	Terms       []string `json:"terms"`
-	Provider    string   `json:"provider"`     // claude | ollama (mesin scoring)
-	LLMModel    string   `json:"llm_model"`    // model Claude (mode hybrid)
-	OllamaModel string   `json:"ollama_model"` // model lokal (mode offline)
-	OllamaURL   string   `json:"ollama_url"`   // default http://localhost:11434
-	MinScore    int      `json:"min_score"`
-	OutputDir   string   `json:"output_dir"`
+	Terms    []string `json:"terms"`
+	Provider string   `json:"provider"`
+	// Koordinat mesin LLM yang dipilih, DIISI SERVER dari daftar mesin
+	// (internal/api/engines.go) — tidak pernah dari JSON permintaan. Itu bukan
+	// kerapian: LLMKeyEnv menyebut NAMA variabel lingkungan, dan membiarkan
+	// pemanggil memilihnya sendiri berarti membiarkan ia membaca variabel apa
+	// pun lalu mengirim isinya ke alamat yang juga ia pilih (LLMBase).
+	EngineName  string `json:"-"`
+	LLMBase     string `json:"-"`
+	LLMPath     string `json:"-"`
+	LLMKeyEnv   string `json:"-"`            // claude | ollama (mesin scoring)
+	LLMModel    string `json:"llm_model"`    // model Claude (mode hybrid)
+	OllamaModel string `json:"ollama_model"` // model lokal (mode offline)
+	OllamaURL   string `json:"ollama_url"`   // default http://localhost:11434
+	MinScore    int    `json:"min_score"`
+	OutputDir   string `json:"output_dir"`
 }
 
 // DefaultOptions mengembalikan opsi default (konten Indonesia, CPU, HD).
 func DefaultOptions() Options {
 	return Options{
-		Mode:           ModeOffline,
 		Language:       "id",
 		WhisperModel:   "small",
 		Resolution:     "1080p",
@@ -218,10 +217,10 @@ func DefaultOptions() Options {
 		MaxClips:       10,
 		DurationPreset: "auto",
 		TranscriptFix:  TranscriptFixOn,
-		// Provider sengaja kosong: Validate memilih menurut mode (offline →
-		// ollama, hybrid → claude). Dulu diisi "claude" sehingga mode offline
-		// pun ikut memanggil API Claude.
-		Provider: "",
+		// ollama, bukan claude: bawaan yang memanggil API berbayar adalah
+		// bawaan yang salah. Dulu "claude", dan akibatnya mode offline pun ikut
+		// memanggilnya.
+		Provider: "ollama",
 		LLMModel: "claude-haiku-4-5",
 		// llama3.1, bukan qwen2.5: keduanya diuji berdampingan untuk koreksi
 		// transkrip + daftar istilah (notes/22), dan qwen2.5 kalah di kedua
@@ -260,9 +259,6 @@ func DefaultSubtitle() Subtitle {
 // Validate mengisi nilai kosong dengan default & menerjemahkan preset.
 func (o *Options) Validate() error {
 	d := DefaultOptions()
-	if o.Mode == "" {
-		o.Mode = d.Mode
-	}
 	if o.Language == "" {
 		o.Language = d.Language
 	}
@@ -369,13 +365,13 @@ func (o *Options) Validate() error {
 	}
 	// OllamaURL sengaja TIDAK diisi bawaan bila kosong: kosong itu artinya
 	// "temukan sendiri", dan mengisinya dengan localhost mematikan pencarian.
-	// Provider default menurut mode (pipeline yang memakainya).
+	// Mesin skor default. Dulu diturunkan dari Mode ("offline"/"hybrid"), dan
+	// mode itu dibuang 18 Agustus 2026: sejak GUI memakai pemilih mesin yang
+	// sama untuk semua tab, mesinnya disebut namanya — dan satu setelan yang
+	// cuma menentukan nilai bawaan setelan lain adalah satu cara lagi untuk
+	// tidak sinkron (notes/39).
 	if o.Provider == "" {
-		if o.Mode == ModeHybrid {
-			o.Provider = "claude"
-		} else {
-			o.Provider = "ollama"
-		}
+		o.Provider = d.Provider
 	}
 	return nil
 }
