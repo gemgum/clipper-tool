@@ -207,20 +207,39 @@ export default function Home() {
     try { localStorage.setItem("clipper.preset", JSON.stringify(preset)); } catch {}
   }, [resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
 
-  // Sambung ulang ke job yang sedang berjalan (mis. setelah tab di-reload/tab baru).
+  // Pulihkan log job TERAKHIR, lalu sambung ulang bila ia masih berjalan.
+  //
+  // Dua-duanya di sini, dan urutannya penting. Kotak log dulu cuma state React:
+  // berpindah tab melepas komponen halaman ini dan seluruh isinya hilang, tanpa
+  // satu pun tempat lain yang menyimpannya. Sekarang engine menulisnya ke
+  // <DataDir>/jobs/<id>.log dan halaman tinggal membacanya kembali — jadi yang
+  // dipulihkan bukan cuma job yang masih hidup, melainkan juga yang sudah
+  // selesai atau gagal. Justru yang gagal yang paling ingin dibaca ulang.
+  //
+  // Log diisi lewat setLogs, bukan addLog: barisnya sudah bercap waktu dari
+  // engine, dan menambahkan cap kedua di depannya cuma membuatnya tak terbaca.
   useEffect(() => {
-    fetch(eng(`/api/jobs`)).then((r) => r.json()).then((jobs: any[]) => {
-      if (!Array.isArray(jobs)) return;
-      const active = jobs
-        .filter((j) => j.status === "running" || j.status === "queued")
-        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
-      if (active) {
-        setStatus(active.status);
-        setStage(active.stage || "");
-        setProgress(active.progress || 0);
+    fetch(eng(`/api/jobs`)).then((r) => r.json()).then(async (jobs: any[]) => {
+      if (!Array.isArray(jobs) || !jobs.length) return;
+      // Job yang masih hidup didahulukan atas yang sekadar paling baru: pada
+      // antrean berisi dua, yang terbaru justru yang belum mulai dan lognya
+      // masih kosong, sedangkan yang sedang berjalan itulah yang ingin dilihat.
+      const byNewest = [...jobs].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      const newest = byNewest.find((j) => j.status === "running") || byNewest[0];
+      try {
+        const res = await fetch(eng(`/api/jobs/${newest.id}/log`));
+        const data = await res.json();
+        if (Array.isArray(data.lines) && data.lines.length) setLogs(data.lines);
+      } catch {
+        // Log yang tak terbaca tidak boleh menghalangi penyambungan ulang.
+      }
+      if (newest.status === "running" || newest.status === "queued") {
+        setStatus(newest.status);
+        setStage(newest.stage || "");
+        setProgress(newest.progress || 0);
         setBusy(true);
-        setJobId(active.id); // memicu langganan SSE → progress lanjut terlihat
-        addLog(t("logReconnect", { id: active.id }));
+        setJobId(newest.id); // memicu langganan SSE → progress lanjut terlihat
+        addLog(t("logReconnect", { id: newest.id }));
       }
     }).catch(() => {});
   }, [addLog, t]);

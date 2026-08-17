@@ -27,11 +27,15 @@
     "active": true,
     "targets": [
       "nsis",
-      "msi",
       "appimage",
       "deb",
       "dmg"
     ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
     "icon": [
       "icons/icon.png",
       "icons/icon.ico"

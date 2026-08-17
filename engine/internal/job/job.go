@@ -178,6 +178,12 @@ func (m *Manager) run(j *Job) {
 	}
 	p := pipeline.New(paths, j.Options)
 
+	// Baris pertama log: apa yang dikerjakan dan dengan apa. Tanpa ini berkas
+	// lognya cuma daftar tahap tanpa satu pun keterangan tentang JOB MANA —
+	// dan justru itu yang ditanyakan pertama kali saat log dilampirkan.
+	m.logf(j.ID, "job %s started — %s", j.ID, filepath.Base(j.Input))
+	m.logf(j.ID, "mode=%s whisper=%s scoring=%s output=%s", j.Options.Mode, j.Options.WhisperModel, j.Options.Provider, outDir)
+
 	clips, err := p.Run(ctx, j.ID, j.Input, workDir, outDir, func(pr pipeline.Progress) {
 		j.mu.Lock()
 		j.Stage = pr.Stage
@@ -187,7 +193,17 @@ func (m *Manager) run(j *Job) {
 			j.Clips = append(j.Clips, *pr.Clip)
 		}
 		j.mu.Unlock()
+		// Yang ditulis ke log sama persis dengan yang selama ini masuk kotak log
+		// GUI — jadi memulihkannya dari berkas menghasilkan isi yang sama, bukan
+		// versi ringkasnya.
+		if pr.Message != "" {
+			m.logf(j.ID, "%s: %s", pr.Stage, pr.Message)
+		}
+		if pr.Summary != "" {
+			m.logRaw(j.ID, pr.Summary)
+		}
 		if pr.Clip != nil {
+			m.logf(j.ID, "clip %s scored %d", pr.Clip.ID, pr.Clip.Score)
 			j.broadcast(Event{Type: "clip", Data: pr.Clip})
 		} else {
 			j.broadcast(Event{Type: "progress", Data: pr})
@@ -214,10 +230,13 @@ func (m *Manager) run(j *Job) {
 
 	switch status {
 	case StatusError:
+		m.logf(j.ID, "⚠ %s", errMsg)
 		j.broadcast(Event{Type: "error", Data: map[string]string{"message": errMsg}})
 	case StatusCanceled:
+		m.logf(j.ID, "⚠ Canceled by the user")
 		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 	default:
+		m.logf(j.ID, "✓ Finished — %d clip(s)", len(clips))
 		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": len(clips)}})
 	}
 	j.closeSubs()

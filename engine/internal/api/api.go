@@ -105,8 +105,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.jobEvents)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
+	mux.HandleFunc("GET /api/jobs/{id}/log", s.jobLog)
 	mux.HandleFunc("GET /api/jobs/{id}/clips", s.jobClips)
 	mux.HandleFunc("GET /api/jobs/{id}/clips/{clip}/file", s.clipFile)
+	// Menunjukkan berkas di pengelola berkas sistem — menggantikan tautan unduh
+	// (lihat reveal.go).
+	mux.HandleFunc("POST /api/jobs/{id}/clips/{clip}/reveal", s.revealClip)
 	mux.HandleFunc("DELETE /api/jobs/{id}/clips/{clip}", s.deleteClip)
 	// Kartu berita (tab kedua di GUI).
 	mux.HandleFunc("GET /api/news/feeds", s.newsFeeds)
@@ -1149,6 +1153,16 @@ func (s *Server) getJob(w http.ResponseWriter, r *http.Request) {
 	}
 	snap := j.Snapshot()
 	writeJSON(w, 200, snap)
+}
+
+// jobLog mengembalikan log yang ditulis engine untuk satu job.
+//
+// Inilah yang membuat kotak log di GUI selamat dari berpindah tab: isinya tidak
+// lagi hidup HANYA sebagai state React, melainkan dibaca ulang dari berkas.
+// Job tanpa berkas log (riwayat dari versi sebelum ini) menjawab daftar kosong,
+// bukan 404 — halaman yang menampilkannya tidak boleh gagal karenanya.
+func (s *Server) jobLog(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]any{"lines": s.mgr.ReadLog(r.PathValue("id"))})
 }
 
 func (s *Server) jobClips(w http.ResponseWriter, r *http.Request) {

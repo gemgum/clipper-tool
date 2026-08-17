@@ -267,11 +267,12 @@ const en = {
   reasonClarity: "clear",
   reasonShare: "share",
   reasonStandalone: "standalone",
-  downloadWithSubs: "with subtitles",
-  downloadPlain: "download",
-  downloadTxtTip:
-    "The spoken words, no timestamps — paste it into any AI to write the caption",
-  downloadClean: "clean",
+  // Tautan unduh diganti satu tombol yang membuka foldernya: berkasnya sudah
+  // ada di disk, dan mengunduhnya cuma membuat salinan kedua di tempat yang
+  // salah (lihat engine/internal/api/reveal.go).
+  reveal: "Show in folder",
+  revealTip: "Open the output folder with this clip highlighted — the clean video, .srt and .txt are next to it",
+  revealFailed: "Could not open the folder",
 
   // --- log lines ---
   logReconnect: "↻ Reconnecting to a running job: {id}",
@@ -667,11 +668,9 @@ const id: Record<MessageKey, string> = {
   reasonClarity: "jelas",
   reasonShare: "share",
   reasonStandalone: "mandiri",
-  downloadWithSubs: "bersubtitle",
-  downloadPlain: "unduh",
-  downloadTxtTip:
-    "Ucapan klipnya tanpa timestamp — tempel ke AI mana pun untuk dibuatkan caption",
-  downloadClean: "polos",
+  reveal: "Buka folder",
+  revealTip: "Buka folder keluaran dengan klip ini tersorot — video polos, .srt, dan .txt ada di sebelahnya",
+  revealFailed: "Foldernya tidak bisa dibuka",
 
   logReconnect: "↻ Menyambung ke job berjalan: {id}",
   logKeySaved: "✓ API key tersimpan",

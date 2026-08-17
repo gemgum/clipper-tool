@@ -1,6 +1,7 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { FolderOpen } from "lucide-react";
+import { useState } from "react";
 import { eng } from "./engine";
 import { useI18n } from "./i18n";
 
@@ -23,8 +24,24 @@ export const formatTime = (s: number) => {
 
 export default function ClipCard({ c }: { c: Clip }) {
   const { t } = useI18n();
+  const [failed, setFailed] = useState("");
   const file = (variant?: string) =>
     eng(`/api/jobs/${c.job_id}/clips/${c.id}/file${variant ? `?variant=${variant}` : ""}`);
+
+  // Berkasnya SUDAH ada di disk — di folder keluaran yang dipilih pengguna
+  // sendiri. Menekan tombol ini membuka foldernya dengan berkas itu tersorot;
+  // tidak ada yang diunduh, tidak ada salinan kedua, dan keempat berkas (video
+  // bersubtitle, video bersih, .srt, .txt) terlihat sekaligus sebab memang
+  // sudah bersebelahan. Alasan lengkapnya di engine/internal/api/reveal.go.
+  const openFolder = async () => {
+    setFailed("");
+    try {
+      const res = await fetch(eng(`/api/jobs/${c.job_id}/clips/${c.id}/reveal`), {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      });
+      if (!res.ok) setFailed((await res.json()).error || t("revealFailed"));
+    } catch (e: any) { setFailed(e.message); }
+  };
 
   return (
     <div className="clip">
@@ -38,19 +55,10 @@ export default function ClipCard({ c }: { c: Clip }) {
         </div>
         {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <a className="dl" href={file()} download>
-            <Download className="ico" aria-hidden="true" />{" "}
-            {c.video_path_raw && c.video_path_raw !== c.video_path ? t("downloadWithSubs") : t("downloadPlain")}
-          </a>
-          {c.video_path_raw && c.video_path_raw !== c.video_path && (
-            <a className="dl" href={file("clean")} download><Download className="ico" aria-hidden="true" /> {t("downloadClean")}</a>
-          )}
-          {c.transcript_txt && (
-            <a className="dl" href={file("txt")} download title={t("downloadTxtTip")}><Download className="ico" aria-hidden="true" /> .txt</a>
-          )}
-          {c.subtitle_srt && (
-            <a className="dl" href={file("srt")} download><Download className="ico" aria-hidden="true" /> .srt</a>
-          )}
+          <button className="dl" onClick={openFolder} title={t("revealTip")}>
+            <FolderOpen className="ico" aria-hidden="true" /> {t("reveal")}
+          </button>
+          {failed && <span className="err">{failed}</span>}
         </div>
       </div>
     </div>
