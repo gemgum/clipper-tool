@@ -12,9 +12,11 @@ import { useI18n } from "./i18n";
 // halaman turun dan menyelesaikannya menariknya kembali. Di sini tempatnya
 // SELALU ADA — kosong saat diam — dan tidak ada yang bergerak sama sekali.
 export default function RunPanel({
-  busy, disabled, cancellable, onStart, onCancel, status, stage, message, progress,
+  busy, testing, disabled, cancellable, onStart, onCancel, status, stage, message, progress,
 }: {
   busy: boolean;
+  /** Uji LLM sedang berjalan — tombolnya mati DAN mengatakan alasannya. */
+  testing: boolean;
   disabled: boolean;
   cancellable: boolean;
   onStart: () => void;
@@ -34,11 +36,20 @@ export default function RunPanel({
         <div className="stage">
           {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")} (100%)</>
             : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
-            : !status ? t("statusIdle")
+            /* Diam saat diam. "Not running" adalah keterangan yang mengulang apa
+               yang sudah terlihat — bilah kemajuannya kosong dan tombolnya
+               bertuliskan Start. Spasi keras, bukan kosong: barisnya harus tetap
+               memakan tinggi, kalau tidak panel ini bergeser saat job mulai. */
+            : !status ? " "
             : `${stage || t("processing")}${message ? ` — ${message}` : ""} (${pct}%)`}
         </div>
       </div>
-      <button onClick={onStart} disabled={disabled}>{busy ? t("processing") : t("start")}</button>
+      {/* Tombol mati saja tidak cukup: tombol yang kelabu tanpa sebab terbaca
+          sebagai aplikasi macet. Selama uji LLM ia menyebutkan apa yang
+          ditunggu. */}
+      <button onClick={onStart} disabled={disabled}>
+        {testing ? t("llmTesting") : busy ? t("processing") : t("start")}
+      </button>
       {/* Selalu dirender, dimatikan saat tidak ada yang bisa dibatalkan: tombol
           yang muncul-hilang menggeser panel di bawah kursor tepat ketika job
           mulai berjalan. */}

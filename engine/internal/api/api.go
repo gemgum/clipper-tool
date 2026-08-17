@@ -24,6 +24,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/news"
+	"github.com/gemgum/clipper/engine/internal/pipeline"
 	"github.com/gemgum/clipper/engine/internal/score/llm"
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 )
@@ -1295,12 +1296,14 @@ func writeSSE(w http.ResponseWriter, event string, data any) {
 	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, b)
 }
 
-// ollamaPing menyapa model dengan satu kata dan mengembalikan balasannya.
+// ollamaPing MENJALANKAN pekerjaan sungguhan pada model, bukan menyapanya.
 //
 // Bukan sekadar "terpasang atau tidak" — itu sudah dijawab /api/ollama/status
-// dari `ollama list`. Yang ini membuktikan model benar-benar BISA MENJAWAB, dan
-// sekaligus memuatnya ke memori supaya pekerjaan sungguhan berikutnya tidak
-// menanggung waktu muat panjang itu diam-diam di dalam batas waktunya.
+// dari `ollama list`. Sapaan satu kata pun tidak cukup: yang dilaporkan
+// berulang kali adalah komputer baru dengan Ollama jalan, model terpasang,
+// tombol uji hijau, dan job klip yang tetap berhenti. Karena itu yang dikerjakan
+// di sini dua tahap LLM yang sama persis dengan yang dipakai job (lihat
+// pipeline.SelfTest) — sekaligus memuat model ke memori, seperti sebelumnya.
 func (s *Server) ollamaPing(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Model string `json:"model"`
@@ -1311,12 +1314,20 @@ func (s *Server) ollamaPing(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "model is required")
 		return
 	}
-	reply, took, err := ollama.New(ollama.Discover(r.Context()), model).Ping(r.Context())
-	if err != nil {
-		writeJSON(w, 200, map[string]any{"ok": false, "error": err.Error(), "ms": took.Milliseconds()})
-		return
+	engine, steps := pipeline.SelfTest(r.Context(), "", model)
+	ok, total, firstErr := true, int64(0), ""
+	for _, st := range steps {
+		total += st.MS
+		if !st.OK {
+			ok = false
+			if firstErr == "" {
+				firstErr = st.Error
+			}
+		}
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "reply": reply, "ms": took.Milliseconds()})
+	writeJSON(w, 200, map[string]any{
+		"ok": ok, "error": firstErr, "ms": total, "engine": engine, "steps": steps,
+	})
 }
 
 // deleteClip membuang SEMUA berkas milik satu klip: video berjenis apa pun,

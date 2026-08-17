@@ -27,6 +27,7 @@ export default function SetupPanel({
   durationPreset, setDurationPreset, maxClips, setMaxClips, saveMode, setSaveMode,
   claudeModel, setClaudeModel, offlineEngine, setOfflineEngine,
   ollamaModel, setOllamaModel, transcriptFix, setTranscriptFix, terms, setTerms, addLog,
+  testing, setTesting,
 }: {
   mode: string; setMode: (v: string) => void;
   model: string; setModel: (v: string) => void;
@@ -43,6 +44,8 @@ export default function SetupPanel({
   transcriptFix: boolean; setTranscriptFix: (v: boolean) => void;
   terms: string; setTerms: (v: string) => void;
   addLog: (text: string) => void;
+  /** Dititipkan halaman: tombol Mulai di panel sebelah ikut mati selama uji. */
+  testing: boolean; setTesting: (v: boolean) => void;
 }) {
   const { t } = useI18n();
 
@@ -53,9 +56,11 @@ export default function SetupPanel({
   // atau manifest belum terbaca). Ditampilkan DI DALAM tombol, bukan sebagai
   // baris baru — baris yang muncul-hilang menggeser seluruh kolomnya.
   const [pullPct, setPullPct] = useState(-1);
-  // Hasil sapaan ke model: null = belum dicoba.
-  const [ping, setPing] = useState<{ ok: boolean; reply?: string; error?: string; ms: number } | null>(null);
-  const [pinging, setPinging] = useState(false);
+  // Hasil uji model: null = belum dicoba.
+  const [ping, setPing] = useState<{
+    ok: boolean; error?: string; ms: number;
+    steps?: { name: string; ok: boolean; detail?: string; error?: string; ms: number }[];
+  } | null>(null);
 
   // Status API key.
   useEffect(() => {
@@ -126,12 +131,14 @@ export default function SetupPanel({
   }, [apiKey, addLog, t]);
 
 
-  // "Terpasang" tidak sama dengan "bisa dipakai": model bisa terdaftar di
-  // `ollama list` tapi gagal dimuat karena RAM kurang, atau perlu belasan menit
-  // untuk masuk memori. Tombol ini membuktikannya dengan menyapa modelnya —
-  // sekaligus memuatnya, jadi job berikutnya tidak lagi menunggu diam-diam.
+  // "Terpasang" tidak sama dengan "bisa dipakai", dan "bisa membalas sapaan"
+  // ternyata juga tidak: berkali-kali di komputer baru Ollama jalan, qwen2.5
+  // terpasang, tombol ini hijau — dan job klip tetap berhenti. Karena itu yang
+  // dijalankan sekarang DUA TAHAP LLM yang sama persis dengan yang dipakai job
+  // (koreksi transkrip + pemilihan momen) atas isi contoh yang dipaku di engine.
+  // Hasil tiap tahap masuk log, sebab tahap MANA yang gagal itulah petunjuknya.
   const pingModel = useCallback(async () => {
-    setPinging(true);
+    setTesting(true);
     setPing(null);
     addLog(t("logPingStart", { model: ollamaModel }));
     try {
@@ -141,14 +148,17 @@ export default function SetupPanel({
       });
       const data = await res.json();
       setPing(data);
-      addLog(data.ok
-        ? t("logPingOk", { model: ollamaModel, ms: data.ms, reply: data.reply })
-        : `⚠ ${data.error}`);
+      for (const st of data.steps || []) {
+        addLog(st.ok
+          ? t("logPingStep", { name: st.name, detail: st.detail || "ok", ms: st.ms })
+          : t("logPingStepFailed", { name: st.name, error: st.error }));
+      }
+      if (data.ok) addLog(t("logPingOk", { model: ollamaModel, ms: data.ms }));
     } catch (e: any) {
       setPing({ ok: false, error: e.message, ms: 0 });
       addLog(`⚠ ${e.message}`);
-    } finally { setPinging(false); }
-  }, [ollamaModel, addLog, t]);
+    } finally { setTesting(false); }
+  }, [ollamaModel, addLog, setTesting, t]);
 
   // Unduhan model BERJALAN DI LATAR; halaman ini cuma berlangganan kabarnya.
   //
@@ -326,8 +336,8 @@ export default function SetupPanel({
               <div className="field field-check">
                 <button className={"ghost" + (ping?.ok ? " ok-btn" : "")} onClick={pingModel}
                   title={ping?.ok ? t("pingOk", { ms: ping.ms }) : t("pingTestTip")}
-                  disabled={pinging || !ollamaStatus?.running}>
-                  {pinging ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
+                  disabled={testing || !ollamaStatus?.running}>
+                  {testing ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
                 </button>
               </div>
               {/* Alamat & kunci server jadi sel KEEMPAT dan KELIMA dari grid3

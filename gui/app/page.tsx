@@ -98,6 +98,11 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Uji LLM dipegang DI SINI, bukan di dalam SetupPanel: yang perlu tahu
+  // uji sedang jalan adalah tombol Mulai di panel sebelah. Model yang sedang
+  // dipaksa memuat diri tidak bisa melayani job sekaligus — job yang dimulai di
+  // tengah uji cuma menunggu antrean tanpa memberitahu apa yang ditunggunya.
+  const [testing, setTesting] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
 
   const locale = lang === "id" ? "id-ID" : "en-GB";
@@ -538,10 +543,11 @@ export default function Home() {
             ollamaModel={ollamaModel} setOllamaModel={setOllamaModel}
             transcriptFix={transcriptFix} setTranscriptFix={setTranscriptFix}
             terms={terms} setTerms={setTerms} addLog={addLog}
+            testing={testing} setTesting={setTesting}
           />
 
           <RunPanel
-            busy={busy} disabled={busy || !path || !!modelMissing}
+            busy={busy} testing={testing} disabled={busy || testing || !path || !!modelMissing}
             cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
             status={status} stage={stage} message={message} progress={progress}
           />
