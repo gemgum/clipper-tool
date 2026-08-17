@@ -4,6 +4,7 @@
 import { Link2, Download, RotateCw, X } from "lucide-react";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useCopyLink } from "../copy-link";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import { useKeep, useRestore } from "../persist";
@@ -13,7 +14,7 @@ import Select from "../select";
 import Section from "../section";
 import Alerts from "../alerts";
 import Warn from "../warn";
-import { modelOptions, sameModel, useOllama } from "../ollama";
+import EnginePicker, { useEngines } from "../engine-picker";
 
 
 // Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
@@ -119,12 +120,12 @@ export default function News() {
   const [align, setAlign] = useState("left");
 
   // Analisis LLM.
+  const { engines } = useEngines();
   const [engine, setEngine] = useState("ollama");
-  const [ollamaModel, setOllamaModel] = useState("llama3.1");
+  const [model, setModel] = useState("");
   // Model yang benar-benar terpasang. Sampai kini pengguna harus mengetik
   // namanya dari ingatan — dan satu salah ketik berujung galat dari Ollama
   // yang tidak menyebutkan bahwa masalahnya cuma nama.
-  const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
   const [analyzeBusy, setAnalyzeBusy] = useState(false);
   const [paragraphs, setParagraphs] = useState<Paragraph[]>([]);
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -162,13 +163,6 @@ export default function News() {
   const [customColor, setCustomColor] = useState("");
   const [boxMode, setBoxMode] = useState("auto"); // auto | none | custom
   const [boxColor, setBoxColor] = useState("#EFEBE1");
-
-  // Tautan yang baru saja disalin — dipakai untuk mengubah warna tombolnya
-  // sebentar, sebagai tanda bahwa klik tadi benar-benar berhasil.
-  const [copied, setCopied] = useState("");
-  // Tautan yang sedang diresolusi — menandai tombolnya supaya jeda 2-3 detik
-  // itu tidak terasa seperti klik yang tidak berfungsi.
-  const [copyBusy, setCopyBusy] = useState("");
 
   const [result, setResult] = useState<{ file: string; zip: string; preview: boolean } | null>(null);
   const [buildBusy, setBuildBusy] = useState(false);
@@ -256,51 +250,14 @@ export default function News() {
   // atas begitu popupnya terbuka.
   const runSearch = useCallback(() => { setLimit(PAGE); setMore(true); setQuery(typed.trim()); }, [typed]);
 
-  // Menyalin tautan artikel supaya bisa dicek silang di tab lain.
-  //
-  // navigator.clipboard hanya tersedia di konteks aman (https atau localhost).
-  // Saat GUI dibuka lewat alamat IP mesin, ia tidak ada sama sekali — karena itu
-  // ada jalur cadangan memakai textarea sementara.
-  const copyLink = useCallback(async (url: string) => {
-    if (!url || copyBusy) return;
-    try {
-      // Hasil pencarian membawa pengalih Google, bukan alamat medianya. Yang
-      // berguna untuk dicek silang adalah alamat aslinya, jadi diresolusi dulu.
-      // Perlu satu peluncuran browser (~2-3 detik), tapi hasilnya di-cache.
-      if (url.includes("news.google.com/")) {
-        setCopyBusy(url);
-        const res = await fetch(eng(`/api/news/resolve`), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || t("errOpenLink"));
-        // Simpan supaya kartu ini tidak perlu diresolusi lagi nanti.
-        setItems((list) => list.map((a) => (a.url === url ? { ...a, url: data.url } : a)));
-        url = data.url;
-      }
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else {
-        const area = document.createElement("textarea");
-        area.value = url;
-        area.style.position = "fixed";
-        area.style.opacity = "0";
-        document.body.appendChild(area);
-        area.select();
-        document.execCommand("copy");
-        document.body.removeChild(area);
-      }
-      const done = url;
-      setCopied(done);
-      setTimeout(() => setCopied((c) => (c === done ? "" : c)), 1600);
-    } catch (e: any) {
-      setError(e?.message || t("errCopy"));
-    } finally {
-      setCopyBusy("");
-    }
-  }, [copyBusy, t]);
+  // Menyalin tautan artikel supaya bisa dicek silang di tab lain. Isinya di
+  // app/copy-link.tsx — tab pembuat berita memakai yang sama persis.
+  const { copyLink, copied, busy: copyBusy } = useCopyLink({
+    // Alamat asli disimpan supaya kartu ini tidak perlu diresolusi lagi nanti.
+    onResolved: (from, to) =>
+      setItems((list) => list.map((a) => (a.url === from ? { ...a, url: to } : a))),
+    onError: setError,
+  });
 
   // Mengklik satu berita di daftar = MENGAMBIL artikelnya, bukan memakai
   // ringkasan RSS-nya.
@@ -404,9 +361,8 @@ export default function News() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           url: article.url,
-          provider: engine,
-          llm_model: claudeModel,
-          ollama_model: ollamaModel,
+          engine,
+          model,
           lang,
         }),
       });
@@ -451,30 +407,13 @@ export default function News() {
     } finally {
       setAnalyzeBusy(false);
     }
-  }, [article.url, engine, claudeModel, ollamaModel, lang, applyToCard, applyToCaption, t]);
+  }, [article.url, engine, model, lang, applyToCard, applyToCaption, t]);
 
   // buildCard dipakai untuk pratinjau maupun simpan — bedanya cuma satu flag.
   //
   // Pratinjau menimpa satu folder tetap di engine, jadi menyetel kartu berpuluh
   // kali tidak meninggalkan berpuluh folder. Berkas pendamping (caption &
   // keterangan sumber) baru ditulis saat benar-benar disimpan.
-  // Status & daftar model datang dari hook bersama (ollama.ts) — tab ini dan tab
-  // klip menanyakan hal yang sama, jadi jawabannya juga harus sama.
-  const { status: ollamaStatus, installed: ollamaInstalled, check: checkOllama } = useOllama(engine === "ollama");
-
-  // Nama tersimpan disamakan dengan yang TERPASANG ("llama3.1" →
-  // "llama3.1:latest"); yang tidak terpasang sama sekali diganti model pertama
-  // yang siap — lebih baik langsung bisa dipakai daripada gagal saat ditekan.
-  useEffect(() => {
-    if (!ollamaStatus?.running || ollamaInstalled.length === 0) return;
-    const match = ollamaInstalled.find((m) => sameModel(m.name, ollamaModel));
-    if (match) {
-      if (match.name !== ollamaModel) setOllamaModel(match.name);
-      return;
-    }
-    setOllamaModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ollamaInstalled, ollamaStatus?.running]);
 
   // Sidik jari dari SEMUA yang memengaruhi gambar kartu. Dipakai untuk memicu
   // pratinjau ulang: mendaftar satu per satu di dependency effect berarti setiap
@@ -543,7 +482,7 @@ export default function News() {
   // Yang disimpan hanya isian, bukan hasil: kartu jadi tetap ada di folder
   // penyimpanan, dan pratinjau dibuat ulang sendiri.
   useKeep("news", {
-    article, caption, hashtags, paragraphs, engine, ollamaModel, claudeModel,
+    article, caption, hashtags, paragraphs, engine, model,
     style, ratio, align, zoom, photoFit, photoFill,
     titleStep, paragraphStep, header, cardTop, colorSource, customColor,
     boxMode, boxColor,
@@ -557,8 +496,7 @@ export default function News() {
     set(setHashtags, v.hashtags);
     set(setParagraphs, v.paragraphs);
     set(setEngine, v.engine);
-    set(setOllamaModel, v.ollamaModel);
-    set(setClaudeModel, v.claudeModel);
+    set(setModel, v.model);
     set(setStyle, v.style);
     set(setRatio, v.ratio);
     set(setAlign, v.align);
@@ -641,38 +579,15 @@ export default function News() {
               <Section title={t("groupParagraph")}>
                 {/* Empat sel: kisi tiga kolom akan membuatnya jadi dua baris,
                     dan tiap baris di panel ini mendorong pratinjau kartu turun. */}
-                <div className="grid4">
-                  <div className="field">
-                    <label>{t("engine")}</label>
-                    <Select value={engine} onChange={setEngine} options={[
-                      { value: "ollama", label: t("engineOllama") },
-                      { value: "claude", label: t("engineClaude") },
-                    ]} />
-                  </div>
-                  <div className="field">
-                    <label title={ollamaStatus?.url
-                      ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
-                      : undefined}>{t("model")}
-                      {engine === "ollama" && ollamaStatus?.os && <span className="meta"> · {ollamaStatus.os}</span>}
-                      {engine === "ollama" && ollamaStatus !== null && !ollamaStatus.running && (
-                        <Warn>{t("ollamaNotDetected")} <code>ollama serve</code>
-                          <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
-                        </Warn>
-                      )}</label>
-                    {engine === "ollama" ? (
-                      <Select value={ollamaModel} onChange={setOllamaModel}
-                        options={modelOptions(ollamaInstalled, {
-                          ready: t("modelReady"), notCapable: t("modelNotCapable"),
-                          needsDownload: t("modelNeedsDownload"),
-                        }, ollamaStatus?.os, ollamaStatus?.kind !== "openai")} />
-                    ) : (
-                      <Select value={claudeModel} onChange={setClaudeModel} options={[
-                        { value: "claude-haiku-4-5", label: "claude-haiku-4-5" },
-                        { value: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
-                        { value: "claude-opus-4-1", label: "claude-opus-4-1" },
-                      ]} />
-                    )}
-                  </div>
+                {/* Pemilih mesin memakai komponen bersama (notes/39): tab ini,
+                    tab klip, dan tab pembuat berita menanyakan hal yang sama,
+                    jadi bentuknya harus sama persis. Tombol Analyse & daftar
+                    peringkat menumpang sebagai anaknya — keduanya milik tab ini,
+                    bukan milik pemilih mesin. */}
+                <EnginePicker
+                  engines={engines} engine={engine} setEngine={setEngine}
+                  model={model} setModel={setModel} busy={analyzeBusy}
+                >
                   <div className="field field-check">
                     {/* Kabar "sedang menganalisis" ada di tombolnya sendiri, dan
                         catatan dari mesin skor jadi lambang peringatan di
@@ -721,7 +636,7 @@ export default function News() {
                       )}
                     </Popover>
                   </div>
-                </div>
+                </EnginePicker>
 
               </Section>
 

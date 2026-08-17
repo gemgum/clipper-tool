@@ -8,7 +8,8 @@ import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Select from "./select";
 import Warn from "./warn";
-import { modelOptions, sameModel, useOllama } from "./ollama";
+import { sameModel, useOllama } from "./ollama";
+import EnginePicker, { useEngines } from "./engine-picker";
 
 export type WhisperModel = { name: string; size: string; downloaded: boolean };
 
@@ -22,14 +23,13 @@ export type WhisperModel = { name: string; size: string; downloaded: boolean };
 // model — tidak ada yang lain di halaman ini memakainya. Yang dititipkan
 // halaman tetap di atas, sebab job dan preset tersimpan membutuhkannya.
 export default function SetupPanel({
-  mode, setMode, model, setModel, models,
+  model, setModel, models,
   resolution, setResolution, quality, setQuality, fps, setFps,
   durationPreset, setDurationPreset, maxClips, setMaxClips, saveMode, setSaveMode,
-  claudeModel, setClaudeModel, offlineEngine, setOfflineEngine,
-  ollamaModel, setOllamaModel, transcriptFix, setTranscriptFix, terms, setTerms, addLog,
+  engine, setEngine, llmModel, setLlmModel,
+  transcriptFix, setTranscriptFix, terms, setTerms, addLog,
   testing, setTesting,
 }: {
-  mode: string; setMode: (v: string) => void;
   model: string; setModel: (v: string) => void;
   models: WhisperModel[];
   resolution: string; setResolution: (v: string) => void;
@@ -38,9 +38,9 @@ export default function SetupPanel({
   durationPreset: string; setDurationPreset: (v: string) => void;
   maxClips: number; setMaxClips: (v: number) => void;
   saveMode: string; setSaveMode: (v: string) => void;
-  claudeModel: string; setClaudeModel: (v: string) => void;
-  offlineEngine: string; setOfflineEngine: (v: string) => void;
-  ollamaModel: string; setOllamaModel: (v: string) => void;
+  /** Mesin skor: id dari daftar mesin bersama, atau "heuristic". */
+  engine: string; setEngine: (v: string) => void;
+  llmModel: string; setLlmModel: React.Dispatch<React.SetStateAction<string>>;
   transcriptFix: boolean; setTranscriptFix: (v: boolean) => void;
   terms: string; setTerms: (v: string) => void;
   addLog: (text: string) => void;
@@ -48,9 +48,8 @@ export default function SetupPanel({
   testing: boolean; setTesting: (v: boolean) => void;
 }) {
   const { t } = useI18n();
+  const { engines } = useEngines();
 
-  const [apiKey, setApiKey] = useState("");
-  const [hasKey, setHasKey] = useState(false);
   const [pulling, setPulling] = useState(false);
   // Kemajuan unduhan model: -1 = besarnya belum diketahui (tahap verifikasi,
   // atau manifest belum terbaca). Ditampilkan DI DALAM tombol, bukan sebagai
@@ -62,37 +61,35 @@ export default function SetupPanel({
     steps?: { name: string; ok: boolean; detail?: string; error?: string; ms: number }[];
   } | null>(null);
 
-  // Status API key.
-  useEffect(() => {
-    fetch(eng(`/api/settings`)).then((r) => r.json()).then((d) => setHasKey(!!d.has_key)).catch(() => {});
-  }, []);
-
-  const ollamaActive = mode === "offline" && offlineEngine === "ollama";
+  // Kunci API TIDAK diisi di sini lagi: ia disetel sekali seumur pemasangan di
+  // halaman setelan, sedangkan mesin & model dipilih tiap kali bekerja
+  // (notes/39). Dulu kunci Claude hanya bisa diisi dari panel ini.
+  const ollamaActive = engine === "ollama";
   // Status & daftar model dari hook bersama (ollama.ts): tab kartu memakai yang
   // sama persis, jadi keduanya tidak bisa lagi menampilkan bentuk berbeda untuk
   // data yang sama.
   const { status: ollamaStatus, installed: ollamaInstalled, check: checkOllama } = useOllama(ollamaActive);
 
   const selectedOllama = useMemo(
-    () => ollamaInstalled.find((m) => sameModel(m.name, ollamaModel)),
-    [ollamaInstalled, ollamaModel],
+    () => ollamaInstalled.find((m) => sameModel(m.name, llmModel)),
+    [ollamaInstalled, llmModel],
   );
 
   // Auto-pilih: kalau pilihan sekarang belum terpasang, ambil model terpasang
   // yang dinilai siap lebih dulu; kalau tak ada yang siap, ambil yang pertama.
   useEffect(() => {
     if (!ollamaStatus?.running || !ollamaInstalled.length) return;
-    const match = ollamaInstalled.find((m) => sameModel(m.name, ollamaModel));
+    const match = ollamaInstalled.find((m) => sameModel(m.name, llmModel));
     if (match) {
       // Nama disamakan dengan yang TERPASANG ("qwen2.5" → "qwen2.5:latest").
       // Tanpa ini kotak pilihan menampilkan nilai yang tidak ada di daftarnya,
       // jadi ia terlihat kosong — dan job tetap berjalan dengan nama tersimpan
       // yang lama, yang membuat pesan galat menyebut model yang tidak pernah
       // terasa dipilih.
-      if (match.name !== ollamaModel) setOllamaModel(match.name);
+      if (match.name !== llmModel) setLlmModel(match.name);
       return;
     }
-    setOllamaModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
+    setLlmModel((ollamaInstalled.find((m) => m.ready) || ollamaInstalled[0]).name);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ollamaInstalled, ollamaStatus?.running]);
 
@@ -111,24 +108,12 @@ export default function SetupPanel({
     if (autoPicked.current || ollamaStatus === null || !ollamaActive) return;
     autoPicked.current = true;
     if (!ollamaStatus.running) {
-      setOfflineEngine("heuristic");
+      setEngine("heuristic");
       setTranscriptFix(false);
       addLog(t("logNoOllama"));
     }
-  }, [ollamaStatus, ollamaActive, setOfflineEngine, setTranscriptFix, addLog, t]);
+  }, [ollamaStatus, ollamaActive, setEngine, setTranscriptFix, addLog, t]);
 
-  const saveKey = useCallback(async () => {
-    try {
-      const res = await fetch(eng(`/api/settings`), {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ anthropic_api_key: apiKey }),
-      });
-      const data = await res.json();
-      setHasKey(!!data.has_key);
-      addLog(data.has_key ? t("logKeySaved") : t("logKeyEmpty"));
-      if (data.has_key) setApiKey("");
-    } catch { addLog(t("logKeyFailed")); }
-  }, [apiKey, addLog, t]);
 
 
   // "Terpasang" tidak sama dengan "bisa dipakai", dan "bisa membalas sapaan"
@@ -137,28 +122,6 @@ export default function SetupPanel({
   // dijalankan sekarang DUA TAHAP LLM yang sama persis dengan yang dipakai job
   // (koreksi transkrip + pemilihan momen) atas isi contoh yang dipaku di engine.
   // Hasil tiap tahap masuk log, sebab tahap MANA yang gagal itulah petunjuknya.
-  const pingModel = useCallback(async () => {
-    setTesting(true);
-    setPing(null);
-    addLog(t("logPingStart", { model: ollamaModel }));
-    try {
-      const res = await fetch(eng(`/api/ollama/ping`), {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model: ollamaModel }),
-      });
-      const data = await res.json();
-      setPing(data);
-      for (const st of data.steps || []) {
-        addLog(st.ok
-          ? t("logPingStep", { name: st.name, detail: st.detail || "ok", ms: st.ms })
-          : t("logPingStepFailed", { name: st.name, error: st.error }));
-      }
-      if (data.ok) addLog(t("logPingOk", { model: ollamaModel, ms: data.ms }));
-    } catch (e: any) {
-      setPing({ ok: false, error: e.message, ms: 0 });
-      addLog(`⚠ ${e.message}`);
-    } finally { setTesting(false); }
-  }, [ollamaModel, addLog, setTesting, t]);
 
   // Unduhan model BERJALAN DI LATAR; halaman ini cuma berlangganan kabarnya.
   //
@@ -169,11 +132,11 @@ export default function SetupPanel({
   const pullModel = useCallback(async () => {
     setPulling(true);
     setPullPct(-1);
-    addLog(t("logPullStart", { model: ollamaModel }));
+    addLog(t("logPullStart", { model: llmModel }));
     try {
       const res = await fetch(eng(`/api/ollama/pull`), {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ model: ollamaModel }),
+        body: JSON.stringify({ model: llmModel }),
       });
       // 409 = sudah berjalan. Itu bukan galat: langganan di bawah tetap
       // menampilkan kemajuannya, jadi menekan tombol dua kali tidak merusak apa
@@ -183,7 +146,7 @@ export default function SetupPanel({
       setPulling(false);
       addLog(t("logPullFailed", { error: e.message }));
     }
-  }, [ollamaModel, addLog, t]);
+  }, [llmModel, addLog, t]);
 
   // Kemajuan unduhan model DIDENGARKAN terus, bukan hanya sesudah tombolnya
   // ditekan di sesi ini.
@@ -216,11 +179,6 @@ export default function SetupPanel({
       <div className="group">
         <div className="group-title">{t("groupEngine")}</div>
         <div className="grid3">
-          <div className="field"><label>{t("mode")}</label>
-            <Select value={mode} onChange={setMode} options={[
-              { value: "offline", label: t("modeOffline") },
-              { value: "hybrid", label: t("modeHybrid") },
-            ]} /></div>
           <div className="field"><label>{t("whisperModel")}</label>
             <Select value={model} onChange={setModel} options={models.map((m) => ({
               value: m.name, label: m.name,
@@ -228,81 +186,21 @@ export default function SetupPanel({
             }))} /></div>
         </div>
 
-        {/* Mesin skor menempel di kelompok Engine, bukan berdiri sebagai panel
-            sendiri: ia menjawab pertanyaan yang sama — dengan apa job ini
-            dikerjakan. */}
-        {mode === "hybrid" ? (
-          <div className="row" style={{ marginTop: 12 }}>
-            <div className="field">
-              <label>{t("apiKeyClaude")} {hasKey && <span className="ok">{t("keyStored")}</span>}
-                {!hasKey && <Warn>{t("noKeyWarning")}</Warn>}</label>
-              <div className="path-row">
-                <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={hasKey ? t("keyPlaceholderStored") : "sk-ant-..."} />
-                <button onClick={saveKey} disabled={!apiKey}>{t("save")}</button>
-              </div>
-            </div>
-            <div className="field">
-              <label>{t("claudeModel")}</label>
-              <Select value={claudeModel} onChange={setClaudeModel} options={[
-                { value: "claude-haiku-4-5", label: t("claudeHaiku") },
-                { value: "claude-sonnet-5", label: t("claudeSonnet") },
-                { value: "claude-opus-4-8", label: t("claudeOpus") },
-              ]} />
-            </div>
-          </div>
-        ) : (
-          /* Kisi tiga kolom, sama seperti baris di atasnya: mesin, model, dan
-             tombol ujinya berdiri di garis yang sama. Dulu .row membagi lebar
-             sendiri dan tombol Test menggantung di bawah kotak model, jadi tidak
-             ada satu pun tepi yang sejajar. */
-          <div className="grid3" style={{ marginTop: 12 }}>
-            <div className="field">
-              <label title={ollamaStatus?.running && ollamaStatus.url
-                ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
-                : undefined}>{t("offlineEngine")}
-                {ollamaStatus !== null && !ollamaStatus.running && (
-                  <Warn>{t("ollamaMissingHeuristic")}
-                    <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
-                  </Warn>
-                )}</label>
-              <Select value={offlineEngine} onChange={setOfflineEngine} options={[
-                { value: "ollama", label: t("offlineOllama") },
-                { value: "heuristic", label: t("offlineHeuristic") },
-              ]} />
-            </div>
-            {offlineEngine === "ollama" && (
-              <>
-              <div className="field">
-                <label title={ollamaStatus?.url
-                  ? t("ollamaFoundAt", { url: ollamaStatus.url, where: ollamaStatus.where || "" })
-                  : undefined}>{t("localModel")}
-                  {/* NAMA SERVER, bukan sistemnya, sejak engine bisa memakai
-                      selain Ollama: "Model · WSL" tidak memberitahu apakah yang
-                      menjawab Ollama atau LM Studio. Keduanya sekaligus tidak
-                      muat — labelnya terpotong jadi "Model · Ollama …" — dan
-                      sistemnya masih terbaca di tiap baris daftar model serta
-                      di tooltip label ini. */}
-                  {/* Selama mengunduh, kemajuannya MENGGANTIKAN nama server —
-                      bukan ditambahkan di sebelahnya.
-                      Tombol unduhnya tinggal di dalam popup peringatan, jadi
-                      selama unduhan 5 GB berjalan yang terlihat cuma lambang ⚠,
-                      dan "sedang jalan" tidak bisa dibedakan dari "macet" tanpa
-                      mengklik. Tapi keduanya sekaligus tidak muat: label
-                      "Model · Ollama · 51%" terpotong jadi "Model · Ollama …".
-                      Satu hal pada satu waktu — nama servernya kembali begitu
-                      unduhannya selesai. */}
-                  {pulling ? (
-                    <span className="meta" title={t("downloading")}>
-                      {" · "}{pullPct >= 0 ? `${Math.round(pullPct * 100)}%` : "…"}
-                    </span>
-                  ) : ollamaStatus?.server ? (
-                    <span className="meta"> · {ollamaStatus.server}</span>
-                  ) : null}
-                  {/* Keadaan yang butuh tindakan jadi LAMBANG di label, lengkap
-                      dengan tombolnya di dalam popup. Sebagai baris teks, ia
-                      menggeser seluruh kolom tiap kali Ollama dinyalakan atau
-                      model diganti. */}
+        {/* Mesin skor memakai pemilih yang SAMA dengan tab kartu berita dan
+            pembuat berita (notes/39). Dulu panel ini merakit pilihannya sendiri:
+            "Mode" offline/hybrid, kunci Claude, model Claude, mesin offline,
+            model lokal — lima kendali untuk satu pertanyaan, dan kunci Claude
+            hanya bisa diisi dari sini. Yang tersisa di sini cuma yang memang
+            khusus mesin lokal: mengunduh model yang belum ada. */}
+        <div style={{ marginTop: 12 }}>
+          <EnginePicker
+            engines={engines} engine={engine} setEngine={setEngine}
+            model={llmModel} setModel={setLlmModel} busy={testing}
+            extra={[{ id: "heuristic", name: t("offlineHeuristic") }]}
+          >
+            {ollamaActive && (
+              <div className="field engine-actions">
+                <label className="engine-result">
                   {ollamaStatus !== null && !ollamaStatus.running ? (
                     <Warn>{t("ollamaNotDetected")} <code>ollama serve</code>
                       <button className="ghost tiny" onClick={() => checkOllama()}>{t("recheck")}</button>
@@ -319,35 +217,14 @@ export default function SetupPanel({
                         {pulling ? pullLabel : <><Download className="ico" aria-hidden="true" /> {t("downloadSelected")}</>}
                       </button>
                     </Warn>
-                  ) : ping && !ping.ok ? (
-                    <Warn>{ping.error}</Warn>
+                  ) : pulling ? (
+                    <span className="meta">{pullLabel}</span>
                   ) : null}
                 </label>
-                <Select value={ollamaModel} onChange={setOllamaModel}
-                  options={modelOptions(ollamaInstalled, {
-                    ready: t("modelReady"), notCapable: t("modelNotCapable"),
-                    needsDownload: t("modelNeedsDownload"),
-                  }, ollamaStatus?.os, ollamaStatus?.kind !== "openai")} />
               </div>
-              {/* Tombol uji berdiri di kolom KETIGA, sejajar dengan kedua kotak
-                  di kirinya. Hasilnya tidak menambah baris: berhasil → tombol
-                  hijau dengan waktunya di tooltip, gagal → lambang peringatan
-                  di label model. */}
-              <div className="field field-check">
-                <button className={"ghost" + (ping?.ok ? " ok-btn" : "")} onClick={pingModel}
-                  title={ping?.ok ? t("pingOk", { ms: ping.ms }) : t("pingTestTip")}
-                  disabled={testing || !ollamaStatus?.running}>
-                  {testing ? t("pingBusy") : <><Plug className="ico" aria-hidden="true" /> {t("pingTest")}</>}
-                </button>
-              </div>
-              {/* Alamat & kunci server jadi sel KEEMPAT dan KELIMA dari grid3
-                  yang sama, bukan baris .row baru: dengan begitu keduanya jatuh
-                  ke baris kedua kisi yang sudah ada dan tepinya tetap sejajar
-                  dengan mesin/model/uji di atasnya. */}
-              </>
             )}
-          </div>
-        )}
+          </EnginePicker>
+        </div>
 
         {/* Koreksi transkrip berlaku di kedua mode, jadi ditaruh di luar
             percabangan hybrid/offline. Ia memakai LLM juga saat mesin skornya
@@ -357,7 +234,7 @@ export default function SetupPanel({
           <label className="chk" title={t("transcriptFixTip")}>
             <input type="checkbox" checked={transcriptFix}
               onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} <Info className="ico hint" aria-hidden="true" />
-            {transcriptFix && mode !== "hybrid" && offlineEngine === "heuristic" && (
+            {transcriptFix && engine === "heuristic" && (
               <Warn>{t("transcriptFixNeedsLLM")}</Warn>
             )}
           </label>

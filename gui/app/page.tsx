@@ -40,7 +40,6 @@ export default function Home() {
 
   const [path, setPath] = useState("");
   const [outputDir, setOutputDir] = useState("");
-  const [mode, setMode] = useState("offline");
   const [model, setModel] = useState("base");
   const [resolution, setResolution] = useState("1080p");
   const [quality, setQuality] = useState("hd");
@@ -51,9 +50,9 @@ export default function Home() {
 
   // Mesin AI (scoring). Yang di sini hanya yang ikut ke /api/jobs dan ke preset
   // tersimpan — kunci API dan status Ollama dipegang <AiEnginePanel> sendiri.
-  const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5");
-  const [offlineEngine, setOfflineEngine] = useState("ollama"); // ollama | heuristic
-  const [ollamaModel, setOllamaModel] = useState("llama3.1");
+  // Mesin skor: id dari daftar mesin bersama, atau "heuristic" (tanpa LLM).
+  const [engine, setEngine] = useState("ollama");
+  const [llmModel, setLlmModel] = useState("");
   const [transcriptFix, setTranscriptFix] = useState(true);
   const [terms, setTerms] = useState("");
   const [durationPreset, setDurationPreset] = useState("auto");
@@ -180,9 +179,8 @@ export default function Home() {
       if (typeof s.zoom === "number" && !s.zoomAxis) setZoom(s.zoom);
       if (s.background) setBackground(s.background);
       if (typeof s.fps === "number") setFps(s.fps);
-      if (s.claudeModel) setClaudeModel(s.claudeModel);
-      if (s.offlineEngine) setOfflineEngine(s.offlineEngine);
-      if (s.ollamaModel) setOllamaModel(s.ollamaModel);
+      if (s.engine) setEngine(s.engine);
+      if (s.llmModel) setLlmModel(s.llmModel);
       if (typeof s.transcriptFix === "boolean") setTranscriptFix(s.transcriptFix);
       if (typeof s.terms === "string") setTerms(s.terms);
       if (s.durationPreset) setDurationPreset(s.durationPreset);
@@ -203,9 +201,9 @@ export default function Home() {
 
   // Simpan preset setiap kali setelan berubah.
   useEffect(() => {
-    const preset = { resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
+    const preset = { resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode };
     try { localStorage.setItem("clipper.preset", JSON.stringify(preset)); } catch {}
-  }, [resolution, quality, reframe, background, zoom, fps, claudeModel, offlineEngine, ollamaModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
+  }, [resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, subFont, subSize, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, platform, saveMode]);
 
   // Pulihkan log job TERAKHIR, lalu sambung ulang bila ia masih berjalan.
   //
@@ -254,9 +252,9 @@ export default function Home() {
   // Yang TIDAK disimpan: daftar klip & status job — itu milik engine, dan
   // ditarik ulang saat halaman dibuka.
   useKeep("clips", {
-    path, outputDir, mode, model, resolution, quality, reframe, background, zoom, fps,
+    path, outputDir, model, resolution, quality, reframe, background, zoom, fps,
     durationPreset, maxClips, saveMode, transcriptFix, terms,
-    offlineEngine, claudeModel, ollamaModel,
+    engine, llmModel,
     subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed,
   });
   useRestore<Record<string, unknown>>("clips", (v) => {
@@ -265,7 +263,6 @@ export default function Home() {
     };
     set(setPath, v.path);
     set(setOutputDir, v.outputDir);
-    set(setMode, v.mode);
     set(setModel, v.model);
     set(setResolution, v.resolution);
     set(setQuality, v.quality);
@@ -278,9 +275,8 @@ export default function Home() {
     set(setSaveMode, v.saveMode);
     set(setTranscriptFix, v.transcriptFix);
     set(setTerms, v.terms);
-    set(setOfflineEngine, v.offlineEngine);
-    set(setClaudeModel, v.claudeModel);
-    set(setOllamaModel, v.ollamaModel);
+    set(setEngine, v.engine);
+    set(setLlmModel, v.llmModel);
     set(setSubFont, v.subFont);
     set(setSubSize, v.subSize);
     set(setSubX, v.subX);
@@ -354,10 +350,12 @@ export default function Home() {
         body: JSON.stringify({
           source: { type: "path", value: path },
           options: {
-            mode, whisper_model: model, resolution, quality, reframe, background,
+            whisper_model: model, resolution, quality, reframe, background,
             zoom: Number(zoom), fps: Number(fps),
-            provider: mode === "hybrid" ? "claude" : offlineEngine,
-            llm_model: claudeModel, ollama_model: ollamaModel,
+            // Satu kotak model untuk semua mesin; pipeline membaca yang
+            // sesuai dengan mesin yang dipilih.
+            provider: engine,
+            llm_model: llmModel, ollama_model: llmModel,
             transcript_fix: transcriptFix ? "on" : "off",
             terms: terms.split(/[,;\n]/).map((v) => v.trim()).filter(Boolean),
             duration_preset: durationPreset, max_clips: Number(maxClips), output_dir: outputDir,
@@ -374,7 +372,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || t("errCreateJob"));
       setJobId(data.id); addLog(t("logJobCreated", { id: data.id }));
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, mode, model, resolution, quality, reframe, background, zoom, fps, offlineEngine, claudeModel, ollamaModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
+  }, [path, engine, llmModel, model, resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -551,15 +549,14 @@ export default function Home() {
 
         <div className="screen-col">
           <SetupPanel
-            mode={mode} setMode={setMode} model={model} setModel={setModel} models={models}
+            model={model} setModel={setModel} models={models}
             resolution={resolution} setResolution={setResolution}
             quality={quality} setQuality={setQuality} fps={fps} setFps={setFps}
             durationPreset={durationPreset} setDurationPreset={setDurationPreset}
             maxClips={maxClips} setMaxClips={setMaxClips}
             saveMode={saveMode} setSaveMode={setSaveMode}
-            claudeModel={claudeModel} setClaudeModel={setClaudeModel}
-            offlineEngine={offlineEngine} setOfflineEngine={setOfflineEngine}
-            ollamaModel={ollamaModel} setOllamaModel={setOllamaModel}
+            engine={engine} setEngine={setEngine}
+            llmModel={llmModel} setLlmModel={setLlmModel}
             transcriptFix={transcriptFix} setTranscriptFix={setTranscriptFix}
             terms={terms} setTerms={setTerms} addLog={addLog}
             testing={testing} setTesting={setTesting}

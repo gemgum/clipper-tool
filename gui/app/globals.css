@@ -1573,6 +1573,10 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   border-color: var(--good);
   background: rgba(62, 207, 142, 0.12);
 }
+/* Sudah di keranjang. Penanda, bukan tombol: yang memasukkan dan mengeluarkan
+   adalah barisnya sendiri, dan tombol mati di sebelah baris yang bisa diklik
+   membaca seperti "tidak bisa" padahal artinya "sudah". */
+.added-mark { color: var(--good-text); flex: none; }
 
 .news-foot {
   display: flex;
@@ -2062,3 +2066,125 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    atau berapa model yang sudah diunduh. */
 .srv-list { max-height: 104px; overflow-y: auto; }
 .settings-scroll { max-height: 132px; overflow-y: auto; }
+
+/* --- penulis artikel (tab ketiga) --- */
+
+/* Artikel MERENTANG, log menempel di dasar kolom — persis seperti halaman klip.
+   Bawaannya kebalikannya (panel pertama flex:none, kotak log yang memakan sisa
+   kolom), dan itu benar di sana karena panel pertamanya bingkai pratinjau. Di
+   sini tokoh utamanya artikel.
+
+   Pemilihnya harus lebih spesifik daripada aturan bawaan di atas, bukan sekadar
+   ditulis belakangan: kekhususan menang atas urutan. */
+.screen-main:has(> .log-panel) > .panel.post-panel:first-of-type { flex: 1; min-height: 0; }
+.panel.post-panel { display: flex; flex-direction: column; }
+.screen-main:has(.post-panel) > .log-panel { flex: none; }
+.screen-main:has(.post-panel) .logbox { max-height: 130px; }
+
+/* Artikel hasil. Inilah satu-satunya kotak di kolom kiri yang boleh bergulir
+   sendiri, dan itu bukan pelanggaran melainkan cara aplikasi desktop bekerja:
+   yang haram adalah harus menggulir HALAMAN untuk menemukan tombol (notes/29).
+   Tanpa batas tinggi, artikel 700 kata mendorong kotak log keluar jendela. */
+.post-view { flex: 1; min-height: 0; overflow-y: auto; padding-right: 8px; }
+.post-view h2 { font-size: 20px; line-height: 1.3; margin: 12px 0 8px; }
+.post-view p { margin: 0 0 10px; line-height: 1.55; }
+.post-lead { font-weight: 600; }
+.post-foot { margin-top: 12px; }
+/* Tagar dan kaki sumber: bagian artikel yang IKUT tersalin, jadi ia harus
+   terlihat sebagai bagian artikel — bukan sebagai keterangan aplikasi. */
+.post-tags { color: var(--accent); font-size: 12px; }
+.post-sources { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.post-sources ul { margin: 4px 0 0; padding-left: 18px; }
+.post-sources li { font-size: 12px; line-height: 1.5; }
+.post-sources a { color: var(--text); }
+/* Foto dibatasi rendah dengan sengaja: yang paling perlu terbaca begitu job
+   selesai adalah JUDULNYA, dan foto setinggi 200px mendorongnya ke bawah lipatan
+   kotak artikel. */
+.post-image { width: 100%; max-height: 130px; object-fit: cover; border-radius: 8px; }
+.post-actions { display: flex; gap: 6px; }
+
+/* Keranjang sumber. Batas tingginya ada karena isinya tumbuh sampai lima baris
+   dan tiap baris mendorong panel di bawahnya. */
+.basket { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+/* Keranjang duduk DI DALAM panel sumber, dan tingginya dipatok.
+ *
+ * Terukur 18 Agustus 2026: sebagai panel sendiri, keranjang berisi 5 sumber
+ * mendorong panel "Start processing" 188 px keluar jendela — tombol yang harus
+ * dicari dengan menggulir, persis yang dilarang notes/29. `max-height: 30vh`
+ * tidak menolong: 30vh tetap tinggi yang DIAMBIL dari panel di bawahnya.
+ *
+ * flex:none supaya ia tidak ikut merebut sisa ruang dari daftar beritanya. */
+.feed-panel .basket { flex: none; max-height: 106px; }
+.basket-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.basket-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.basket-text .news-title {
+  font-size: 13px;
+  /* Satu baris + elipsis. Judul dua baris membuat tiap item 73 px, dan lima di
+     antaranya (batasnya memang lima) tidak akan pernah muat di kolom yang juga
+     memuat daftar berita, mesin AI, dan tombol Mulai. Judul penuh tetap terbaca
+     di daftar sumber tepat di bawahnya. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- pemilih mesin LLM, satu bentuk untuk semua tab (notes/39) --- */
+
+/* Baris yang melipat sendiri, bukan kisi berkolom tetap.
+   Alasannya: tab yang berbeda menitipkan jumlah kendali yang berbeda ke sini —
+   tab kartu menambahkan Analyse dan daftar peringkat — dan kisi berkolom tetap
+   memaksa tiap tab menghitung ulang kolomnya sendiri. Di kolom sempit (panel
+   kanan ~370 px) semuanya melipat tanpa satu aturan tambahan. */
+.engine-picker { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0 12px; }
+.engine-picker > .field { flex: 1 1 150px; min-width: 0; margin-bottom: 12px; }
+.engine-picker > .field.engine-actions { flex: 0 0 auto; }
+
+/* Baris hasil uji SELALU ada tempatnya, juga sebelum diuji: kalimat yang
+   menyembul setelah tombol ditekan menggeser kendali di sebelahnya tepat saat
+   pengguna sedang menatapnya. */
+.engine-result { min-height: 15px; }
+.engine-result .ok { color: var(--good-text, var(--accent)); }
+.engine-result .bad { color: var(--bad-text, var(--bad)); }
+.engine-actions > button { width: 100%; }
+
+/* Baris satu mesin di halaman setelan. */
+.engine-row { display: grid; grid-template-columns: 1fr; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.engine-row:last-child { border-bottom: none; }
+.engine-row-head { display: flex; align-items: center; gap: 8px; }
+.engine-row-name { font-weight: 600; }
+/* Kunci, alamat, model, lalu tombolnya — satu baris, bukan dua.
+   Dua baris per mesin berarti lima mesin memakan ~875 px dan mendorong daftar
+   komponen (gunanya halaman ini sejak awal) jauh ke bawah lipatan. */
+.engine-row-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px 12px; align-items: end; }
+@container (max-width: 620px) { .engine-row-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 460px) { .engine-row-fields { grid-template-columns: 1fr; } }
+.engine-row-result { min-height: 15px; }
+.engine-row-fields .field { margin-bottom: 0; }
+
+/* Nama tahap di atas pemilih mesin. Muncul HANYA saat ada dua pemilih di satu
+   panel — satu pemilih tidak perlu diberi tahu ia tahap apa. */
+.engine-stage { margin: 4px 0 6px; }
+
+/* Panel daftar berita punya batas BAWAH, bukan larangan menyusut.
+   Saat isi kolom melebihi tingginya, flexbox menyusutkan tiap panel — dan yang
+   paling banyak menyusut adalah panel ini, sampai daftarnya hilang sama sekali
+   dan tinggal judul + separuh kotak tempel (terlihat begitu pemilih mesin kedua
+   ditambahkan).
+   Melarangnya menyusut sama sekali justru lebih buruk: tinggi daftar memang
+   DIHITUNG dari ruang sisa (.feed-panel .news-list { flex: 1 }), jadi tanpa
+   batas atas ia minta 2900 px. Batas bawah menjaga keduanya. */
+/* Lantai panel sumber: keranjang + tempel + cari + daftar yang masih terbaca.
+ *
+ * WAJIB ada, dan `min-height: 0` sempat dicoba sebagai gantinya — akibatnya
+ * angka "kolom tidak bergulir" tetap 0 sementara panelnya menyusut di BAWAH
+ * tinggi isinya, jadi kotak tempel, kotak cari, dan seluruh daftar berita
+ * hilang di balik panel mesin AI. Hanya terlihat dari potret; angkanya bersih.
+ *
+ * Dengan mesin tahap tulis dinyalakan, kolomnya memang tidak muat dan BERGULIR.
+ * Itu pilihan yang disengaja: bergulir dengan segala sesuatu terlihat lebih
+ * baik daripada muat dengan setengah panel tersembunyi. */
+.screen-col > .panel.feed-panel { min-height: 240px; }
+/* Tambahannya hanya untuk panel yang IKUT memuat keranjang (tab pembuat
+   berita); tab kartu berita tidak punya keranjang dan tidak boleh ikut
+   membayar tingginya. */
+.screen-col > .panel.feed-panel:has(.basket) { min-height: 320px; }

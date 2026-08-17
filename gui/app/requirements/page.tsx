@@ -12,6 +12,7 @@ import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import Picker from "../picker";
 import Alerts from "../alerts";
+import EngineSettings from "./engines";
 import Warn from "../warn";
 
 type Component = {
@@ -255,6 +256,9 @@ export default function RequirementsPage() {
       <div className="screen-body">
       {/* Kiri: yang ditindaklanjuti. Bergulir di dalam kotaknya sendiri. */}
       <div className="screen-main">
+      {/* Mesin AI paling atas: inilah yang paling sering dibuka orang di
+          halaman ini sesudah pemasangan pertama selesai (notes/39). */}
+      <EngineSettings />
       {groups.map((g) => {
         const items = req?.components.filter((c) => c.kind === g.kind) || [];
         if (items.length === 0) return null;

@@ -53,9 +53,6 @@ const en = {
 
   // --- render settings ---
   groupEngine: "Engine",
-  mode: "Mode",
-  modeOffline: "Offline (free)",
-  modeHybrid: "Hybrid (Claude API)",
   whisperModel: "Whisper model",
   modelNotDownloaded: "not downloaded",
 
@@ -96,17 +93,9 @@ const en = {
   saveBoth: "Both",
 
   // --- AI engine panel ---
-  apiKeyClaude: "Claude API key",
-  keyStored: "✓ stored",
   keyPlaceholderStored: "•••• (type to replace)",
-  claudeModel: "Claude model",
-  claudeHaiku: "Haiku 4.5 (fast)",
-  claudeSonnet: "Sonnet 5 (balanced)",
-  claudeOpus: "Opus 4.8 (best)",
   noKeyWarning:
     "No API key yet — hybrid mode will fail. Enter a key, or switch to offline mode.",
-  offlineEngine: "Scoring engine",
-  offlineOllama: "Local AI (local LLM)",
   offlineHeuristic: "Rules only (no AI)",
   transcriptFix: "Correct transcript with AI",
   transcriptFixTip:
@@ -115,25 +104,14 @@ const en = {
     "Needs an LLM. If unreachable the job stops — untick to use the raw transcript.",
   terms: "Names & terms",
   termsPlaceholder: "People's names, local words, abbreviations",
-  localModel: "Model",
   modelNeedsDownload: "needs download",
-  modelReady: "✓ ready",
-  modelNotCapable: "⚠ not capable enough",
   ollamaNotDetected:
     "⚠ Ollama not detected. Install it from ollama.com, then run",
   recheck: "check again",
-  pingTest: "Test",
-  pingTestTip: "Runs the two LLM stages a job really uses, on a built-in sample — proves the model can do the work, and warms it up",
-  pingBusy: "Testing…",
   // Tidak lebih panjang dari "Start processing": tombolnya melar setinggi
   // isinya, dan label yang menambah satu baris menggeser seluruh panel tiap
   // kali uji dimulai.
   llmTesting: "Testing LLM…",
-  pingOk: "every stage passed in {ms} ms",
-  logPingStart: "Testing {model} on the stages a job really uses — this takes a while, and the first reply also loads it into memory…",
-  logPingStep: "  {name}: {detail} ({ms} ms)",
-  logPingStepFailed: "  ⚠ {name}: {error}",
-  logPingOk: "{model} passed every stage in {ms} ms — a clip job will work with it",
   downloadModel: "download model",
   downloadSelected: "download the selected model",
 
@@ -243,8 +221,6 @@ const en = {
   warning: "Warning",
   noAudio: "no sound",
   noAudioWarning: "This video has no sound track. Clipper picks moments from what is said, so there is nothing it can work with — pick a video that has audio.",
-  ollamaFoundAt: "Ollama found at {url} ({where})",
-  ollamaMissingHeuristic: "Ollama is not running anywhere this app can reach, so scoring was set to the built-in heuristic and transcript correction was turned off. Start Ollama, then check again.",
   llmServer: "Server",
   llmServerAuto: "found automatically",
   llmServerOther: "another address…",
@@ -274,9 +250,6 @@ const en = {
 
   // --- log lines ---
   logReconnect: "↻ Reconnecting to a running job: {id}",
-  logKeySaved: "✓ API key saved",
-  logKeyEmpty: "⚠ API key is empty",
-  logKeyFailed: "⚠ Could not save the API key",
   logPullStart: "↓ Downloading model {model} via Ollama (may take minutes)…",
   logPullDone: "✓ Model {model} is ready",
   logPullFailed: "⚠ Model download failed: {error}",
@@ -354,9 +327,6 @@ const en = {
   copyOpening: "… opening",
   copyLinkTitle: "Copy the article link so you can check it yourself",
 
-  engine: "Engine",
-  engineOllama: "Ollama (local, free)",
-  engineClaude: "Claude (API)",
   model: "Model",
   analyze: "Analyse",
   pickParagraph: "Paragraphs ({n})",
@@ -429,6 +399,52 @@ const en = {
   errOpenLink: "could not open the link",
   errCopy:
     "Could not copy automatically — copy it manually from the source link.",
+
+  // --- pemilih mesin LLM (notes/39) ---
+  engineLabel: "Engine",
+  engineNone: "No engine yet",
+  engineAdd: "Add an engine…",
+  engineTest: "Test",
+  engineTesting: "Testing…",
+  engineOK: "✓ works",
+  engineFailed: "✗ failed",
+  engineNoSchema: "✓ works · shape via prompt",
+  engineNoSchemaTip:
+    "It works. This server just will not enforce the JSON shape server-side, so the prompt asks for it instead — and the engine checks every reply. Fine for clips and cards; long replies, like the article writer's, are where prompt-only shape breaks first.",
+  modelLabel: "Model",
+  enginesTitle: "AI engines",
+  enginesHint:
+    "Local engines need no key. Cloud engines only appear in the pickers once their key is here.",
+  engineKeyLabel: "API key",
+  engineKeyPlaceholder: "API key…",
+  engineBaseLabel: "Address",
+  engineModelLabel: "Default model",
+  engineGetKey: "Get a key ↗",
+  engineReady: "ready",
+  engineNoKey: "no key yet",
+  engineOffline: "not running",
+
+  // --- penulis artikel (tab ketiga) ---
+  tabWriter: "Article writer",
+  writerBasket: "Basket {n}/{max}",
+  writerPastePlaceholder: "Paste article links, one per line…",
+  writerAddLinks: "Add",
+  writerRemove: "Remove from the basket",
+  writerAdded: "Already in the basket",
+  writerSources: "Sources",
+  writerArticleTitle: "Article",
+  writerEmpty: "Add up to {max} source articles on the right, then press Start.",
+  writerCopyTitle: "Copy the headline",
+  writerCopyBody: "Copy the article",
+  writerUnverified: "Unverified ({n})",
+  writerUnverifiedHint: "Check these against the sources before publishing. The same list sits at the top of artikel.md.",
+  writerWords: "{n} words",
+  writerFolder: "Written to {dir}",
+  writerEngineTitle: "AI engine",
+  writerRunning: "Writing…",
+  writerSplitEngines: "Use a different engine to write",
+  writerStageRead: "Reads the facts — one call per source article",
+  writerStageWrite: "Writes the article — one call, where model quality shows",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -462,9 +478,6 @@ const id: Record<MessageKey, string> = {
   outputDirPlaceholder: "Kosongkan untuk menyimpan di dalam aplikasi",
 
   groupEngine: "Mesin",
-  mode: "Mode",
-  modeOffline: "Offline (gratis)",
-  modeHybrid: "Hybrid (Claude API)",
   whisperModel: "Model Whisper",
   modelNotDownloaded: "belum diunduh",
 
@@ -504,17 +517,9 @@ const id: Record<MessageKey, string> = {
   saveClean: "Polos",
   saveBoth: "Keduanya",
 
-  apiKeyClaude: "API Key Claude",
-  keyStored: "✓ tersimpan",
   keyPlaceholderStored: "•••• (isi untuk mengganti)",
-  claudeModel: "Model Claude",
-  claudeHaiku: "Haiku 4.5 (cepat)",
-  claudeSonnet: "Sonnet 5 (seimbang)",
-  claudeOpus: "Opus 4.8 (terbaik)",
   noKeyWarning:
     "Belum ada API key — mode hybrid akan gagal. Masukkan key, atau pindah ke mode offline.",
-  offlineEngine: "Mesin skor",
-  offlineOllama: "AI lokal (LLM lokal)",
   offlineHeuristic: "Aturan saja (tanpa AI)",
   transcriptFix: "Koreksi transkrip dengan AI",
   transcriptFixTip:
@@ -523,22 +528,11 @@ const id: Record<MessageKey, string> = {
     "Butuh LLM. Bila tak terjangkau job berhenti — hilangkan centang untuk transkrip mentah.",
   terms: "Nama & istilah",
   termsPlaceholder: "Nama orang, kata daerah, singkatan",
-  localModel: "Model",
   modelNeedsDownload: "perlu unduh",
-  modelReady: "✓ siap",
-  modelNotCapable: "⚠ kurang memadai",
   ollamaNotDetected:
     "⚠ Ollama tak terdeteksi. Pasang dari ollama.com lalu jalankan",
   recheck: "cek ulang",
-  pingTest: "Uji",
-  pingTestTip: "Menjalankan dua tahap LLM yang benar-benar dipakai job, atas isi contoh bawaan — membuktikan modelnya sanggup, sekaligus memanaskannya",
-  pingBusy: "Menguji…",
   llmTesting: "Menguji LLM…",
-  pingOk: "semua tahap lolos dalam {ms} ms",
-  logPingStart: "Menguji {model} pada tahap yang benar-benar dipakai job — ini perlu waktu, dan balasan pertama sekaligus memuatnya ke memori…",
-  logPingStep: "  {name}: {detail} ({ms} ms)",
-  logPingStepFailed: "  ⚠ {name}: {error}",
-  logPingOk: "{model} lolos semua tahap dalam {ms} ms — job klip akan jalan dengan model ini",
   downloadModel: "unduh model",
   downloadSelected: "unduh model terpilih",
 
@@ -642,8 +636,6 @@ const id: Record<MessageKey, string> = {
   warning: "Peringatan",
   noAudio: "tanpa suara",
   noAudioWarning: "Video ini tidak punya trek suara. Clipper memilih momen dari apa yang diucapkan, jadi tidak ada yang bisa dikerjakan — pilih video yang ada suaranya.",
-  ollamaFoundAt: "Ollama ditemukan di {url} ({where})",
-  ollamaMissingHeuristic: "Ollama tidak berjalan di tempat mana pun yang bisa dijangkau aplikasi ini, jadi penilaian memakai heuristik bawaan dan koreksi transkrip dimatikan. Nyalakan Ollama, lalu cek ulang.",
   llmServer: "Server",
   llmServerAuto: "dicari otomatis",
   llmServerOther: "alamat lain…",
@@ -669,9 +661,6 @@ const id: Record<MessageKey, string> = {
   revealFailed: "Foldernya tidak bisa dibuka",
 
   logReconnect: "↻ Menyambung ke job berjalan: {id}",
-  logKeySaved: "✓ API key tersimpan",
-  logKeyEmpty: "⚠ API key kosong",
-  logKeyFailed: "⚠ Gagal menyimpan API key",
   logPullStart: "↓ Mengunduh model {model} via Ollama (bisa beberapa menit)…",
   logPullDone: "✓ Model {model} siap",
   logPullFailed: "⚠ Unduh model gagal: {error}",
@@ -748,9 +737,6 @@ const id: Record<MessageKey, string> = {
   copyOpening: "… membuka",
   copyLinkTitle: "Salin tautan artikel untuk dicek sendiri",
 
-  engine: "Mesin",
-  engineOllama: "Ollama (lokal, gratis)",
-  engineClaude: "Claude (API)",
   model: "Model",
   analyze: "Analisis",
   pickParagraph: "Paragraf ({n})",
@@ -822,6 +808,52 @@ const id: Record<MessageKey, string> = {
   errBuildCard: "gagal membuat kartu",
   errOpenLink: "gagal membuka tautan",
   errCopy: "Tidak bisa menyalin otomatis — salin manual dari tautan sumber.",
+
+  // --- pemilih mesin LLM (notes/39) ---
+  engineLabel: "Mesin",
+  engineNone: "Belum ada mesin",
+  engineAdd: "Tambah mesin…",
+  engineTest: "Uji",
+  engineTesting: "Menguji…",
+  engineOK: "✓ jalan",
+  engineFailed: "✗ gagal",
+  engineNoSchema: "✓ jalan · bentuk lewat prompt",
+  engineNoSchemaTip:
+    "Jalan. Server ini cuma tidak memaksakan bentuk JSON dari sisinya, jadi bentuknya diminta lewat prompt — dan tiap balasan tetap diperiksa engine. Tidak berpengaruh untuk klip dan kartu; balasan panjang seperti pembuat berita yang paling dulu patah tanpa jaminan itu.",
+  modelLabel: "Model",
+  enginesTitle: "Mesin AI",
+  enginesHint:
+    "Mesin lokal tidak butuh kunci. Mesin cloud baru muncul di pemilih mesin setelah kuncinya ada di sini.",
+  engineKeyLabel: "Kunci API",
+  engineKeyPlaceholder: "Kunci API…",
+  engineBaseLabel: "Alamat",
+  engineModelLabel: "Model bawaan",
+  engineGetKey: "Ambil kunci ↗",
+  engineReady: "siap",
+  engineNoKey: "belum ada kunci",
+  engineOffline: "tidak jalan",
+
+  // --- penulis artikel (tab ketiga) ---
+  tabWriter: "Penulis artikel",
+  writerBasket: "Keranjang {n}/{max}",
+  writerPastePlaceholder: "Tempel tautan artikel, satu per baris…",
+  writerAddLinks: "Tambah",
+  writerRemove: "Keluarkan dari keranjang",
+  writerAdded: "Sudah ada di keranjang",
+  writerSources: "Sumber",
+  writerArticleTitle: "Artikel",
+  writerEmpty: "Tambahkan sampai {max} artikel sumber di kanan, lalu tekan Mulai.",
+  writerCopyTitle: "Salin judul",
+  writerCopyBody: "Salin artikel",
+  writerUnverified: "Belum terverifikasi ({n})",
+  writerUnverifiedHint: "Periksa terhadap sumbernya sebelum terbit. Daftar yang sama ada di bagian atas artikel.md.",
+  writerWords: "{n} kata",
+  writerFolder: "Ditulis ke {dir}",
+  writerEngineTitle: "Mesin AI",
+  writerRunning: "Menulis…",
+  writerSplitEngines: "Pakai mesin lain untuk menulis",
+  writerStageRead: "Membaca fakta — satu panggilan per artikel sumber",
+  writerStageWrite: "Menulis artikel — satu panggilan, di sinilah mutu model terasa",
 };
 
 const dictionaries: Record<Language, Record<MessageKey, string>> = { en, id };
