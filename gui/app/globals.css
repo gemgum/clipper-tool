@@ -870,7 +870,7 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   border-top: 1px solid var(--border);
   display: flex;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
 }
 /* Ketiganya SATU ukuran — akun, tema, setelan. Ukuran yang berbeda-beda
    membuat salah satunya terbaca lebih penting daripada yang lain. */
@@ -879,7 +879,14 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
+  /* 24, bukan 32. Tiga tombol 32 px butuh 96 px sedangkan rail hanya
+     menyediakan 75 px (92 px dikurangi padding & garis), jadi 6 px tumpah ke
+     luar kotaknya — terukur, dan tombol keempat akan membuatnya menembus tepi.
+     Menyuruh flexbox menyusutkannya tidak bisa: dua dari tiga tombol dibungkus
+     .popover-anchor yang tidak ikut menyusut, sehingga yang tergencet justru
+     satu-satunya yang telanjang (terukur 7 px — lebih buruk dari masalahnya).
+     Tingginya tetap 32 px, dan itu yang memikul sasaran klik. */
+  width: 24px;
   height: 32px;
   padding: 0;
   border: 0;
@@ -1456,6 +1463,11 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   overflow: hidden;
 }
 .position-value button.tiny { margin-left: 0; flex: none; }
+/* Yang MENGALAH saat sempit adalah angkanya, bukan tombolnya.
+   Tanpa ini keduanya berebut lebar, dan karena tombolnya flex:none yang
+   terdorong keluar justru lambang sasarannya — terukur 16 px terpotong pada
+   "x 540 · y 960", dan makin parah pada koordinat empat angka. */
+.position-value > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* Bingkai kosong: mengundang aksi, bukan kotak hitam mati. Subtitle contoh
    tetap bisa digeser di atasnya, jadi posisi sudah bisa diatur sebelum

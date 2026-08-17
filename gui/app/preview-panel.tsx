@@ -474,8 +474,13 @@ export default function PreviewPanel({
                 bawahnya melompat. */}
             <div className="field"><label>{t("position")}
               {inUnsafe && <Warn>{t("unsafeWarning")}</Warn>}</label>
-              <div className="position-value">
-                <span>x {subX} · y {subY}</span>
+              {/* "540 · 960", bukan "x 540 · y 960". Labelnya sudah berkata
+                  Position, dan pasangan angka di bawahnya terbaca x·y tanpa
+                  perlu dieja — sedangkan dua huruf itu memakan 16 px yang tidak
+                  ada: terukur, "x 540 · y 960" tidak muat di sel kisinya dan
+                  yang terdorong keluar justru lambang tombolnya. */}
+              <div className="position-value" title={`x ${subX} · y ${subY}`}>
+                <span>{subX} · {subY}</span>
                 <button className="ghost tiny" title={t("resetCentre")} aria-label={t("resetCentre")}
                   onClick={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }}>
                   <Crosshair className="ico" aria-hidden="true" />

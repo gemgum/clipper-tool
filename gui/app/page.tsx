@@ -568,7 +568,7 @@ export default function Home() {
           <RunPanel
             busy={busy} testing={testing} disabled={busy || testing || !path || !!modelMissing}
             cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
-            status={status} stage={stage} message={message} progress={progress}
+            progress={progress}
           />
         </div>
       </div>

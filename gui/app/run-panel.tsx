@@ -1,6 +1,5 @@
 "use client";
 
-import { CircleCheck, OctagonX } from "lucide-react";
 import { useI18n } from "./i18n";
 
 // Tombol Mulai/Batal + kemajuan job. Berdiri paling bawah di kolom setelan:
@@ -11,8 +10,16 @@ import { useI18n } from "./i18n";
 // halaman ia hanya dirender saat ada job, jadi memulai job mendorong seluruh
 // halaman turun dan menyelesaikannya menariknya kembali. Di sini tempatnya
 // SELALU ADA — kosong saat diam — dan tidak ada yang bergerak sama sekali.
+//
+// Panel ini TIDAK punya baris teks keadaan. Dulu ada, dan ia salah tiga kali
+// sekaligus: saat diam ia menulis "Not running" — keterangan yang mengulang
+// bilah kosong dan tombol bertuliskan Start; saat berjalan ia menulis kalimat
+// tahap yang HURUF DEMI HURUF sama dengan yang sudah masuk kotak log; dan
+// kalimat itu (alamat Ollama + keterangan WSL + nomor bagian) jauh lebih
+// panjang daripada lebar panelnya, sehingga ia menembus keluar kotaknya.
+// Kemajuan sudah terbaca dari bilahnya, rinciannya dari kotak log.
 export default function RunPanel({
-  busy, testing, disabled, cancellable, onStart, onCancel, status, stage, message, progress,
+  busy, testing, disabled, cancellable, onStart, onCancel, progress,
 }: {
   busy: boolean;
   /** Uji LLM sedang berjalan — tombolnya mati DAN mengatakan alasannya. */
@@ -21,9 +28,6 @@ export default function RunPanel({
   cancellable: boolean;
   onStart: () => void;
   onCancel: () => void;
-  status: string;
-  stage: string;
-  message: string;
   progress: number;
 }) {
   const { t } = useI18n();
@@ -33,16 +37,6 @@ export default function RunPanel({
     <div className="panel start-panel">
       <div className="run-progress">
         <div className="progress-outer"><div className="progress-inner" style={{ width: `${pct}%` }} /></div>
-        <div className="stage">
-          {status === "done" ? <><CircleCheck className="ico" aria-hidden="true" /> {t("statusDone")} (100%)</>
-            : status === "error" ? <><OctagonX className="ico" aria-hidden="true" /> {t("statusStopped")}</>
-            /* Diam saat diam. "Not running" adalah keterangan yang mengulang apa
-               yang sudah terlihat — bilah kemajuannya kosong dan tombolnya
-               bertuliskan Start. Spasi keras, bukan kosong: barisnya harus tetap
-               memakan tinggi, kalau tidak panel ini bergeser saat job mulai. */
-            : !status ? " "
-            : `${stage || t("processing")}${message ? ` — ${message}` : ""} (${pct}%)`}
-        </div>
       </div>
       {/* Tombol mati saja tidak cukup: tombol yang kelabu tanpa sebab terbaca
           sebagai aplikasi macet. Selama uji LLM ia menyebutkan apa yang

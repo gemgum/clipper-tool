@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import { eng } from "./engine";
@@ -42,19 +42,34 @@ export default function SettingsMenu() {
   // dibangun terpisah, jadi angka yang ditulis di sini bisa berbohong.
   const [ver, setVer] = useState("");
 
-  // Status komponen ditarik saat panel DIBUKA — dan SETIAP kali dibuka.
-  //
-  // Sebelumnya hasil pertama disimpan selamanya (`if (!open || items) return`),
-  // jadi daftar yang terbaca sebelum komponennya dipasang tetap berbunyi
-  // "missing" sampai aplikasi ditutup — sementara halaman Requirements di
-  // belakangnya sudah hijau semua. Dua tempat yang menjawab pertanyaan sama
-  // dengan jawaban berbeda, dan yang salah justru yang paling gampang dilihat.
-  useEffect(() => {
-    if (!open) return;
+  const loadComponents = useCallback(() => {
     fetch(eng(`/api/requirements`))
       .then((r) => r.json())
       .then((d) => setItems(d.components || []))
       .catch(() => setItems([]));
+  }, []);
+
+  // Ditarik saat HALAMAN dibuka, bukan hanya saat panel dibuka.
+  //
+  // Titik merah di tombolnya dihitung dari daftar ini, dan gunanya memberitahu
+  // ada yang kurang TANPA membuka panelnya. Selama daftarnya baru diisi setelah
+  // panel dibuka sekali, titik itu tidak mungkin muncul lebih dulu — ia
+  // memberitahu apa yang sudah dilihat sendiri oleh yang melihatnya.
+  useEffect(() => { loadComponents(); }, [loadComponents]);
+
+  // Status komponen ditarik SETIAP kali panel dibuka.
+  //
+  // Sebelumnya `open` hanya pernah diisi true — tidak ada satu pun yang
+  // mengembalikannya ke false — sehingga effect ini berjalan TEPAT SEKALI
+  // seumur halaman. Di komputer yang baru dipasang, panel yang dibuka sebelum
+  // komponennya diunduh akan terus berbunyi "missing" sampai aplikasi
+  // ditutup, sementara halaman Requirements di belakangnya sudah hijau semua.
+  // Itu persis laporan yang memicu perbaikan ini — dan yang dibetulkan bukan
+  // pemeriksaannya (keduanya memanggil /api/requirements yang sama), melainkan
+  // KAPAN ia dipanggil.
+  useEffect(() => {
+    if (!open) return;
+    loadComponents();
     fetch(eng(`/api/settings`))
       .then((r) => r.json())
       .then((d) => { setLlmUrl(d.llm_url || ""); setHasLlmKey(!!d.has_llm_key); })
@@ -67,7 +82,7 @@ export default function SettingsMenu() {
       .then((r) => r.json())
       .then((d) => setVer(d.version || ""))
       .catch(() => {});
-  }, [open]);
+  }, [open, loadComponents]);
 
   // Menyimpan lalu MEMERIKSA ULANG. Yang ingin dilihat pengguna sesudah menekan
   // Save bukan kata "tersimpan", melainkan nama server yang menjawab di alamat
@@ -107,8 +122,11 @@ export default function SettingsMenu() {
     if (llmUrl && !servers.some((s) => s.url === llmUrl)) setManual(llmUrl);
   }, [llmUrl, servers]);
 
-  // Menutup lewat Esc/klik-luar dilayani <Popover>; `open` di sini hanya
-  // penanda kapan status komponen perlu ditarik.
+  // `open` di sini penanda kapan status perlu ditarik ulang, dan ia WAJIB ikut
+  // kembali ke false saat panel ditutup — kalau tidak, "dibuka lagi" tidak bisa
+  // dibedakan dari "masih terbuka" dan penarikan ulangnya tidak pernah terjadi.
+  // Karena itu <Popover> dilanggani lewat onOpenChange (dipanggil pada buka DAN
+  // tutup), bukan onOpen (hanya pada buka).
 
   // EMPAT baris, bukan enam belas.
   //
@@ -140,7 +158,7 @@ export default function SettingsMenu() {
   const missing = groups.filter((g) => g.required && !g.ok).length;
 
   return (
-    <Popover width={300} buttonClass="rail-tool" side="beside" onOpen={() => setOpen(true)} label={
+    <Popover width={300} buttonClass="rail-tool" side="beside" onOpenChange={setOpen} label={
       <>
         <Settings className="ico" aria-hidden="true" />
         {/* Titik merah hanya muncul bila ada yang WAJIB dan belum ada — kalau
