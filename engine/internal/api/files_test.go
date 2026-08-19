@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -224,5 +225,38 @@ func TestBrowseClimbsToAFolderThatStillExists(t *testing.T) {
 
 	if body.Dir != dir {
 		t.Errorf("dir = %q, mau %q", body.Dir, dir)
+	}
+}
+
+// Path gaya Windows harus bisa ditempel apa adanya saat engine jalan di WSL:
+// itu bentuk yang tersalin dari Explorer, dan tanpa terjemahan ia berakhir
+// sebagai "<folder kerja>/C:\Users\…" — folder yang tidak pernah ada, jadi
+// pemilih berkas diam-diam kembali ke folder kerja.
+func TestHostPathTranslatesWindowsPaths(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("terjemahan ini hanya berlaku di Linux/WSL")
+	}
+	cases := map[string]string{
+		`C:\Users\PHP-02\Videos`:    "/mnt/c/Users/PHP-02/Videos",
+		`c:/Users/PHP-02/a b.mp4`:   "/mnt/c/Users/PHP-02/a b.mp4",
+		`D:\rekaman.mp4`:            "/mnt/d/rekaman.mp4",
+		"  C:\\Users\\PHP-02  ":     "/mnt/c/Users/PHP-02",
+		"/home/php-02/video.mp4":    "/home/php-02/video.mp4",
+		"/mnt/c/Users/PHP-02/a.mp4": "/mnt/c/Users/PHP-02/a.mp4",
+		"":                          "",
+		// "Copy as path" di Explorer SELALU membungkus dengan kutip, dan itu
+		// bentuk yang paling sering ditempel orang. Dilaporkan dari lapangan
+		// sebagai "error, videonya tidak ada".
+		`"C:\Users\PHP-02\Videos\a.mp4"`: "/mnt/c/Users/PHP-02/Videos/a.mp4",
+		// Berkas di sisi Linux yang dibuka lewat Explorer.
+		`\\wsl.localhost\Ubuntu\home\php-02\a.mp4`: "/home/php-02/a.mp4",
+		`\\wsl$\Ubuntu\home\php-02\a.mp4`:          "/home/php-02/a.mp4",
+		// Share jaringan sungguhan BUKAN berkas mesin ini — jangan ditebak.
+		`\\server\bagi\a.mp4`: `\\server\bagi\a.mp4`,
+	}
+	for in, want := range cases {
+		if got := hostPath(in); got != want {
+			t.Errorf("hostPath(%q) = %q, mau %q", in, got, want)
+		}
 	}
 }

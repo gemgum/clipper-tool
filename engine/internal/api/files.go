@@ -60,7 +60,7 @@ const maxEntries = 2000
 
 // browse melaporkan isi satu folder.
 func (s *Server) browse(w http.ResponseWriter, r *http.Request) {
-	dir := strings.TrimSpace(r.URL.Query().Get("dir"))
+	dir := hostPath(r.URL.Query().Get("dir"))
 	if dir == "" {
 		dir = homeDir()
 	}
@@ -116,6 +116,81 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) {
 		"places":    places(),
 		"truncated": len(entries) >= maxEntries,
 	})
+}
+
+// hostPath menerjemahkan path gaya Windows jadi path yang benar-benar bisa
+// dibuka engine.
+//
+// Di WSL, video pengguna ada di sisi Windows, dan yang tersalin dari Explorer
+// adalah "C:\Users\...\video.mp4". filepath.Abs di Linux mengubahnya jadi
+// "<folder kerja>/C:\Users\..." — folder yang tidak pernah ada. Akibatnya
+// pemilih berkas diam-diam kembali ke folder kerja dan folder Windows tampak
+// tidak bisa dibuka sama sekali, padahal isinya terjangkau lewat /mnt/c.
+//
+// Tiga bentuk yang benar-benar dipakai orang, dan ketiganya datang dari satu
+// perintah yang sama — "Copy as path" di Explorer (Shift + klik kanan):
+//
+//	C:\Users\Budi\video.mp4                       → /mnt/c/Users/Budi/video.mp4
+//	"C:\Users\Budi\video.mp4"                     → idem; Explorer MEMBUNGKUSNYA
+//	                                                 dengan kutip, selalu
+//	\\wsl.localhost\Ubuntu\home\budi\video.mp4    → /home/budi/video.mp4
+//
+// Bentuk ketiga muncul saat berkasnya justru ada di sisi Linux dan dibuka lewat
+// Explorer. "\\wsl$\..." adalah nama lama untuk hal yang sama.
+//
+// Share jaringan sungguhan ("\\server\bagi\video.mp4") TIDAK disentuh: ia bukan
+// berkas mesin ini, dan menebak terjemahannya hanya menghasilkan path palsu.
+//
+// Di Windows asli tidak ada yang diterjemahkan — di sana path itu sudah benar
+// apa adanya — tetapi kutipnya tetap dibuang, sebab Explorer yang sama juga
+// memasangnya di sana.
+func hostPath(p string) string {
+	p = unquote(strings.TrimSpace(p))
+	if runtime.GOOS != "linux" || p == "" {
+		return p
+	}
+	if lx, ok := wslUNC(p); ok {
+		return lx
+	}
+	if len(p) < 2 || p[1] != ':' {
+		return p
+	}
+	drive := p[0]
+	if !(drive >= 'A' && drive <= 'Z') && !(drive >= 'a' && drive <= 'z') {
+		return p
+	}
+	// Backslash BUKAN pemisah folder di Linux — ia karakter nama berkas yang
+	// sah, jadi ia harus ditukar di sini dan bukan diserahkan ke filepath.
+	rest := strings.ReplaceAll(p[2:], `\`, "/")
+	return filepath.Join("/mnt", strings.ToLower(string(drive)), rest)
+}
+
+// unquote membuang kutip pembungkus yang dipasang Explorer.
+func unquote(p string) string {
+	if len(p) >= 2 && (p[0] == '"' && p[len(p)-1] == '"' || p[0] == '\'' && p[len(p)-1] == '\'') {
+		return strings.TrimSpace(p[1 : len(p)-1])
+	}
+	return p
+}
+
+// wslUNC menerjemahkan "\\wsl.localhost\<distro>\..." (dan "\\wsl$\<distro>\...")
+// jadi path Linux biasa. ok=false untuk apa pun selain kedua host itu.
+func wslUNC(p string) (string, bool) {
+	if !strings.HasPrefix(p, `\\`) {
+		return "", false
+	}
+	parts := strings.Split(strings.ReplaceAll(p[2:], `\`, "/"), "/")
+	if len(parts) < 3 {
+		return "", false
+	}
+	host := strings.ToLower(parts[0])
+	if host != "wsl.localhost" && host != "wsl$" {
+		return "", false
+	}
+	// parts[1] = nama distro. Ia tidak ikut: dari DALAM distro itu, akarnya
+	// memang "/". Distro lain tidak terjangkau dari sini, dan menganggapnya
+	// terjangkau justru menghasilkan path yang menunjuk berkas yang salah.
+	return "/" + strings.Join(parts[2:], "/"), true
 }
 
 // openableDir mengubah apa pun yang diberikan klien jadi folder yang benar-benar

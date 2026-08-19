@@ -125,7 +125,11 @@ func (c *Client) Dimensions(ctx context.Context, input string) (w, h int, err er
 
 // ExtractAudioWAV mengekstrak audio ke WAV 16kHz mono (format whisper.cpp).
 // Streaming langsung ke file — video tidak dimuat ke RAM.
-func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string) error {
+//
+// maxSec > 0 hanya mengambil sekian detik pertama. Dipakai pembuat caption,
+// yang bekerja dari pembuka video dan tidak perlu membayar transkripsi satu jam
+// penuh untuk itu.
+func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string, maxSec float64) error {
 	args := []string{
 		"-y",
 		"-i", CLIPath(input),
@@ -133,8 +137,11 @@ func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string) erro
 		"-ac", "1",
 		"-ar", "16000",
 		"-c:a", "pcm_s16le",
-		CLIPath(outWAV),
 	}
+	if maxSec > 0 {
+		args = append(args, "-t", fmt.Sprintf("%.3f", maxSec))
+	}
+	args = append(args, CLIPath(outWAV))
 	return c.run(ctx, "extract audio", args)
 }
 

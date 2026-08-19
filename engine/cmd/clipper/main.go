@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gemgum/clipper/engine/internal/api"
+	"github.com/gemgum/clipper/engine/internal/caption"
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/correct"
 	"github.com/gemgum/clipper/engine/internal/job"
@@ -40,6 +41,8 @@ func main() {
 		cmdRun(layout, os.Args[2:])
 	case "write":
 		cmdWrite(layout, os.Args[2:])
+	case "caption":
+		cmdCaption(layout, os.Args[2:])
 	case "serve":
 		cmdServe(layout, os.Args[2:])
 	case "version", "-v", "--version":
@@ -56,6 +59,8 @@ func usage() {
 Usage:
   clipper run <video> [flags]    Process a single video (CLI)
   clipper write <url>... [flags] Write one article from up to 5 source articles
+  clipper caption <video>... [flags]  Write scroll-stopping captions for one or
+                                more videos, one .txt next to each video's name
   clipper serve [flags]          Run the HTTP API for the GUI
   clipper version
 
@@ -71,6 +76,27 @@ Usage:
   -lang        en|id — language of the fixed text the engine writes (default en)
   -out         where to write the article folder (default <data>/posts)
   -max-words   article body budget sent to the model per source (default 1500)
+
+'caption' flags:
+  -engine      ollama|claude|openai|gemini|deepseek (default ollama). Cloud engines
+               need their key in .env — see the Requirements page in the app.
+  -model       model name; empty uses the engine's own default
+  -minutes     how much of each video to listen to (default 5). Longer videos are
+               not refused — only the first minutes are read, and the .txt says so.
+  -variants    how many captions to write per video (default 3). You pick one;
+               that choice is the only guard a machine-written caption has.
+  -lang        id|en — language of the captions (default id)
+  -terms       comma-separated correct spellings of names and regional words, the
+               same list the clip page uses. Whisper writes down the nearest word
+               it knows instead, and a wrong name shows far more in a caption.
+  -whisper     whisper model: tiny|base|small|medium|large-v3 (default small).
+               This is the single biggest lever on caption quality: a caption can
+               only be as good as the words it was written from.
+  -transcript-fix on|off — let the same engine fix the transcript's misheard words
+               before the captions are written (default on). Without it the captions
+               copy whatever Whisper misheard, hashtags included.
+  -out         one folder for every .txt. The default writes each .txt next to
+               its own video, which is where you go looking for it.
 
 'run' flags:
   -model       whisper model: tiny|base|small|medium|large-v3 (default small)
@@ -241,7 +267,11 @@ func cmdRun(layout config.Layout, args []string) {
 // Ada supaya fitur ini bisa dipakai dan diukur sebelum tab GUI-nya dibuat —
 // dan supaya ada satu jalan yang tidak bergantung pada browser sama sekali.
 func cmdWrite(layout config.Layout, args []string) {
-	urls, flagArgs := splitURLs(args)
+	urls, flagArgs := splitPositional(args, map[string]bool{
+		"-engine": true, "-model": true, "-url": true,
+		"-write-engine": true, "-write-model": true,
+		"-lang": true, "-out": true, "-max-words": true,
+	})
 
 	fs := flag.NewFlagSet("write", flag.ExitOnError)
 	engine := fs.String("engine", "ollama", "")
@@ -328,14 +358,103 @@ func cmdWrite(layout config.Layout, args []string) {
 	_ = enc.Encode(res)
 }
 
-// splitURLs memisahkan alamat (positional) dari flag, sehingga urutan argumen
-// bebas — paket flag standar berhenti di positional pertama.
-func splitURLs(args []string) (urls []string, flagArgs []string) {
-	valueFlags := map[string]bool{
-		"-engine": true, "-model": true, "-url": true,
-		"-write-engine": true, "-write-model": true,
-		"-lang": true, "-out": true, "-max-words": true,
+// cmdCaption membuat caption dari CLI, untuk satu video atau sekaligus banyak.
+//
+// Bulk BUKAN jalan kedua: satu berkas cuma daftar sepanjang satu. Kegagalan
+// satu video dilaporkan lalu antriannya lanjut — 29 berkas tidak dibuang karena
+// yang ke-30 tidak punya suara.
+func cmdCaption(layout config.Layout, args []string) {
+	videos, flagArgs := splitPositional(args, map[string]bool{
+		"-engine": true, "-model": true, "-minutes": true, "-variants": true,
+		"-lang": true, "-terms": true, "-whisper": true, "-out": true,
+		"-transcript-fix": true,
+	})
+
+	fs := flag.NewFlagSet("caption", flag.ExitOnError)
+	defaults := config.DefaultOptions()
+	engine := fs.String("engine", "ollama", "")
+	model := fs.String("model", "", "")
+	minutes := fs.Float64("minutes", caption.DefaultMaxSeconds/60, "")
+	variants := fs.Int("variants", caption.DefaultVariants, "")
+	lang := fs.String("lang", defaults.Language, "")
+	terms := fs.String("terms", "", "")
+	whisperModel := fs.String("whisper", defaults.WhisperModel, "")
+	transcriptFix := fs.String("transcript-fix", "on", "")
+	outDir := fs.String("out", "", "")
+	_ = fs.Parse(flagArgs)
+
+	if len(videos) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one video path is required. Example: clipper caption clip_01.mp4 clip_02.mp4")
+		os.Exit(1)
 	}
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
+	// Transkripsi memakai tahap yang sama dengan pipeline klip, jadi opsinya
+	// pun opsi pipeline — hanya model whisper & bahasanya yang berlaku di sini.
+	opts := defaults
+	opts.WhisperModel = *whisperModel
+	opts.Language = *lang
+	paths := config.ResolvePaths(layout, opts)
+
+	complete, engineName, err := api.EngineFor(*engine, *model)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "engine: %s · whisper %s · first %.0f min per video\n", engineName, opts.WhisperModel, *minutes)
+
+	fix := *transcriptFix != "off"
+	p := pipeline.New(paths, opts)
+	work := filepath.Join(paths.DataDir, "cache", "caption")
+	res, err := caption.Run(context.Background(),
+		caption.Options{
+			Videos:     videos,
+			MaxSeconds: *minutes * 60,
+			Lang:       *lang,
+			Terms:      correct.ParseTerms(*terms),
+			Variants:   *variants,
+			Fix:        &fix,
+			OutDir:     *outDir,
+			EngineName: engineName,
+		},
+		caption.Deps{
+			Complete: complete,
+			Engine:   engineName,
+			Transcribe: caption.Whisper(p, work, func(msg string) {
+				fmt.Fprintln(os.Stderr, "         ", msg)
+			}),
+		},
+		func(pr caption.Progress) {
+			fmt.Fprintf(os.Stderr, "[%3.0f%%] %-12s %s\n", pr.Value*100, pr.Stage, pr.Message)
+		})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAILED:", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%d of %d video(s):\n", res.Done(), len(res.Files))
+	for _, f := range res.Files {
+		if f.Error != "" {
+			fmt.Fprintf(os.Stderr, "  %-30s FAILED: %s\n", f.Name, f.Error)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "  %-30s %d caption(s)  %s\n", f.Name, len(f.Variants), f.TXT)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(res)
+}
+
+// splitPositional memisahkan argumen positional (alamat artikel, path video)
+// dari flag, sehingga urutan argumen bebas — paket flag standar berhenti di
+// positional pertama.
+//
+// valueFlags menyebut flag yang MEMBAWA nilai terpisah ("-model llama3.1"),
+// sebab nilai itu tidak boleh terbaca sebagai positional.
+func splitPositional(args []string, valueFlags map[string]bool) (positional []string, flagArgs []string) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if valueFlags[a] {
@@ -350,9 +469,9 @@ func splitURLs(args []string) (urls []string, flagArgs []string) {
 			flagArgs = append(flagArgs, a)
 			continue
 		}
-		urls = append(urls, a)
+		positional = append(positional, a)
 	}
-	return urls, flagArgs
+	return positional, flagArgs
 }
 
 func cmdServe(layout config.Layout, args []string) {

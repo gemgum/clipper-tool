@@ -136,9 +136,9 @@ func ExtractFacts(ctx context.Context, content news.Content, complete news.Compl
 		return sheet, err
 	}
 
-	facts, err := parseFacts(extractJSON(raw))
+	facts, err := parseFacts(ExtractJSON(raw))
 	if err != nil {
-		return sheet, jsonError(engineName, raw, err)
+		return sheet, JSONError(engineName, raw, err)
 	}
 
 	sheet.Facts, sheet.Rejected = verify(content, facts)
@@ -252,13 +252,13 @@ func contentWords(s string) []string {
 	return out
 }
 
-// extractJSON mengambil nilai JSON dari balasan yang kadang dibungkus prosa
+// ExtractJSON mengambil nilai JSON dari balasan yang kadang dibungkus prosa
 // atau pagar kode.
 //
 // Larik ikut dikenali, bukan cuma objek: model yang bentuk balasannya tidak
 // dipaksakan server kerap membalas "[...]" — dan mengambil dari "{" pertama
 // sampai "}" terakhir pada larik justru MEMOTONG isinya jadi JSON rusak.
-func extractJSON(s string) string {
+func ExtractJSON(s string) string {
 	s = strings.TrimSpace(s)
 	obj := span(s, "{", "}")
 	arr := span(s, "[", "]")
@@ -282,12 +282,12 @@ func span(s, open, close string) string {
 	return ""
 }
 
-// jsonError menerangkan balasan yang tidak bisa dibaca.
+// JSONError menerangkan balasan yang tidak bisa dibaca.
 //
 // Balasan yang TERPOTONG dibedakan dari yang bentuknya salah: keduanya muncul
 // sebagai "unexpected end of JSON input", padahal penyelesaiannya jauh berbeda
 // — yang satu butuh jatah token lebih besar, yang satu butuh model lain.
-func jsonError(engineName, raw string, err error) error {
+func JSONError(engineName, raw string, err error) error {
 	hint := ""
 	if s := strings.TrimSpace(raw); !strings.HasSuffix(s, "}") {
 		hint = " — the reply was cut off before it ended, so the model ran out of its output budget"

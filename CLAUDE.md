@@ -15,11 +15,12 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
 - **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, pemasangan
   komponen, dan penyaji antarmuka. Standard library saja (tanpa dependency
   eksternal).
-- **gui/** (Next.js) — empat tab: `/` klip video (form → progress SSE → daftar
+- **gui/** (Next.js) — lima tab: `/` klip video (form → progress SSE → daftar
   klip), `/news` kartu berita (tempel link / jelajah RSS → kartu PNG),
   `/writer` pembuat berita (sampai 5 artikel sumber → satu artikel baru +
-  pagar fakta, lihat `notes/38`), dan `/requirements` status & pemasangan
-  komponen. Ada pemilih bahasa antarmuka
+  pagar fakta, lihat `notes/38`), `/captions` pembuat caption (satu video atau
+  sekaligus banyak → satu `.txt` per video, lihat `notes/40`), dan
+  `/requirements` status & pemasangan komponen. Ada pemilih bahasa antarmuka
   EN/ID di bilah navigasi (default EN, disimpan di localStorage). Dibangun jadi
   berkas statis (`gui/out`) yang disajikan engine.
 - **desktop/** (Tauri) — jendela aplikasi. Setipis mungkin: menjalankan engine,
@@ -40,6 +41,10 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
                            -save burn|clean|both]                # CLI
 ./bin/clipper write <url>... [-provider claude|ollama -ollama-model -lang -out]
                                  # pembuat berita: sampai 5 artikel → satu artikel
+./bin/clipper caption <video>... [-engine -model -minutes 5 -variants 3 \
+                                  -terms -whisper -out]
+                                 # caption: tiap video → <nama video>.txt
+                                 # ditulis DI SEBELAH videonya; -out mengumpulkan
 ./bin/clipper serve              # API + GUI di 127.0.0.1:8787 (port acak bila terpasang)
                                  # banner mencetak satu alamat "open:" — tinggal dibuka
 ./bin/clipper serve -token on    # + kunci sesi (otomatis menyala saat terpasang)
@@ -92,6 +97,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | news/google.go  | membuka pengalih news.google.com lewat RPC-nya sendiri (tanpa browser)        |
 | card            | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber   |
 | writer          | pembuat berita: fakta per artikel → satu artikel + pagar fakta (notes/38)     |
+| caption         | caption memancing dari ucapan video (notes/40); transkrip + koreksi dipakai ulang |
 
 ## Folder data: dua bentuk, dipilih sendiri
 

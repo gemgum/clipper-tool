@@ -116,7 +116,7 @@ func (s *Server) setComponentPath(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	req.Path = strings.TrimSpace(req.Path)
+	req.Path = hostPath(req.Path)
 	if req.Path == "" {
 		writeErr(w, 400, "the 'path' field is required")
 		return

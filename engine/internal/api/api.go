@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/caption"
 	"github.com/gemgum/clipper/engine/internal/capture"
 	"github.com/gemgum/clipper/engine/internal/card"
 	"github.com/gemgum/clipper/engine/internal/config"
@@ -26,6 +27,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/news"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
+	"github.com/gemgum/clipper/engine/internal/writer"
 )
 
 // Server membungkus manager job.
@@ -38,7 +40,9 @@ type Server struct {
 	// installs = pemasangan komponen yang berjalan di latar (lihat installs.go).
 	installs installs
 	// posts = job pembuat berita yang berjalan di latar (lihat posts.go).
-	posts posts
+	posts bgStore[writer.Result]
+	// captions = job pembuat caption yang berjalan di latar (lihat captions.go).
+	captions bgStore[caption.Result]
 	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
 	token string
 	// hosts = nama host tambahan yang boleh dipakai menghubungi engine, di luar
@@ -139,6 +143,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/posts/{id}/file", s.postFile)
 	mux.HandleFunc("POST /api/posts/{id}/cancel", s.cancelPost)
 	mux.HandleFunc("GET /api/posts/limits", s.postLimits)
+
+	mux.HandleFunc("POST /api/captions", s.createCaption)
+	mux.HandleFunc("GET /api/captions", s.listCaptions)
+	mux.HandleFunc("GET /api/captions/events", s.captionEvents)
+	mux.HandleFunc("GET /api/captions/{id}", s.getCaption)
+	mux.HandleFunc("GET /api/captions/{id}/file", s.captionFile)
+	mux.HandleFunc("POST /api/captions/{id}/cancel", s.cancelCaption)
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.
 	if ui := webUI(s.layout.GUIDir); ui != nil {
@@ -1009,7 +1020,7 @@ func wantsBold(weight string) bool {
 
 // probe mengembalikan durasi & dimensi video.
 func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Query().Get("path")
+	path := hostPath(r.URL.Query().Get("path"))
 	if path == "" {
 		writeErr(w, 400, "the 'path' parameter is required")
 		return
@@ -1033,7 +1044,7 @@ func (s *Server) probe(w http.ResponseWriter, r *http.Request) {
 // center). Mode yang belum tersedia ditolak, bukan diganti diam-diam.
 func (s *Server) frame(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	path := q.Get("path")
+	path := hostPath(q.Get("path"))
 	if path == "" {
 		writeErr(w, 400, "the 'path' parameter is required")
 		return
@@ -1102,6 +1113,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 		req.Options.Zoom = config.NaturalZoom(req.Options.Reframe)
 	}
 
+	req.Source.Value = hostPath(req.Source.Value)
 	if req.Source.Value == "" {
 		writeErr(w, 400, "source.value (video path) is required")
 		return

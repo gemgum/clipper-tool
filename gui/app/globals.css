@@ -2188,3 +2188,25 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    berita); tab kartu berita tidak punya keranjang dan tidak boleh ikut
    membayar tingginya. */
 .screen-col > .panel.feed-panel:has(.basket) { min-height: 320px; }
+
+/* --- pembuat caption (tab keempat) --- */
+
+/* Daftar video: batas tingginya ada karena isinya bisa 30 baris, dan tiap
+   baris mendorong tombol Mulai keluar jendela — persis yang dilarang notes/29.
+   flex:none supaya ia tidak ikut merebut sisa ruang panelnya. */
+.cap-drop { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.cap-drop.over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: 8px; }
+.feed-panel .cap-list { flex: none; max-height: 168px; }
+
+/* Satu video di kolom hasil: nama berkasnya, lalu caption-captionnya. */
+.cap-file { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
+.cap-file:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
+.cap-file-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.cap-variant { position: relative; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.cap-variant p { margin: 0 0 6px; line-height: 1.5; }
+.cap-variant p:last-child { margin-bottom: 0; }
+.cap-hook { font-weight: 600; }
+.cap-copy { position: absolute; top: 6px; right: 6px; }
+/* Pagar isi: penanda, bukan galat. Ia menyebut baris mana yang perlu
+   dicocokkan dengan videonya sebelum caption itu diposting. */
+.cap-warn { color: var(--warn-text); font-size: 12px; }

@@ -30,6 +30,7 @@ const pages = [
   ["clips", "/"],
   ["news", "/news"],
   ["writer", "/writer"],
+  ["captions", "/captions"],
   ["requirements", "/requirements"],
   ["history", "/history"],
 ];

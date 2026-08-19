@@ -25,7 +25,12 @@ const probeBytes = 4 << 20 // 4 MB
 // dan perbaikan decoding seolah-olah tidak berpengaruh. v2 = pemakaian -mc 0
 // dan -sns (anti-loop halusinasi); transkrip v1 dibuang karena bisa mengandung
 // loop tersebut.
-func transcriptCacheKey(video, model, lang string) (string, error) {
+//
+// maxSec > 0 berarti hanya sekian detik pertama video yang ditranskripsi, dan
+// ikut masuk kunci — transkrip separuh TIDAK boleh dipakai ulang oleh job klip
+// yang membutuhkan video utuh. Nol tidak mengubah kunci sama sekali, jadi cache
+// yang sudah ada tetap terpakai.
+func transcriptCacheKey(video, model, lang string, maxSec float64) (string, error) {
 	f, err := os.Open(video)
 	if err != nil {
 		return "", err
@@ -38,6 +43,9 @@ func transcriptCacheKey(video, model, lang string) (string, error) {
 
 	h := sha256.New()
 	fmt.Fprintf(h, "v2|%d|%s|%s|", st.Size(), model, lang)
+	if maxSec > 0 {
+		fmt.Fprintf(h, "t%.0f|", maxSec)
+	}
 
 	headLen := int64(probeBytes)
 	if st.Size() < headLen {

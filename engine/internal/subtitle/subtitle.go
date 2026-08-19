@@ -321,6 +321,22 @@ func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, su
 // tidak pernah tampil di video, jadi lebar baris subtitle tidak relevan.
 // Satu kalimat satu baris juga membuatnya enak dibaca manusia saat diperiksa.
 func WriteText(path string, segs []types.TranscriptSegment, clipStart float64) error {
+	out := Text(segs, clipStart)
+	if out == "" {
+		// Klip tanpa ucapan sama sekali (musik, ambience). Berkasnya tetap
+		// ditulis kosong supaya jumlah berkas per klip selalu sama — pengguna
+		// tidak perlu menebak apakah berkasnya hilang atau memang tak ada isi.
+		return os.WriteFile(path, nil, 0o644)
+	}
+	return os.WriteFile(path, []byte(out+"\n"), 0o644)
+}
+
+// Text menyusun isi berkas itu tanpa menuliskannya.
+//
+// Dipakai pembuat caption, yang butuh ucapan klip sebagai teks untuk dikirim ke
+// LLM — bentuk yang sama persis dengan yang selama ini ditempel orang dari
+// berkas .txt, jadi tidak ada dua gagasan berbeda tentang "ucapan tanpa waktu".
+func Text(segs []types.TranscriptSegment, clipStart float64) string {
 	var b strings.Builder
 	atLineStart := true
 	for _, w := range collectWords(segs, clipStart) {
@@ -338,14 +354,7 @@ func WriteText(path string, segs []types.TranscriptSegment, clipStart float64) e
 			b.WriteByte('\n')
 		}
 	}
-	out := strings.TrimSpace(b.String())
-	if out == "" {
-		// Klip tanpa ucapan sama sekali (musik, ambience). Berkasnya tetap
-		// ditulis kosong supaya jumlah berkas per klip selalu sama — pengguna
-		// tidak perlu menebak apakah berkasnya hilang atau memang tak ada isi.
-		return os.WriteFile(path, nil, 0o644)
-	}
-	return os.WriteFile(path, []byte(out+"\n"), 0o644)
+	return strings.TrimSpace(b.String())
 }
 
 // WriteSRT menulis subtitle .srt (untuk dipakai di editor lain saat pengguna

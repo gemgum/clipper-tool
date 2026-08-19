@@ -295,8 +295,8 @@ func askCompose(ctx context.Context, system, user string, complete news.Complete
 		return Draft{}, err
 	}
 	var d Draft
-	if err := json.Unmarshal([]byte(extractJSON(raw)), &d); err != nil {
-		return Draft{}, jsonError(engineName, raw, err)
+	if err := json.Unmarshal([]byte(ExtractJSON(raw)), &d); err != nil {
+		return Draft{}, JSONError(engineName, raw, err)
 	}
 	d.strip()
 	d.Tags = hashtags(d)

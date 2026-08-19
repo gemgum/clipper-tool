@@ -2,159 +2,17 @@ package api
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 	"github.com/gemgum/clipper/engine/internal/writer"
 )
 
-// PostJob keadaan satu job pembuat berita.
-//
-// Disimpan di memori saja, seperti pemasangan komponen (installs.go) dan tidak
-// seperti job klip yang punya riwayat di disk. Alasannya: hasil kerjanya sudah
-// ada di folder artikelnya sendiri — daftar job cuma jendela ke pekerjaan yang
-// sedang berjalan.
-type PostJob struct {
-	ID        string         `json:"id"`
-	Status    string         `json:"status"` // running | done | error
-	Stage     string         `json:"stage"`
-	Progress  float64        `json:"progress"`
-	Log       []string       `json:"log"`
-	Error     string         `json:"error,omitempty"`
-	Result    *writer.Result `json:"result,omitempty"`
-	CreatedAt time.Time      `json:"created_at"`
-
-	// cancel menghentikan job yang sedang jalan. Tidak ikut ke JSON — ia fungsi,
-	// dan lagipula pemanggilnya cukup tahu Status.
-	cancel context.CancelFunc `json:"-"`
-}
-
-// maxPostLog membatasi baris log yang disimpan per job. Satu job menghasilkan
-// puluhan baris, bukan ribuan; batas ini menjaga job yang mengamuk tidak
-// menghabiskan memori.
-const maxPostLog = 500
-
-type posts struct {
-	mu   sync.RWMutex
-	seq  int
-	jobs map[string]*PostJob
-	subs map[chan PostJob]struct{}
-}
-
-func (p *posts) init() {
-	if p.jobs == nil {
-		p.jobs = map[string]*PostJob{}
-		p.subs = map[chan PostJob]struct{}{}
-	}
-}
-
-func (p *posts) create(cancel context.CancelFunc) *PostJob {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.init()
-	p.seq++
-	j := &PostJob{
-		ID:        fmt.Sprintf("post_%04d", p.seq),
-		Status:    "running",
-		Stage:     "queued",
-		CreatedAt: time.Now(),
-		cancel:    cancel,
-	}
-	p.jobs[j.ID] = j
-	return j
-}
-
-// update menyimpan perubahan lalu menyiarkannya.
-func (p *posts) update(id string, fn func(*PostJob)) {
-	p.mu.Lock()
-	p.init()
-	j, ok := p.jobs[id]
-	if !ok {
-		p.mu.Unlock()
-		return
-	}
-	fn(j)
-	if len(j.Log) > maxPostLog {
-		j.Log = j.Log[len(j.Log)-maxPostLog:]
-	}
-	snapshot := *j
-	subs := make([]chan PostJob, 0, len(p.subs))
-	for c := range p.subs {
-		subs = append(subs, c)
-	}
-	p.mu.Unlock()
-
-	for _, c := range subs {
-		// Pelanggan yang lambat dilewati, bukan ditunggu — satu halaman yang
-		// membeku tidak boleh menghentikan job yang sedang berjalan.
-		select {
-		case c <- snapshot:
-		default:
-		}
-	}
-}
-
-// cancel menghentikan job yang sedang berjalan. Mengembalikan false bila
-// job-nya tidak ada; job yang sudah selesai dianggap berhasil dibatalkan supaya
-// tombol di GUI tidak melaporkan galat untuk keadaan yang tidak salah.
-func (p *posts) stop(id string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.init()
-	j, ok := p.jobs[id]
-	if !ok {
-		return false
-	}
-	if j.Status == "running" && j.cancel != nil {
-		j.cancel()
-	}
-	return true
-}
-
-func (p *posts) get(id string) (PostJob, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	j, ok := p.jobs[id]
-	if !ok {
-		return PostJob{}, false
-	}
-	return *j, true
-}
-
-// snapshot mengembalikan seluruh job, terbaru dulu.
-func (p *posts) snapshot() []PostJob {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	out := make([]PostJob, 0, len(p.jobs))
-	for _, j := range p.jobs {
-		out = append(out, *j)
-	}
-	for i, k := 0, len(out)-1; i < k; i, k = i+1, k-1 {
-		out[i], out[k] = out[k], out[i]
-	}
-	return out
-}
-
-func (p *posts) subscribe() chan PostJob {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.init()
-	c := make(chan PostJob, 64)
-	p.subs[c] = struct{}{}
-	return c
-}
-
-func (p *posts) unsubscribe(c chan PostJob) {
-	p.mu.Lock()
-	delete(p.subs, c)
-	p.mu.Unlock()
-	close(c)
-}
+// PostJob keadaan satu job pembuat berita — bentuk job latar yang sama dengan
+// pembuat caption, dibedakan hanya oleh tipe hasilnya (bgjob.go).
+type PostJob = bgJob[writer.Result]
 
 // postsDir = tempat artikel disimpan. Selalu di bawah DataDir, tidak pernah
 // disusun dari akar proyek (CLAUDE.md).
@@ -213,7 +71,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 	// hidup setelah permintaan HTTP-nya selesai (notes/25), tapi tetap punya
 	// kenop untuk dihentikan.
 	ctx, cancel := context.WithCancel(context.Background())
-	job := s.posts.create(cancel)
+	job := s.posts.create("post", cancel)
 	deps := writer.Deps{
 		Read:        read,
 		ReadEngine:  readName,
@@ -235,20 +93,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 				}
 			})
 		})
-		s.posts.update(job.ID, func(j *PostJob) {
-			if err != nil {
-				// Dibatalkan pengguna BUKAN galat: menampilkannya sebagai galat
-				// merah membuat tombol yang baru saja ditekan terlihat rusak.
-				if ctx.Err() != nil {
-					j.Status, j.Stage, j.Error = "canceled", "canceled", ""
-					return
-				}
-				j.Status, j.Stage, j.Error = "error", "error", err.Error()
-				return
-			}
-			j.Status, j.Stage, j.Progress = "done", "done", 1
-			j.Result = &res
-		})
+		s.posts.finish(job.ID, ctx, res, err)
 	}()
 
 	writeJSON(w, 202, map[string]any{"id": job.ID, "engine": readName, "write_engine": writeName, "started": true})
@@ -341,42 +186,6 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // postEvents mengalirkan kemajuan SEMUA job penulisan.
-//
-// Boleh disambung ulang kapan saja: pesan pertama berisi keadaan terkini, jadi
-// halaman yang baru dibuka langsung tahu apa yang sedang berjalan.
 func (s *Server) postEvents(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeErr(w, 500, "streaming is not supported by this connection")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(200)
-
-	for _, j := range s.posts.snapshot() {
-		writeSSE(w, "post", j)
-	}
-	writeSSE(w, "ready", map[string]any{"ok": true})
-	flusher.Flush()
-
-	ch := s.posts.subscribe()
-	defer s.posts.unsubscribe(ch)
-
-	tick := time.NewTicker(20 * time.Second)
-	defer tick.Stop()
-
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case j := <-ch:
-			writeSSE(w, "post", j)
-			flusher.Flush()
-		case <-tick.C:
-			writeSSE(w, "ping", map[string]any{})
-			flusher.Flush()
-		}
-	}
+	s.posts.stream(w, r, "post")
 }

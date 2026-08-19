@@ -8,7 +8,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -97,89 +96,34 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	// tidak boleh menggagalkan job — ringkasannya cukup tampil tanpa rasio.
 	videoSec, _ := p.ff.Duration(ctx, input)
 
-	// 1. Cache transkrip: kunci dari isi video + model + bahasa. Transkripsi
-	// adalah tahap termahal (bisa puluhan menit), jadi percobaan ulang setelah
-	// job gagal tidak perlu mengulanginya.
-	var tr types.Transcript
-	cacheHit := false
-	cachePath := ""
-	// Kunci ini dipakai ulang oleh cache koreksi, jadi hidup di luar blok if.
-	cacheKey := ""
-	if key, err := transcriptCacheKey(input, p.Opts.WhisperModel, p.Opts.Language); err == nil {
-		cacheKey = key
-		cachePath = transcriptCachePath(p.Paths.DataDir, key)
-		if cached, ok := loadTranscriptCache(cachePath); ok {
-			tr, cacheHit = cached, true
-			emit(onProgress, Progress{Stage: "transcribing", Value: 0.48,
-				Message: "Transcript loaded from cache (no re-transcription needed)"})
-		}
-	}
-
-	// Audio hanya perlu diekstrak bila masih harus transkripsi, atau bila
-	// heuristik butuh fitur energi audio.
-	needAudio := !cacheHit || p.Opts.Provider == "heuristic"
-	wav := filepath.Join(tmpDir, "audio.wav")
-	var rms audio.FeaturesResult
-	if needAudio {
-		emit(onProgress, Progress{Stage: "extracting", Value: 0.05, Message: "Extracting audio"})
-		t0 := time.Now()
-		// Tanpa trek suara tidak ada yang bisa dikerjakan Clipper: seluruh
-		// pipeline berdiri di atas ucapan. Diperiksa di sini supaya pesannya
-		// menyebut sebabnya, bukan nama berkas keluaran yang gagal dibuat.
-		if ok, err := p.ff.HasAudio(ctx, input); err == nil && !ok {
-			return nil, fmt.Errorf(
-				"this video has no sound track, so there is nothing to transcribe — Clipper picks moments from what is said. Pick a video that has audio")
-		}
-		if err := p.ff.ExtractAudioWAV(ctx, input, wav); err != nil {
-			return nil, err
-		}
-		rec.since("Extract audio", t0, "ffmpeg")
-		if p.Opts.Provider == "heuristic" {
-			emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy"})
-			t0 := time.Now()
-			r, err := audio.Features(wav, 100)
-			if err != nil {
-				return nil, fmt.Errorf("audio features: %w", err)
-			}
-			rms = r
-			rec.since("Audio features", t0, "built-in")
-		}
-	}
-
-	// 3. Transkripsi (bagian paling lama; progress diparse dari whisper).
-	if !cacheHit {
-		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transcribing (whisper.cpp)"})
-		tTr := time.Now()
-		outBase := filepath.Join(tmpDir, "transcript")
-		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
-			// Petakan 0..1 transkripsi ke pita 0.20..0.48 dari total.
-			emit(onProgress, Progress{
-				Stage:   "transcribing",
-				Value:   0.20 + 0.28*f,
-				Message: fmt.Sprintf("Transcribing %.0f%%", f*100),
-			})
-		})
-		if err != nil {
-			return nil, err
-		}
-		tr = got
-		rec.since("Transcribe", tTr, "whisper "+p.Opts.WhisperModel)
-		if cachePath != "" {
-			// Gagal menyimpan cache tidak boleh menggagalkan job.
-			_ = saveTranscriptCache(cachePath, tr)
-		}
-	} else {
-		rec.add("Transcribe", 0, "whisper "+p.Opts.WhisperModel+" (from cache)")
-	}
-	if len(tr.Segments) == 0 {
-		return nil, fmt.Errorf("the transcript is empty — check the audio/language")
-	}
-	// Dihentikan DI SINI, sebelum koreksi: melewatkan ribuan segmen halusinasi ke
-	// LLM makan waktu sangat lama dan hasilnya tetap sampah. Diperiksa juga pada
-	// cache hit — transkrip buruk yang terlanjur tersimpan tidak boleh lolos
-	// hanya karena tidak dihitung ulang.
-	if err := detectRepetitionLoop(tr); err != nil {
+	// 1-3. Transkripsi (tahap termahal, lihat transcript.go). Audio tetap
+	// diekstrak walau transkripnya dari cache bila mesin skornya heuristik —
+	// ia membaca energi audio, bukan teks.
+	needAudio := p.Opts.Provider == "heuristic"
+	got, err := p.Transcript(ctx, input, tmpDir, 0, needAudio, onProgress)
+	if err != nil {
 		return nil, err
+	}
+	tr, cacheKey, cacheHit := got.Transcript, got.CacheKey, got.FromCache
+	if got.ExtractDur > 0 {
+		rec.add("Extract audio", got.ExtractDur, "ffmpeg")
+	}
+	if cacheHit {
+		rec.add("Transcribe", 0, "whisper "+p.Opts.WhisperModel+" (from cache)")
+	} else {
+		rec.add("Transcribe", got.WhisperDur, "whisper "+p.Opts.WhisperModel)
+	}
+
+	var rms audio.FeaturesResult
+	if needAudio && got.WAV != "" {
+		emit(onProgress, Progress{Stage: "extracting", Value: 0.12, Message: "Analysing audio energy"})
+		t0 := time.Now()
+		r, err := audio.Features(got.WAV, 100)
+		if err != nil {
+			return nil, fmt.Errorf("audio features: %w", err)
+		}
+		rms = r
+		rec.since("Audio features", t0, "built-in")
 	}
 
 	// 3b. Koreksi transkrip. Dijalankan SEBELUM segmentasi & scoring, bukan
