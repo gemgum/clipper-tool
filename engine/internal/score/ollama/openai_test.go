@@ -223,3 +223,53 @@ func TestKoboldCppIsNotCalledOllama(t *testing.T) {
 		t.Errorf("serverName = %q, mau Ollama", got)
 	}
 }
+
+// Model bernalar bisa menghabiskan jatah SEBELUM menjawab lebih dari sekali:
+// deepseek-v4-pro masih habis di 8192 (2048 dilipatkan sekali). Jatahnya harus
+// dilipatkan bertahap sampai roomCap, dan angka yang akhirnya berhasil diingat
+// supaya potongan berikutnya tidak mengulang percobaan yang sudah gagal.
+func TestBudgetGrowsUntilTheModelAnswers(t *testing.T) {
+	var asked []int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req openAIReq
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &req)
+		asked = append(asked, req.MaxTokens)
+		if req.MaxTokens < roomCap {
+			io.WriteString(w, `{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`)
+			return
+		}
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "reasoner-test")
+	c.Kind = KindOpenAI
+	out, err := c.Complete(context.Background(), "s", "u", nil, 2048)
+	if err != nil || out != "ok" {
+		t.Fatalf("balasan = %q, err = %v", out, err)
+	}
+	if len(asked) != 3 || asked[0] != 2048 || asked[1] != 8192 || asked[2] != roomCap {
+		t.Fatalf("jatah yang diminta = %v, mau [2048 8192 %d]", asked, roomCap)
+	}
+
+	// Permintaan kedua langsung memakai jatah yang sudah terbukti.
+	asked = nil
+	if _, err := c.Complete(context.Background(), "s", "u", nil, 2048); err != nil {
+		t.Fatal(err)
+	}
+	if len(asked) != 1 || asked[0] != roomCap {
+		t.Fatalf("jatah pada permintaan kedua = %v, mau [%d]", asked, roomCap)
+	}
+
+	// Yang diingat itu SATU model, bukan servernya: satu penyedia menyajikan
+	// model bernalar dan model biasa sekaligus, dan model biasa tidak boleh ikut
+	// diminta 32768 token gara-gara tetangganya bernalar.
+	asked = nil
+	lain := New(srv.URL, "biasa-test")
+	lain.Kind = KindOpenAI
+	lain.Complete(context.Background(), "s", "u", nil, 2048)
+	if len(asked) == 0 || asked[0] != 2048 {
+		t.Fatalf("model lain mulai dari %v, mau 2048", asked)
+	}
+}

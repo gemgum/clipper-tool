@@ -80,14 +80,14 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 		}
 	}
 	budget := numPredict
-	if _, roomy := needsRoom.Load(c.roomKey()); roomy {
-		budget = withRoom(numPredict)
+	if v, roomy := needsRoom.Load(c.roomKey()); roomy {
+		budget = max(budget, v.(int))
 	}
 
-	// Paling banyak tiga percobaan: sekali untuk tiap kelonggaran, plus yang
-	// pertama. Batasnya ada supaya server yang selalu menolak tidak dicoba
-	// selamanya.
-	for i := 0; i < 3; i++ {
+	// Paling banyak empat percobaan: sekali untuk skema, dua kali untuk jatah
+	// yang dilipatkan bertahap, plus yang pertama. Batasnya ada supaya server
+	// yang selalu menolak tidak dicoba selamanya.
+	for i := 0; i < 4; i++ {
 		out, err := c.postChat(ctx, system, user, schema, budget)
 		if err == nil {
 			return out, nil
@@ -100,12 +100,15 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 			// akibatnya bukan balasan longgar melainkan job yang tidak jalan.
 			noSchema.Store(c.URL, true)
 			schema = nil
-		case budget == numPredict && isBudgetExhausted(err):
+		case isBudgetExhausted(err) && budget < roomCap:
 			// Model bernalar memakai jatah yang sama untuk berpikir dan
 			// menjawab; pada masukan panjang ia habis sebelum satu huruf
-			// jawaban keluar.
-			needsRoom.Store(c.roomKey(), true)
-			budget = withRoom(numPredict)
+			// jawaban keluar. Dilipatkan BERTAHAP sampai roomCap: sekali lipat
+			// ternyata belum cukup untuk deepseek-v4-pro (2048 → 8192 masih
+			// habis), dan angka yang dipakai diingat supaya potongan berikutnya
+			// tidak mengulang percobaan yang sudah diketahui gagal.
+			budget = withRoom(budget)
+			needsRoom.Store(c.roomKey(), budget)
 		default:
 			return "", err
 		}
@@ -116,7 +119,8 @@ func (c *Client) completeOpenAI(ctx context.Context, system, user string, schema
 // noSchema mengingat server yang menolak json_schema, per alamat.
 var noSchema sync.Map
 
-// needsRoom mengingat model yang jatahnya perlu dilipatkan, per alamat+model.
+// needsRoom mengingat JATAH yang sudah terbukti dibutuhkan satu model, per
+// alamat+model.
 // Per MODEL, bukan per alamat: satu penyedia bisa menyajikan model bernalar dan
 // model biasa sekaligus.
 var needsRoom sync.Map
