@@ -174,11 +174,13 @@ type Options struct {
 	Zoom           int      `json:"zoom"`       // 0..100, kelipatan 5
 	Subtitle       Subtitle `json:"subtitle"`
 	SubtitleOutput string   `json:"subtitle_output"` // burn | clean | both
-	MaxClips       int      `json:"max_clips"`
-	DurationPreset string   `json:"duration_preset"` // auto | 30 | 60 | 90 | 120 | 180
-	TargetMin      float64  `json:"target_min"`
-	TargetMax      float64  `json:"target_max"`
-	TranscriptFix  string   `json:"transcript_fix"` // on | off (default on)
+	// Watermark hanya ikut ke berkas yang subtitle-nya dibakar — lihat Watermark.
+	Watermark      Watermark `json:"watermark"`
+	MaxClips       int       `json:"max_clips"`
+	DurationPreset string    `json:"duration_preset"` // auto | 30 | 60 | 90 | 120 | 180
+	TargetMin      float64   `json:"target_min"`
+	TargetMax      float64   `json:"target_max"`
+	TranscriptFix  string    `json:"transcript_fix"` // on | off (default on)
 	// Terms adalah ejaan baku nama & istilah khas video ini, dipakai tahap
 	// koreksi untuk menarik salah dengar ke ejaan yang benar. Whisper tidak
 	// mengenal nama daerah atau istilah Jawa, jadi ia menuliskannya sebagai kata
@@ -214,6 +216,7 @@ func DefaultOptions() Options {
 		Zoom:           ZoomCenterNatural,
 		Subtitle:       DefaultSubtitle(),
 		SubtitleOutput: OutputBurn,
+		Watermark:      DefaultWatermark(),
 		MaxClips:       10,
 		DurationPreset: "auto",
 		TranscriptFix:  TranscriptFixOn,
@@ -373,6 +376,7 @@ func (o *Options) Validate() error {
 	if o.Provider == "" {
 		o.Provider = d.Provider
 	}
+	o.Watermark.validate()
 	return nil
 }
 
@@ -484,4 +488,160 @@ func ResolvePaths(l Layout, o Options) Paths {
 		EnvFile:   l.EnvFile,
 		APIKey:    os.Getenv("ANTHROPIC_API_KEY"),
 	}
+}
+
+// PlayRes = ruang koordinat tempat SEMUA penempatan di atas video dinyatakan:
+// subtitle, banner watermark, dan headline-nya. Dipakai apa pun resolusi render
+// (720p/1080p/1440p) — libass menskalakannya sendiri lewat PlayRes, dan overlay
+// ffmpeg diskalakan di internal/ffmpeg.
+const (
+	PlayResX = 1080
+	PlayResY = 1920
+)
+
+// Sumber teks headline.
+const (
+	// HeadlineText = teks tetap yang diketik pengguna, sama di semua klip.
+	// Inilah yang bisa dipratinjau apa adanya.
+	HeadlineText = "text"
+	// HeadlineLLM = judul yang sudah dipilihkan LLM untuk KLIP ITU
+	// (llm.Pick.Title). Beda tiap klip, jadi pratinjau hanya bisa menampilkan
+	// contoh — teks sebenarnya belum ada saat posisinya diatur.
+	HeadlineLLM = "llm"
+)
+
+// Headline = teks yang digambar DI ATAS banner.
+//
+// Ia tidak punya jalur render sendiri: ditulis sebagai baris statis di .ass yang
+// sama dengan subtitle, dengan Style-nya sendiri. Karena burn subtitle adalah
+// filter TERAKHIR di rantai, teks ini otomatis mendarat di atas banner tanpa
+// satu baris pun kode pengurutan lapis.
+type Headline struct {
+	Source       string `json:"source"` // text | llm
+	Text         string `json:"text"`
+	Font         string `json:"font"`
+	Size         int    `json:"size"`
+	Color        string `json:"color"`
+	Bold         bool   `json:"bold"`
+	Outline      int    `json:"outline"`
+	OutlineColor string `json:"outline_color"`
+	X            int    `json:"x"` // jangkar tepi ATAS blok teks (an8), 0..1080
+	Y            int    `json:"y"` // 0..1920
+}
+
+// Watermark = banner PNG milik pengguna yang dibakar ke tiap klip, plus headline
+// di atasnya.
+//
+// Tujuannya watermark akun: satu identitas yang sama di SETIAP postingan, bukan
+// hiasan per klip. Karena itu ia tidak punya varian per klip — yang boleh beda
+// tiap klip cuma teks headline-nya, dan itu pun hanya bila sumbernya LLM.
+//
+// Hanya ikut ke berkas yang subtitle-nya dibakar. Berkas "clean" tetap bersih:
+// itu yang dipakai orang untuk menyunting ulang di editor lain.
+type Watermark struct {
+	Image string `json:"image"` // path PNG; kosong = watermark mati
+	X     int    `json:"x"`     // titik TENGAH kotak, 0..1080
+	Y     int    `json:"y"`     // 0..1920
+	// Width & Height = KOTAK tempat gambar diletakkan, dalam persen lebar dan
+	// tinggi bingkai. Gambarnya dimuat UTUH ke dalam kotak: tidak digepengkan
+	// dan tidak dipotong — sisi yang tidak terpakai cuma jadi ruang kosong.
+	//
+	// Dua angka, bukan satu: dengan satu angka pengguna harus menghitung sendiri
+	// tinggi yang akan muncul dari rasio gambarnya. Dan bukan `scale=W:H` mentah,
+	// sebab itu menggepengkan logo orang.
+	Width  int     `json:"width"`
+	Height int     `json:"height"`
+	At     float64 `json:"at"` // detik ke berapa muncul, relatif AWAL KLIP
+	// For = berapa detik tampil. 0 = sampai klip habis, dan itu bawaannya:
+	// syarat kontes lazimnya "identitas harus terlihat", bukan "berkedip".
+	For      float64  `json:"for"`
+	Headline Headline `json:"headline"`
+}
+
+// Batas kotak gambar, dalam persen sisi bingkai.
+const (
+	WatermarkSizeMin = 5
+	WatermarkSizeMax = 100
+
+	// WatermarkSizeDefault: seperempat sisi bingkai. Sengaja jauh dari penuh —
+	// watermark yang menutupi separuh layar bukan identitas melainkan gangguan,
+	// dan bawaan yang hampir penuh membuat orang mengira ukurannya memang tidak
+	// bisa diatur.
+	WatermarkSizeDefault = 25
+)
+
+// On melaporkan apakah ada yang perlu digambar sama sekali.
+//
+// Headline tanpa banner sah: teks tetap di atas video adalah bentuk watermark
+// yang paling murah, dan menolaknya cuma karena tidak ada PNG akan memaksa
+// orang membuat gambar kosong.
+func (b Watermark) On() bool {
+	return b.Image != "" || b.Headline.Text != "" || b.Headline.Source == HeadlineLLM
+}
+
+// DefaultWatermark: mati (tanpa gambar), tapi gaya headline sudah terisi supaya
+// menyalakannya tidak perlu mengisi sepuluh angka lebih dulu.
+func DefaultWatermark() Watermark {
+	return Watermark{
+		X: PlayResX / 2, Y: 700,
+		Width: WatermarkSizeDefault, Height: WatermarkSizeDefault,
+		Headline: Headline{
+			Source: HeadlineText,
+			Font:   "Montserrat", Size: 64, Color: "white", Bold: true,
+			Outline: 3, OutlineColor: "black",
+			X: PlayResX / 2, Y: 640,
+		},
+	}
+}
+
+// validate menjepit nilai yang datang dari klien. Dipanggil Options.Validate.
+func (b *Watermark) validate() {
+	d := DefaultWatermark()
+	if b.Width <= 0 {
+		b.Width = d.Width
+	}
+	if b.Height <= 0 {
+		b.Height = d.Height
+	}
+	b.Width = min(WatermarkSizeMax, max(WatermarkSizeMin, b.Width))
+	b.Height = min(WatermarkSizeMax, max(WatermarkSizeMin, b.Height))
+	b.X = clampCoord(b.X, d.X, PlayResX)
+	b.Y = clampCoord(b.Y, d.Y, PlayResY)
+	if b.At < 0 {
+		b.At = 0
+	}
+	if b.For < 0 {
+		b.For = 0
+	}
+	h := &b.Headline
+	switch h.Source {
+	case HeadlineText, HeadlineLLM:
+	default:
+		h.Source = d.Headline.Source
+	}
+	if h.Font == "" {
+		h.Font = d.Headline.Font
+	}
+	if h.Size <= 0 {
+		h.Size = d.Headline.Size
+	}
+	if h.Color == "" {
+		h.Color = d.Headline.Color
+	}
+	if h.Outline < 0 {
+		h.Outline = d.Headline.Outline
+	}
+	if h.OutlineColor == "" {
+		h.OutlineColor = d.Headline.OutlineColor
+	}
+	h.X = clampCoord(h.X, d.Headline.X, PlayResX)
+	h.Y = clampCoord(h.Y, d.Headline.Y, PlayResY)
+}
+
+// clampCoord: 0 berarti "belum diisi" (pakai bawaan), sisanya dijepit ke bidang.
+func clampCoord(v, fallback, limit int) int {
+	if v <= 0 {
+		return fallback
+	}
+	return min(limit, v)
 }

@@ -15,11 +15,12 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
 - **engine/** (Go) — otak: HTTP API, orkestrasi pipeline, scoring, pemasangan
   komponen, dan penyaji antarmuka. Standard library saja (tanpa dependency
   eksternal).
-- **gui/** (Next.js) — lima tab: `/` klip video (form → progress SSE → daftar
+- **gui/** (Next.js) — enam tab: `/` klip video (form → progress SSE → daftar
   klip), `/news` kartu berita (tempel link / jelajah RSS → kartu PNG),
   `/writer` pembuat berita (sampai 5 artikel sumber → satu artikel baru +
   pagar fakta, lihat `notes/38`), `/captions` pembuat caption (satu video atau
-  sekaligus banyak → satu `.txt` per video, lihat `notes/40`), dan
+  sekaligus banyak → satu `.txt` per video, lihat `notes/40`), `/watermark`
+  gambar + headline dibakar ke video yang SUDAH 9:16 (lihat `notes/41`), dan
   `/requirements` status & pemasangan komponen. Ada pemilih bahasa antarmuka
   EN/ID di bilah navigasi (default EN, disimpan di localStorage). Dibangun jadi
   berkas statis (`gui/out`) yang disajikan engine.
@@ -38,13 +39,27 @@ desktop/ (Tauri)  --membuka satu alamat-->  engine/ (Go)  --exec-->  whisper.cpp
                            -reframe center|fit -background blur|black -zoom 5..200 \
                            -sub-mode normal|karaoke|word -sub-speed slow|normal|dense \
                            -transcript-fix on|off -terms "Londo Ireng,Mahfud MD" \
-                           -save burn|clean|both]                # CLI
+                           -save burn|clean|both \
+                           -watermark-image logo.png \
+                           -watermark-x -watermark-y \
+                           -watermark-width -watermark-height \
+                           -watermark-at -watermark-for \
+                           -headline "..." -headline-llm \
+                           -headline-x -headline-y -headline-size]   # CLI
 ./bin/clipper write <url>... [-provider claude|ollama -ollama-model -lang -out]
                                  # pembuat berita: sampai 5 artikel → satu artikel
 ./bin/clipper caption <video>... [-engine -model -minutes 5 -variants 3 \
                                   -terms -whisper -out]
                                  # caption: tiap video → <nama video>.txt
                                  # ditulis DI SEBELAH videonya; -out mengumpulkan
+./bin/clipper watermark <video>... [-watermark-image logo.png \
+                                -watermark-x -watermark-y \
+                           -watermark-width -watermark-height \
+                                -watermark-at -watermark-for \
+                                -headline "..." -headline-x -headline-y \
+                                -headline-size -font -quality -out]
+                                 # tiap video 9:16 → <nama>_watermarked.mp4
+                                 # yang bukan 9:16 DITOLAK per berkas, tidak dipotong
 ./bin/clipper serve              # API + GUI di 127.0.0.1:8787 (port acak bila terpasang)
                                  # banner mencetak satu alamat "open:" — tinggal dibuka
 ./bin/clipper serve -token on    # + kunci sesi (otomatis menyala saat terpasang)
@@ -64,6 +79,19 @@ extract audio (ffmpeg) → features (RMS di engine) → transkripsi (whisper.cpp
 **deteksi loop halusinasi** → **koreksi transkrip (LLM)** → segmentasi kandidat →
 **LLM MEMILIH NOMOR kandidat** (bukan mengarang timestamp — lihat notes/18) +
 scoring → buang kandidat dari cuplikan pembuka → render klip 9:16 + burn .ass.
+
+**Watermark** (gambar PNG milik pengguna + teks headline di atasnya) menumpang
+dua jalur yang sudah ada, bukan jalur ketiga: gambarnya satu rantai `movie=` di
+dalam `-vf` (`ffmpeg.watermarkChain`, ikut kepakai `/api/frame`), teksnya satu Style
++ baris statis di .ass yang sama (`subtitle.writeHeadline`). Karena burn subtitle
+adalah filter TERAKHIR, teks otomatis mendarat di atas gambar. **Hanya ikut ke
+berkas yang subtitle-nya dibakar** — berkas `clean` tetap bersih. Sumber teks
+`llm` memakai `llm.Pick.Title` klip itu, jadi tak ada panggilan LLM tambahan.
+
+Ukuran gambarnya sebuah **KOTAK** (`-watermark-width` x `-watermark-height`,
+persen sisi bingkai, bawaan 25x25) dan gambarnya dimuat UTUH ke dalamnya:
+`force_original_aspect_ratio=decrease` di ffmpeg, `object-fit: contain` di
+pratinjau. Tidak digepengkan, tidak dipotong.
 
 Setiap job diakhiri **ringkasan waktu per tahap** (tabel monospace di terminal &
 kotak log GUI), lengkap dengan rasio realtime. Itu angka pembanding antar
@@ -98,6 +126,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | card            | kartu berita: data artikel → template HTML → PNG 1080x1920 + caption/sumber   |
 | writer          | pembuat berita: fakta per artikel → satu artikel + pagar fakta (notes/38)     |
 | caption         | caption memancing dari ucapan video (notes/40); transkrip + koreksi dipakai ulang |
+| watermark       | bakar gambar + headline ke video yang sudah 9:16 (notes/41); tanpa transkripsi  |
 
 ## Folder data: dua bentuk, dipilih sendiri
 

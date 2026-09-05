@@ -84,7 +84,7 @@ func TestColorIsNotForcedToYellow(t *testing.T) {
 	sub := config.DefaultSubtitle()
 	sub.Color = "white"
 	sub.Mode = config.SubKaraoke
-	head := assHeader(sub)
+	head := assHeader(sub, config.Headline{}, false)
 	// PrimaryColour (kolom ke-4 baris Style) harus tetap putih.
 	for _, line := range strings.Split(head, "\n") {
 		if !strings.HasPrefix(line, "Style: Default,") {
@@ -106,7 +106,7 @@ func TestWordModeShowsOneWordPerPage(t *testing.T) {
 	sub.Mode = config.SubWord
 
 	path := t.TempDir() + "/w.ass"
-	if err := WriteASS(path, segs, 0, sub); err != nil {
+	if err := WriteASS(path, segs, 0, sub, config.Watermark{}, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	var dialogue []string
@@ -131,7 +131,7 @@ func TestKaraokeModeHighlightsActiveWord(t *testing.T) {
 	sub.Mode = config.SubKaraoke
 
 	path := t.TempDir() + "/k.ass"
-	if err := WriteASS(path, segs, 0, sub); err != nil {
+	if err := WriteASS(path, segs, 0, sub, config.Watermark{}, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	body := readFile(t, path)
@@ -186,7 +186,7 @@ func TestAnchorIsTopSoFirstLineNeverMoves(t *testing.T) {
 	sub.X, sub.Y = 540, 1500
 
 	path := t.TempDir() + "/a.ass"
-	if err := WriteASS(path, segs, 0, sub); err != nil {
+	if err := WriteASS(path, segs, 0, sub, config.Watermark{}, "", 0); err != nil {
 		t.Fatal(err)
 	}
 

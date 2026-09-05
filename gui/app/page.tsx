@@ -30,6 +30,9 @@ import SourceRow from "./source-row";
 import PreviewPanel, { CENTER_X, CENTER_Y, PLATFORMS, PLAY_H, PLAY_W, linesFor } from "./preview-panel";
 import type { Font, FontCheck } from "./preview-panel";
 import FramePanel, { zoomBounds } from "./frame-panel";
+import WatermarkPanel from "./watermark-panel";
+import { DEFAULT_WATERMARK, watermarkToAPI } from "./watermark-model";
+import type { Watermark } from "./watermark-model";
 import SetupPanel from "./setup-panel";
 import type { WhisperModel } from "./setup-panel";
 import RunPanel from "./run-panel";
@@ -74,6 +77,29 @@ export default function Home() {
   const [platform, setPlatform] = useState("tiktok");     // "off" = tanpa pembatas
   const [saveMode, setSaveMode] = useState("burn");       // burn | clean | both
 
+  // Watermark (banner + headline). Satu objek, bukan belasan state: ia melintasi
+  // tiga berkas dan diteruskan utuh ke pratinjau maupun panel setelannya.
+  const [watermark, setWatermarkState] = useState<Watermark>(DEFAULT_WATERMARK);
+  // Kelompok watermark menukar isi kolom setelan, jadi keadaannya tinggal di sini
+  // — bukan di dalam salah satu kelompok yang saling menutup.
+  const [wmOpen, setWmOpen] = useState(false);
+  const setWatermark = useCallback((patch: Partial<Watermark>) => {
+    setWatermarkState((b) => ({ ...b, ...patch }));
+  }, []);
+  // Menggeser banner ikut membawa headline-nya.
+  //
+  // Keduanya disimpan sebagai koordinat mutlak, bukan "teks relatif terhadap
+  // banner": yang kedua terdengar lebih rapi tapi menambah satu ruang koordinat
+  // lagi yang harus diterjemahkan di pratinjau, di engine, dan di .ass. Yang
+  // dibutuhkan cuma satu perilaku — teks tidak ditinggalkan saat kartunya
+  // dipindah — dan itu selisih dua angka.
+  const moveWatermark = useCallback((x: number, y: number) => {
+    setWatermarkState((b) => ({ ...b, x, y, hlX: b.hlX + (x - b.x), hlY: b.hlY + (y - b.y) }));
+  }, []);
+  const moveHeadline = useCallback((x: number, y: number) => {
+    setWatermarkState((b) => ({ ...b, hlX: x, hlY: y }));
+  }, []);
+
   // Font manual (di luar daftar bawaan) + hasil pengecekannya di engine.
   // Tinggal di sini, bukan di <PreviewPanel>: start() menolak job yang fontnya
   // belum lolos cek, jadi halaman ini harus tahu hasilnya.
@@ -87,7 +113,7 @@ export default function Home() {
   const [uploadPct, setUploadPct] = useState(0);
   // Pemilih berkas milik sendiri: "video" untuk sumber, "out" untuk folder
   // keluaran, null = tertutup.
-  const [picker, setPicker] = useState<null | "video" | "out">(null);
+  const [picker, setPicker] = useState<null | "video" | "out" | "banner">(null);
 
   // Job
   const [jobId, setJobId] = useState<string | null>(null);
@@ -256,6 +282,7 @@ export default function Home() {
     durationPreset, maxClips, saveMode, transcriptFix, terms,
     engine, llmModel,
     subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed,
+    watermark,
   });
   useRestore<Record<string, unknown>>("clips", (v) => {
     const set = <T,>(fn: (x: T) => void, val: unknown) => {
@@ -287,6 +314,13 @@ export default function Home() {
     set(setSubMode, v.subMode);
     set(setSubHighlight, v.subHighlight);
     set(setSubSpeed, v.subSpeed);
+    // Watermark disimpan utuh sebagai satu objek, lalu digabung ke bawaan:
+    // isian tersimpan dari versi sebelum sebuah field ada tidak boleh
+    // meninggalkan field itu undefined — Stepper yang menerima undefined
+    // menghasilkan NaN, dan NaN tidak bisa dikembalikan lewat antarmuka.
+    if (v.watermark && typeof v.watermark === "object") {
+      setWatermarkState({ ...DEFAULT_WATERMARK, ...(v.watermark as Partial<Watermark>) });
+    }
   });
 
   const uploadFile = useCallback((file: File) => {
@@ -365,6 +399,7 @@ export default function Home() {
               outline: Number(subOutline), box: subBox,
               mode: subMode, highlight_color: subHighlight, speed: subSpeed,
             },
+            watermark: watermarkToAPI(watermark, subFont),
           },
         }),
       });
@@ -372,7 +407,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || t("errCreateJob"));
       setJobId(data.id); addLog(t("logJobCreated", { id: data.id }));
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, engine, llmModel, model, resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, addLog, fontManual, fontCheck, t]);
+  }, [path, engine, llmModel, model, resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, watermark, addLog, fontManual, fontCheck, t]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -496,8 +531,13 @@ export default function Home() {
       {picker && (
         <Picker
           mode={picker === "out" ? "folder" : "file"}
-          start={picker === "out" ? outputDir : path}
-          onPick={(p) => { picker === "out" ? setOutputDir(p) : setPath(p); setPicker(null); }}
+          start={picker === "out" ? outputDir : picker === "banner" ? watermark.image : path}
+          onPick={(p) => {
+            if (picker === "out") setOutputDir(p);
+            else if (picker === "banner") setWatermark({ image: p });
+            else setPath(p);
+            setPicker(null);
+          }}
           onClose={() => setPicker(null)}
         />
       )}
@@ -531,6 +571,15 @@ export default function Home() {
               subSpeed={subSpeed} setSubSpeed={setSubSpeed}
               subX={subX} setSubX={setSubX} subY={subY} setSubY={setSubY}
               blockH={blockH} centerAnchorY={centerAnchorY}
+              watermark={watermark} moveWatermark={moveWatermark} moveHeadline={moveHeadline}
+              wmOpen={wmOpen}
+              /* Watermark duduk di kolom setelan pratinjau: banner & headline
+                 mengubah rupa gambar di sebelah kiri, jadi tempatnya di sini —
+                 bukan di kolom kanan bersama masukan dan tombol jalan. */
+              watermarkPanel={
+                <WatermarkPanel watermark={watermark} setWatermark={setWatermark} open={wmOpen} setOpen={setWmOpen}
+                  onPickImage={() => setPicker("banner")} />
+              }
               platform={platform} setPlatform={setPlatform}
               inUnsafe={inUnsafe} onPlaceSafe={placeSafe} addLog={addLog}
             >

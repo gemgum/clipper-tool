@@ -67,11 +67,23 @@ export function usePopup({
     const room = down ? below : above;
     const maxH = Math.max(140, Math.min(maxHeight, room));
     const wanted = align === "right" ? r.right - w : r.left;
+    // Membuka ke atas: yang dipatok DASAR popup ke tepi atas tombol, lewat
+    // kelas "up" (translateY(-100%) di CSS) — bukan `top = r.top - maxH`.
+    //
+    // Bedanya terukur dan pernah dilaporkan sebagai "error": maxH adalah tinggi
+    // MAKSIMUM, sedangkan daftar berisi tiga pilihan cuma 103 px. Selisihnya
+    // jadi jarak kosong, dan popupnya menggantung 183 px di atas tombolnya,
+    // terlihat seperti milik panel lain. Daftar panjang kebetulan setinggi maxH,
+    // jadi bug ini tidak pernah terlihat di sana.
+    //
+    // Tingginya baru diketahui setelah dirender, jadi ia tidak bisa dihitung di
+    // sini — CSS yang mengerjakannya.
     setPos({
-      top: down ? r.bottom + 6 : Math.max(8, r.top - maxH - 6),
+      top: down ? r.bottom + 6 : r.top - 6,
       left: Math.max(8, Math.min(wanted, window.innerWidth - w - 8)),
       width: w,
       maxH,
+      up: !down,
     });
   }, [anchor, width, align, maxHeight, side]);
 

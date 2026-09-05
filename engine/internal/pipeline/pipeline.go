@@ -263,11 +263,28 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		// dan tidak dipakai siapa pun sesudah itu. Bila render gagal, berkasnya
 		// sengaja ditinggal supaya penyebabnya masih bisa ditelusuri.
 		if p.Opts.SubtitleOutput != config.OutputClean {
+			// Watermark hanya di sini, dan itu disengaja: berkas "clean" dipakai
+			// untuk disunting ulang di editor lain, dan identitas yang sudah
+			// terbakar di dalamnya tidak bisa dilepas lagi.
+			//
+			// Sumber "llm" memakai judul yang dipilihkan LLM untuk KLIP INI,
+			// jadi teksnya beda tiap klip — itu sebabnya ia dihitung di dalam
+			// perulangan, bukan sekali di luar.
+			headline := p.Opts.Watermark.Headline.Text
+			if p.Opts.Watermark.Headline.Source == config.HeadlineLLM {
+				headline = cl.Title
+			}
 			assPath := filepath.Join(tmpDir, cl.ID+".ass")
-			if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle); err != nil {
+			if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle,
+				p.Opts.Watermark, headline, cl.End-cl.Start); err != nil {
 				return nil, err
 			}
 			enc.AssPath = assPath
+			enc.Watermark = ffmpeg.Watermark{
+				Image: p.Opts.Watermark.Image, X: p.Opts.Watermark.X, Y: p.Opts.Watermark.Y,
+				Width: p.Opts.Watermark.Width, Height: p.Opts.Watermark.Height,
+				At: p.Opts.Watermark.At, For: p.Opts.Watermark.For,
+			}
 			outMP4 := filepath.Join(outDir, cl.ID+".mp4")
 			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
 				return nil, err

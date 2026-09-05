@@ -696,7 +696,13 @@ a.dl, button.dl {
   touch-action: none;   /* penting: drag di layar sentuh */
   user-select: none;
 }
-.preview9x16 img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+/* Frame video: memenuhi bingkai, dan TIDAK bisa disentuh — ia latar, bukan
+   sesuatu yang digeser. `:not(.wmoverlay)` wajib: tanpa itu aturan ini (0,1,1)
+   menang atas .wmoverlay (0,1,0) dan menelan watermark bulat-bulat — height
+   100% membuatnya setinggi bingkai, object-fit:cover memotongnya, dan
+   pointer-events:none membuatnya tidak bisa diseret sama sekali. Ketiga
+   "keanehan" yang dilaporkan pertama kali ternyata satu baris ini. */
+.preview9x16 img:not(.wmoverlay) { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
 /* Jangkar mengikuti .ass: titik yang digeser pengguna adalah tepi ATAS blok
    (an8), bukan tengahnya — makanya translate hanya mendatar. Baris tambahan
    turun ke bawah, sama seperti hasil render.
@@ -931,12 +937,18 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
 /* Ikon di atas, label di bawah — muat di rail sempit, dan labelnya tetap ada:
    ikon sendirian memaksa pengguna menebak, dan tebakannya baru terbukti
    setelah diklik. */
+/* Padding & jarak ikon-label DIUKUR, bukan dipilih karena enak dilihat.
+   Tab keenam (Watermark) membuat rail 516 px di jendela 900x600 yang cuma punya
+   505 px, dan yang bergulir bukan sebuah daftar melainkan SELURUH HALAMAN —
+   pelanggaran aturan pertama. 10 -> 8 px (6 tab x 4) + 5 -> 4 px (6 tab x 1)
+   mengembalikan 30 px, cukup untuk tab ini dan satu tab berikutnya.
+   Kalau tab ketujuh ditambahkan, ukur lagi dengan scripts/measure-ui.mjs. */
 .rail-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 5px;
-  padding: 10px 4px;
+  gap: 4px;
+  padding: 8px 4px;
   border-radius: 10px;
   color: var(--muted);
   text-decoration: none;
@@ -1044,7 +1056,10 @@ label em { font-style: normal; opacity: 0.7; }
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
 /* Dasar popup sejajar dasar tombolnya (lihat usePopup side="beside"). */
-.popover.up { transform: translateY(-100%); }
+/* Popup yang membuka KE ATAS: dasarnya dipatok ke tepi atas tombolnya, dan
+   tingginya sendiri yang menggeser — tinggi itu baru ada setelah dirender, jadi
+   tidak bisa dihitung di JavaScript (lihat use-popup.ts). */
+.popover.up, .sel-list.up { transform: translateY(-100%); }
 
 .news-list {
   display: grid;
@@ -1448,11 +1463,15 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
   /* Padding, BUKAN tinggi tetap: angkanya harus sama persis dengan <input> di
      sebelahnya (10px + 10px + 1px garis), dan tinggi yang dipaku selalu meleset
      begitu ukuran huruf disentuh. */
-  padding: 7px 6px 7px 10px;
+  /* Padding kiri 8, bukan 10, dan jarak 4, bukan 6: koordinat Y berjumlah
+     EMPAT angka ("540 · 1200") dan pada ukuran lama ia terpotong jadi
+     "540 · 12…" — angka yang terpotong tidak lebih berguna daripada tidak ada
+     angka sama sekali. */
+  padding: 7px 4px 7px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel2);
@@ -2210,3 +2229,48 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 /* Pagar isi: penanda, bukan galat. Ia menyebut baris mana yang perlu
    dicocokkan dengan videonya sebelum caption itu diposting. */
 .cap-warn { color: var(--warn-text); font-size: 12px; }
+
+/* Gambar watermark di pratinjau. Titik jangkarnya TENGAH gambar — sama dengan
+   overlay ffmpeg, yang menghitung x-w/2 : y-h/2 — jadi angka yang terlihat di
+   sini berarti hal yang sama dengan angka yang dikirim ke engine.
+
+   Tingginya dibiarkan mengikuti rasio aslinya: banner dibuat pengguna di luar
+   aplikasi, dan memaksakan tinggi berarti pratinjau menggepengkan gambar yang
+   di hasil render tidak digepengkan. */
+.wmoverlay {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  /* KOTAK-nya yang diberi ukuran (width/height dari setelan), gambarnya dimuat
+     utuh ke dalamnya. Sama persis dengan force_original_aspect_ratio=decrease
+     di sisi ffmpeg — itu yang membuat pratinjau dan hasil render sepakat. */
+  object-fit: contain;
+  cursor: grab;
+  user-select: none;
+}
+.wmoverlay:active { cursor: grabbing; }
+
+/* Headline memakai seluruh gaya .suboverlay — itu memang teks .ass yang sama
+   mesinnya, termasuk nowrap-nya.
+   Nowrap WAJIB dipertahankan: pemenggalan barisnya sudah dihitung wrapHeadline()
+   dengan aturan yang sama dengan engine, dan membiarkan browser melipat sendiri
+   memberi hasil yang lain sama sekali — kotak melayang ini shrink-to-fit, jadi
+   lebar yang dipakainya browser cuma separuh bingkai (terukur: 22 karakter
+   dipenggal jadi 11). Yang terlihat bukan pratinjau, melainkan tebakan. */
+
+.grid3 > .field-wide { grid-column: 1 / -1; }
+
+/* Kolom setelan pratinjau dirapatkan — dan angkanya diukur, bukan dikira.
+   Kelompok Watermark menambah satu judul lagi ke kolom yang sudah pas-pasan, dan
+   di jendela 1240x860 kolom kiri jadi 43 px lebih tinggi daripada tempatnya.
+   Yang dikurangi JARAK, bukan kendali: 10 px per kelompok (3 jarak) + 4 px di
+   atas tiap kisi (4 kelompok) = 46 px, cukup untuk mengembalikannya ke 0 —
+   diukur ulang dengan scripts/measure-ui.mjs, bukan dijumlah dari angka CSS.
+   Hanya di kolom ini; halaman lain punya sisa dan tidak perlu ikut merapat.
+   Garis di bawah judul tiap kelompok yang memisahkan mereka, bukan jaraknya. */
+.sub-settings .group { margin-bottom: 4px; }
+.sub-settings .grid3 { padding-top: 4px; }
+
+/* Daftar hasil watermark: DAFTAR, jadi ia boleh bergulir — tapi tingginya
+   dipaku, kalau tidak kolom setelan tumbuh tiap satu video selesai dan seluruh
+   kolom bergerak persis saat pengguna sedang menatapnya. */
+.wm-results { max-height: 150px; overflow-y: auto; }

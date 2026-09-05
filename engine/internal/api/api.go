@@ -27,6 +27,7 @@ import (
 	"github.com/gemgum/clipper/engine/internal/news"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
+	"github.com/gemgum/clipper/engine/internal/watermark"
 	"github.com/gemgum/clipper/engine/internal/writer"
 )
 
@@ -43,6 +44,8 @@ type Server struct {
 	posts bgStore[writer.Result]
 	// captions = job pembuat caption yang berjalan di latar (lihat captions.go).
 	captions bgStore[caption.Result]
+	// watermarks = job watermark yang berjalan di latar (lihat watermark.go).
+	watermarks bgStore[watermark.Result]
 	// token = kunci sesi; kosong berarti pemeriksaan dimatikan (lihat token.go).
 	token string
 	// hosts = nama host tambahan yang boleh dipakai menghubungi engine, di luar
@@ -108,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/upload", s.upload)
 	// Dua ini yang membuat unggahan tidak perlu: berkasnya sudah ada di mesin
 	// yang sama, engine tinggal diberi tahu di mana.
+	mux.HandleFunc("GET /api/image", s.image)
 	mux.HandleFunc("GET /api/browse", s.browse)
 	mux.HandleFunc("POST /api/locate", s.locate)
 	mux.HandleFunc("POST /api/jobs", s.createJob)
@@ -150,6 +154,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/captions/{id}", s.getCaption)
 	mux.HandleFunc("GET /api/captions/{id}/file", s.captionFile)
 	mux.HandleFunc("POST /api/captions/{id}/cancel", s.cancelCaption)
+
+	mux.HandleFunc("POST /api/watermark", s.createWatermark)
+	mux.HandleFunc("GET /api/watermark", s.listWatermarks)
+	mux.HandleFunc("GET /api/watermark/events", s.watermarkEvents)
+	mux.HandleFunc("GET /api/watermark/{id}", s.getWatermark)
+	mux.HandleFunc("POST /api/watermark/{id}/cancel", s.cancelWatermark)
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.
 	if ui := webUI(s.layout.GUIDir); ui != nil {
@@ -1155,6 +1165,15 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	// jalur, dan NAMA variabel kuncinya — bukan kuncinya, dan bukan tabel
 	// penyedia kedua.
 	fillEngine(&opts)
+	// Path banner menempuh pemeriksaan yang sama dengan path video: ia juga
+	// datang dari klien dan juga berakhir sebagai argumen ffmpeg.
+	if opts.Watermark.Image != "" {
+		opts.Watermark.Image = hostPath(opts.Watermark.Image)
+		if _, err := checkImage(opts.Watermark.Image); err != nil {
+			writeErr(w, 400, err.Error())
+			return
+		}
+	}
 	if err := opts.Validate(); err != nil {
 		writeErr(w, 400, err.Error())
 		return

@@ -149,12 +149,13 @@ func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string, maxS
 type EncodeOpts struct {
 	CRF        string
 	Preset     string
-	AssPath    string // subtitle .ass; kosong = tanpa subtitle
-	FontsDir   string // dir font untuk libass
-	Mode       string // center | fit
-	Background string // blur | black — isi ruang kosong yang tersisa
-	Zoom       int    // 5..100 persen ukuran video dalam bingkai
-	FPS        int    // 0 = ikut sumber
+	AssPath    string    // subtitle .ass; kosong = tanpa subtitle
+	FontsDir   string    // dir font untuk libass
+	Mode       string    // center | fit
+	Background string    // blur | black — isi ruang kosong yang tersisa
+	Zoom       int       // 5..100 persen ukuran video dalam bingkai
+	FPS        int       // 0 = ikut sumber
+	Watermark  Watermark // banner watermark; Image kosong = tidak ada
 }
 
 // Layout menempatkan video ke bingkai target.
@@ -182,10 +183,35 @@ type EncodeOpts struct {
 // Keduanya berhenti di 100: di situ gambar sudah memenuhi bingkai, dan
 // memperbesarnya lagi tidak menambah apa pun selain memotong lebih banyak.
 type Layout struct {
-	Mode       string // center | fit
-	Background string // blur | black — mengisi ruang kosong yang tersisa
-	Zoom       int    // persen; artinya bergantung Mode (lihat di atas)
+	Mode       string    // center | fit
+	Background string    // blur | black — mengisi ruang kosong yang tersisa
+	Zoom       int       // persen; artinya bergantung Mode (lihat di atas)
+	Watermark  Watermark // ditumpuk SETELAH video dipasang ke bingkai
 }
+
+// Watermark = gambar yang ditumpuk di atas video setelah reframe.
+//
+// Koordinatnya hidup di ruang 1080x1920 yang sama dengan subtitle, bukan dalam
+// piksel bingkai keluaran. libass menskalakan sendiri lewat PlayRes; overlay
+// tidak punya PlayRes, jadi penskalaannya dikerjakan watermarkChain di bawah.
+type Watermark struct {
+	Image string // path gambar; kosong = tidak ada yang ditumpuk
+	X, Y  int    // titik TENGAH kotak, ruang wmRefW x wmRefH
+	// Width & Height = KOTAK, dalam persen lebar & tinggi bingkai. Gambarnya
+	// dimuat utuh ke dalamnya (force_original_aspect_ratio=decrease): tidak
+	// digepengkan, tidak dipotong.
+	Width, Height int
+	At            float64 // detik muncul, relatif AWAL KLIP
+	For           float64 // durasi tampil; 0 = sampai klip habis
+}
+
+// Ruang koordinat penempatan. Harus sama dengan config.PlayResX/Y — paket ini
+// sengaja tidak mengimpor config supaya tetap bisa dipakai sendiri, persis
+// alasan maxZoom juga digandakan di sini.
+const (
+	wmRefW = 1080
+	wmRefH = 1920
+)
 
 // maxZoom harus sama dengan config.ZoomMax. Paket ini sengaja tidak mengimpor
 // config supaya tetap bisa dipakai sendiri.
@@ -194,10 +220,55 @@ const maxZoom = 100
 // ReframeFilter menyusun rantai filter -vf untuk menempatkan video ke bingkai
 // target.
 func ReframeFilter(l Layout, targetW, targetH int) string {
+	chain := centerCropChain(l, targetW, targetH)
 	if l.Mode == "fit" {
-		return wholePictureChain(l, targetW, targetH)
+		chain = wholePictureChain(l, targetW, targetH)
 	}
-	return centerCropChain(l, targetW, targetH)
+	return watermarkChain(chain, l.Watermark, targetW, targetH)
+}
+
+// watermarkChain menumpuk banner watermark di atas rantai yang sudah jadi.
+//
+// Dipasang lewat sumber `movie=` di dalam -vf, BUKAN sebagai masukan kedua
+// dengan -filter_complex. Alasannya bukan selera: ReframeFilter dipakai bersama
+// oleh render klip DAN pratinjau satu frame, dan keduanya menyerahkan satu
+// string filter. Beralih ke filter_complex berarti memecah kembali jalur yang
+// sengaja disatukan (lihat komentar Layout).
+//
+// Waktu tampil dijaga `enable`. `t` di situ relatif terhadap AWAL KELUARAN, dan
+// karena -ss diletakkan sebelum -i di ClipReframe, awal keluaran = awal klip —
+// jadi "muncul detik 1" berarti detik 1 klipnya, bukan detik 1 video sumbernya.
+func watermarkChain(chain string, b Watermark, targetW, targetH int) string {
+	if b.Image == "" || b.Width <= 0 || b.Height <= 0 {
+		return chain
+	}
+	w := evenBox(targetW * b.Width / 100)
+	h := evenBox(targetH * b.Height / 100)
+	x := b.X * targetW / wmRefW
+	y := b.Y * targetH / wmRefH
+
+	enable := ""
+	switch {
+	case b.For > 0:
+		enable = fmt.Sprintf(":enable='between(t,%.3f,%.3f)'", b.At, b.At+b.For)
+	case b.At > 0:
+		enable = fmt.Sprintf(":enable='gte(t,%.3f)'", b.At)
+	}
+
+	// force_original_aspect_ratio=decrease: gambar dimuat UTUH ke dalam kotak
+	// w x h. Bukan `scale=w:h` mentah (menggepengkan logo orang) dan bukan crop
+	// (memotongnya) — dua-duanya merusak lambang yang justru harus dikenali.
+	//
+	// overlay memakai w/h HASIL penskalaan, bukan kotaknya, jadi yang duduk di
+	// titik (x,y) adalah tengah GAMBARNYA — sama persis dengan object-fit:
+	// contain di pratinjau.
+	//
+	// format=rgba dipertahankan supaya PNG beralfa tetap tembus pandang; tanpa
+	// itu gambar berlatar transparan bisa mendarat sebagai kotak hitam.
+	return fmt.Sprintf(
+		"%s[bvid];movie='%s',scale=%d:%d:force_original_aspect_ratio=decrease,format=rgba[blogo];"+
+			"[bvid][blogo]overlay=x='%d-w/2':y='%d-h/2'%s",
+		chain, escapeFilterPath(b.Image), w, h, x, y, enable)
 }
 
 // wholePictureChain: zoom 0 memasukkan SELURUH video, lalu naik = membesar
@@ -319,7 +390,9 @@ func (c *Client) ClipReframe(ctx context.Context, input string, start, end float
 		}
 	}
 
-	vf := ReframeFilter(Layout{Mode: enc.Mode, Background: enc.Background, Zoom: enc.Zoom}, targetW, targetH)
+	vf := ReframeFilter(Layout{
+		Mode: enc.Mode, Background: enc.Background, Zoom: enc.Zoom, Watermark: enc.Watermark,
+	}, targetW, targetH)
 	if enc.FPS > 0 {
 		vf += fmt.Sprintf(",fps=%d", enc.FPS)
 	}

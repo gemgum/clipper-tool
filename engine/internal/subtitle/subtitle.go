@@ -59,7 +59,7 @@ func highlightColor(s config.Subtitle) string {
 	return assColor(hl)
 }
 
-func assHeader(s config.Subtitle) string {
+func assHeader(s config.Subtitle, hl config.Headline, withHeadline bool) string {
 	bold := 0
 	if s.Bold {
 		bold = 1
@@ -90,10 +90,101 @@ WrapStyle: 2
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Default,%s,%d,%s,%s,%s,%s,%d,0,0,0,100,100,0,0,%d,%d,%d,5,%d,%d,40,1
-
+%s
 [Events]
-`, playResX, playResY, font, s.Size, primary, secondary, assColor(s.OutlineColor), back, bold, borderStyle, outline, shadow, margin, margin) +
+`, playResX, playResY, font, s.Size, primary, secondary, assColor(s.OutlineColor), back, bold, borderStyle, outline, shadow, margin, margin, headlineStyle(hl, withHeadline)) +
 		"Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+}
+
+// headlineStyle menambah SATU style lagi untuk teks watermark.
+//
+// Style kedua, bukan tag inline di tiap baris: font, ukuran, warna, dan tebal
+// garis tepinya berdiri sendiri dari subtitle — headline itu identitas akun,
+// subtitle itu ucapan. Style-nya hanya ditulis bila memang ada yang memakainya;
+// .ass berisi style tak terpakai tetap sah, tapi berkas yang ditulis untuk
+// dibaca manusia saat menelusuri kegagalan sebaiknya tidak mengarang isi.
+func headlineStyle(h config.Headline, on bool) string {
+	if !on {
+		return ""
+	}
+	bold := 0
+	if h.Bold {
+		bold = 1
+	}
+	// BorderStyle 1 (garis tepi + bayangan), bukan 3 (kotak): teks ini sering
+	// berdiri di atas gambar videonya sendiri, dan garis tepi cukup membuatnya
+	// terbaca tanpa menutupi apa pun.
+	return fmt.Sprintf("\nStyle: Headline,%s,%d,%s,%s,%s,&H90000000,%d,0,0,0,100,100,0,0,1,%d,0,5,%d,%d,40,1",
+		h.Font, h.Size, assColor(h.Color), assColor(h.Color), assColor(h.OutlineColor), bold, h.Outline, margin, margin)
+}
+
+// headlineLines memenggal teks headline supaya muat di bingkai.
+//
+// Acuannya lebar BINGKAI, bukan lebar kotak watermark. Sempat sebaliknya —
+// waktu gambarnya diasumsikan kartu selebar layar dan teksnya duduk di dalam
+// kartu itu. Sejak kotaknya berbawaan seperempat bingkai, asumsi itu
+// menghasilkan empat karakter per baris: gambar dan headline adalah dua lapis
+// yang berdiri sendiri, dan masing-masing ditaruh di mana pun pengguna mau.
+//
+// Baris yang diketik pengguna sendiri dihormati lebih dulu: kalau ia menekan
+// enter, di situlah ia ingin barisnya patah.
+func headlineLines(text string, size int) []string {
+	usable := playResX - 2*margin
+	if size <= 0 {
+		size = 64
+	}
+	maxChars := int(float64(usable) / (float64(size) * 0.6))
+	if maxChars < 6 {
+		maxChars = 6
+	}
+
+	var out []string
+	for _, para := range strings.Split(text, "\n") {
+		line := ""
+		for _, word := range strings.Fields(para) {
+			switch {
+			case line == "":
+				line = word
+			case len(line)+1+len(word) <= maxChars:
+				line += " " + word
+			default:
+				out = append(out, line)
+				line = word
+			}
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// writeHeadline menulis teks watermark sebagai baris statis.
+//
+// Layer 1: ia harus berada DI ATAS subtitle bila keduanya kebetulan bertumpang
+// tindih — subtitle datang dan pergi, headline adalah identitas yang tidak boleh
+// tertutup.
+func writeHeadline(b *strings.Builder, watermark config.Watermark, text string, clipDur float64) {
+	// Sisi GUI (wrapHeadline di gui/app/watermark-model.ts) memenggal dengan
+	// aturan yang sama persis; kalau tidak, pratinjau memenggal di tempat lain
+	// daripada hasil rendernya.
+	lines := headlineLines(escapeText(text), watermark.Headline.Size)
+	if len(lines) == 0 {
+		return
+	}
+	end := watermark.At + watermark.For
+	if watermark.For <= 0 {
+		// Sampai klip habis. Klip tanpa durasi yang diketahui (pemanggil lama,
+		// atau .ass yang ditulis di luar render) diberi ujung yang jauh: .ass
+		// yang berakhir setelah videonya sudah selesai tidak apa-apa, sedangkan
+		// yang berakhir terlalu awal membuat watermark hilang di tengah jalan.
+		end = clipDur
+		if end <= 0 {
+			end = 3600
+		}
+	}
+	fmt.Fprintf(b, "Dialogue: 1,%s,%s,Headline,,0,0,0,,{\\an8\\pos(%d,%d)}%s\n",
+		tc(watermark.At), tc(end), watermark.Headline.X, watermark.Headline.Y, strings.Join(lines, "\\N"))
 }
 
 func tc(sec float64) string {
@@ -267,7 +358,14 @@ func endsSentence(t string) bool {
 
 // WriteASS menulis .ass sesuai mode: normal (kalimat utuh), karaoke (kata aktif
 // disorot), atau word (satu kata per layar).
-func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, sub config.Subtitle) error {
+// watermark & clipDur menambahkan lapis watermark: headline ditulis sebagai baris
+// statis berstyle sendiri di berkas yang SAMA. Banner PNG-nya bukan urusan sini
+// — itu overlay ffmpeg (internal/ffmpeg) — tapi lebarnya ikut dibaca, sebab ia
+// yang menentukan di mana teks headline boleh patah.
+//
+// headlineText dipisah dari watermark.Headline.Text supaya pemanggil bisa
+// menyerahkan judul PER KLIP (sumber "llm") tanpa menyalin seluruh struct.
+func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, sub config.Subtitle, watermark config.Watermark, headlineText string, clipDur float64) error {
 	x, y := sub.X, sub.Y
 	if x <= 0 {
 		x = playResX / 2
@@ -286,7 +384,9 @@ func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, su
 
 	words := collectWords(segs, clipStart)
 	var b strings.Builder
-	b.WriteString(assHeader(sub))
+	headlineText = strings.TrimSpace(headlineText)
+	b.WriteString(assHeader(sub, watermark.Headline, headlineText != ""))
+	writeHeadline(&b, watermark, headlineText, clipDur)
 
 	if sub.Mode == config.SubWord {
 		writeWordMode(&b, words, pos)

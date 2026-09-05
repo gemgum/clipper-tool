@@ -1,16 +1,23 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Crosshair, Eye, Info, RotateCw, X } from "lucide-react";
+import { Eye, Info, RotateCw, X } from "lucide-react";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import { eng } from "./engine";
 import Stepper from "./stepper";
+import { PLAY_H, PLAY_W, CENTER_X, CENTER_Y, snap, useLayerDrag } from "./drag";
+import Guides, { GridPicker, PositionField } from "./guides";
+import { wrapHeadline } from "./watermark-model";
+import type { Watermark } from "./watermark-model";
 import Select from "./select";
 import Warn from "./warn";
 
-export const PLAY_W = 1080, PLAY_H = 1920; // ruang koordinat subtitle
+// Ruang koordinat, titik tengah, dan mesin seret tinggal di ./drag — dipakai
+// bersama halaman watermark. Diekspor ulang dari sini supaya pemanggil lama
+// (page.tsx) tidak perlu tahu ia pindah.
+export { PLAY_W, PLAY_H, CENTER_X, CENTER_Y } from "./drag";
 
 // Area yang tertutup UI tiap aplikasi (fraksi tinggi/lebar frame 9:16).
 // Angka awal hasil pengukuran kasar — sesuaikan bila UI aplikasi berubah.
@@ -34,19 +41,11 @@ export type Font = { name: string; scale: number };
 // Hasil /api/font-check: valid = font benar-benar ada (bawaan atau sistem).
 export type FontCheck = { valid: boolean; name: string; family: string; source: string; error: string; scale: number };
 
-// Titik tengah bidang 9:16 + toleransi magnet (dalam koordinat 1080×1920).
-// 20 ≈ 5 piksel layar pada preview 270 px, cukup terasa tanpa bikin susah
-// menaruh subtitle sedikit di luar tengah.
-export const CENTER_X = 540, CENTER_Y = 960;
-const MAGNET = 20;
 // Pilihan kerapatan grid di ruang 1080×1920. 0 = mati.
 //
 // 20 jadi bawaan: 54×96 kotak — cukup kasar untuk membuat penempatan bisa
 // diulang, cukup halus untuk tidak terasa seperti pagar. Yang lain disediakan
 // karena "rasa" grid hanya bisa dinilai dengan mencoba, bukan dari angka.
-const GRIDS = [0, 10, 20, 24, 40] as const;
-// snap membulatkan ke kelipatan terdekat. g = 0 berarti tidak menempel.
-const snap = (v: number, g: number) => (g > 0 ? Math.round(v / g) * g : v);
 // Baris contoh di preview — panjangnya sengaja mendekati batas nyata satu baris
 // (~22 karakter pada ukuran font bawaan).
 const SAMPLE_LINES = ["sampleLine1", "sampleLine2", "sampleLine3"] as const;
@@ -68,6 +67,7 @@ export default function PreviewPanel({
   subSize, setSubSize, subColor, setSubColor, subOutline, setSubOutline, subBox, setSubBox,
   subMode, setSubMode, subHighlight, setSubHighlight, subSpeed, setSubSpeed,
   subX, setSubX, subY, setSubY, blockH, centerAnchorY,
+  watermark, moveWatermark, moveHeadline, wmOpen, watermarkPanel,
   platform, setPlatform, inUnsafe, onPlaceSafe, addLog, children,
 }: {
   path: string; reframe: string; background: string; zoom: number; zone?: Zone;
@@ -87,13 +87,19 @@ export default function PreviewPanel({
   subX: number; setSubX: (v: number | ((p: number) => number)) => void;
   subY: number; setSubY: (v: number | ((p: number) => number)) => void;
   blockH: number; centerAnchorY: number;
+  watermark: Watermark;
+  moveWatermark: (x: number, y: number) => void;
+  moveHeadline: (x: number, y: number) => void;
+  // wmOpen menukar isi kolom setelan: selagi menyala, hanya kelompok
+  // watermark yang tampil. Alasannya tinggi, dan angkanya di watermark-panel.tsx.
+  wmOpen: boolean;
+  watermarkPanel: React.ReactNode;
   addLog: (text: string) => void;
   children?: React.ReactNode;
 }) {
   const { t } = useI18n();
 
   const [previewOn, setPreviewOn] = useState(false);
-  const [isDragging, setIsDragging] = useState(false); // sedang menggeser subtitle
   const [alwaysGuides, setAlwaysGuides] = useState(false); // paksa grid tetap tampil
   const [grid, setGrid] = useState<number>(20);
   const [previewBusy, setPreviewBusy] = useState(false);
@@ -105,7 +111,6 @@ export default function PreviewPanel({
   // sama persis, browser memakai gambar lama meski videonya sudah ditimpa.
   const [previewNonce, setPreviewNonce] = useState(0);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const draggingRef = useRef(false);
 
   // Tinggi & lebar bingkai datang dari CSS dan HANYA dari tinggi jendela
   // (--pv-w di globals.css). Pengukuran kolom setelan yang dulu ada di sini
@@ -168,75 +173,23 @@ export default function PreviewPanel({
     return () => clearTimeout(timer);
   }, [path, resetPreview, loadPreview]);
 
-  // Geser subtitle di atas frame.
-  //
-  // Selisih titik pegang disimpan saat tombol ditekan, lalu ikut dijumlahkan
-  // tiap gerakan. Dulu posisi langsung disamakan dengan kursor, jadi teks
-  // melompat ke bawah kursor begitu disentuh — itu yang terasa "kurang stabil".
-  const grab = useRef({ dx: 0, dy: 0 });
+  // Mesin seret ada di ./drag — satu untuk ketiga lapis, dan halaman watermark
+  // memakai yang sama.
+  const { dragAt, dragProps } = useLayerDrag(boxRef, grid);
 
-  const previewPoint = useCallback((e: React.PointerEvent) => {
-    const rect = boxRef.current!.getBoundingClientRect();
-    return {
-      x: ((e.clientX - rect.left) / rect.width) * PLAY_W,
-      y: ((e.clientY - rect.top) / rect.height) * PLAY_H,
-    };
-  }, []);
-
-  const startDrag = useCallback((e: React.PointerEvent) => {
-    if (!boxRef.current) return;
-    e.preventDefault();
-    const p = previewPoint(e);
-    grab.current = { dx: subX - p.x, dy: subY - p.y };
-    draggingRef.current = true;
-    setIsDragging(true);
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  }, [subX, subY, previewPoint]);
-
-  const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!draggingRef.current || !boxRef.current) return;
-    const p = previewPoint(e);
-    let nx = p.x + grab.current.dx;
-    let ny = p.y + grab.current.dy;
-    // Alt = abaikan grid. Grid adalah bawaan, bukan pagar: harus selalu ada
-    // jalan menaruh subtitle satu piksel di luar kotaknya.
-    const g = e.altKey ? 0 : grid;
-    // Magnet MENANG atas grid, dan itu bukan selera: titik tengahnya sering
-    // bukan kelipatan grid (pada grid 24, X tengah 540 tidak terjangkau sama
-    // sekali), jadi menempelkan ke grid lebih dulu akan membuat "tepat di
-    // tengah" mustahil dicapai — persis kemampuan yang tidak boleh hilang.
-    nx = Math.abs(nx - CENTER_X) < MAGNET ? CENTER_X : snap(nx, g);
-    ny = Math.abs(ny - centerAnchorY) < MAGNET ? centerAnchorY : snap(ny, g);
-    setSubX(Math.round(Math.max(0, Math.min(PLAY_W, nx))));
+  const subDrag = dragProps(
+    subX, subY,
     // Batas bawah dikurangi tinggi blok: yang harus tetap di dalam bingkai
     // adalah seluruh blok, bukan cuma titik jangkarnya.
-    setSubY(Math.round(Math.max(0, Math.min(PLAY_H - blockH, ny))));
-  }, [previewPoint, blockH, centerAnchorY, grid, setSubX, setSubY]);
+    (x, y) => { setSubX(x); setSubY(y); },
+    centerAnchorY, PLAY_H - blockH,
+  );
+  const wmDrag = dragProps(watermark.x, watermark.y, moveWatermark, CENTER_Y, PLAY_H);
+  const headlineDrag = dragProps(watermark.hlX, watermark.hlY, moveHeadline, CENTER_Y, PLAY_H);
 
-  // Tombol panah menggeser 1 piksel (Shift = 10) — penempatan halus tanpa harus
-  // mematikan grid, dan satu-satunya cara menaruh subtitle dengan angka yang
-  // benar-benar bisa diulang.
-  const onKeyDown = useCallback((e: React.KeyboardEvent) => {
-    const step = e.shiftKey ? 10 : 1;
-    const move: Record<string, [number, number]> = {
-      ArrowLeft: [-step, 0], ArrowRight: [step, 0],
-      ArrowUp: [0, -step], ArrowDown: [0, step],
-    };
-    const d = move[e.key];
-    if (!d) return;
-    e.preventDefault();
-    setSubX((v: number) => Math.round(Math.max(0, Math.min(PLAY_W, v + d[0]))));
-    setSubY((v: number) => Math.round(Math.max(0, Math.min(PLAY_H - blockH, v + d[1]))));
-  }, [blockH, setSubX, setSubY]);
-
-  const endDrag = useCallback(() => {
-    draggingRef.current = false;
-    setIsDragging(false);
-  }, []);
-
-  const atCenterX = subX === CENTER_X;
-  const atCenterY = subY === centerAnchorY;
-  const guidesVisible = isDragging || alwaysGuides;
+  const atCenterX = (dragAt?.x ?? subX) === CENTER_X;
+  const atCenterY = dragAt ? dragAt.y === CENTER_Y || dragAt.y === centerAnchorY : subY === centerAnchorY;
+  const guidesVisible = dragAt !== null || alwaysGuides;
 
   const maxLines = linesFor(subMode, subSpeed);
   // Piksel CSS per satuan ukuran subtitle, dari engine. 0 = belum tahu (daftar
@@ -280,42 +233,51 @@ export default function PreviewPanel({
           )}
           {/* Garis tengah: muncul saat digeser (atau dikunci lewat centang).
               Kelas "on" = subtitle sedang menempel di garis itu. */}
-          {guidesVisible && grid >= 20 && (
-            /* Kotak grid digambar sebagai latar berulang, bukan puluhan elemen:
-               pada grid 10 itu 108×192 kotak, dan menggambarnya satu per satu
-               berarti 300 elemen yang harus dihitung ulang tiap seretan.
-
-               Di bawah 20 meshnya TIDAK digambar: pratinjau selebar 270 px
-               berarti kotak grid 10 hanya 2,5 px di layar, dan yang terlihat
-               bukan grid melainkan kabut kelabu di atas frame videonya. Yang
-               menempel tetap menempel — cuma gambarnya yang tidak menolong. */
-            <div className="gridmesh" style={{
-              backgroundSize: `${(grid / PLAY_W) * 100}% ${(grid / PLAY_H) * 100}%`,
-            }} />
-          )}
-          {guidesVisible && (
-            <>
-              <div className={`guide v${atCenterX ? " on" : ""}`} />
-              <div className={`guide h${atCenterY ? " on" : ""}`} />
-              {atCenterX && atCenterY && <div className="guide xy" />}
-            </>
-          )}
+          <Guides grid={grid} visible={guidesVisible} atX={atCenterX} atY={atCenterY} dragAt={dragAt} />
           {/* Video tanpa suara: seluruh pipeline berdiri di atas ucapan, jadi
               ini harus terlihat SEBELUM tombol Mulai ditekan. Lencana melayang
               di atas gambar — tidak menambah baris, tidak menggeser apa pun. */}
           {hasAudio === false && (
             <div className="no-audio"><Warn width={280}>{t("noAudioWarning")}</Warn>{t("noAudio")}</div>
           )}
-          {/* Sumbu pada posisi subtitle SEKARANG, berikut angkanya. Tanpa angka,
-              "pasti" hanya terasa — tidak bisa diulang di klip berikutnya. */}
-          {isDragging && (
-            <>
-              <div className="axis v" style={{ left: `${(subX / PLAY_W) * 100}%` }} />
-              <div className="axis h" style={{ top: `${(subY / PLAY_H) * 100}%` }} />
-              <div className="axis-read" style={{
-                left: `${(subX / PLAY_W) * 100}%`, top: `${(subY / PLAY_H) * 100}%`,
-              }}>{subX} · {subY}</div>
-            </>
+          {/* Banner watermark. Digambar SEBELUM subtitle & headline supaya
+              urutan tumpukannya sama dengan hasil render: overlay ffmpeg lebih
+              dulu, .ass (subtitle + headline) dibakar sesudahnya.
+
+              Sumbernya /api/image, bukan path lokal langsung: <img> di browser
+              tidak bisa membuka berkas di disk, dan tanpa gambarnya yang bisa
+              digeser cuma kotak kosong. */}
+          {watermark.image && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img className="wmoverlay" alt="watermark" draggable={false}
+              src={eng(`/api/image?path=${encodeURIComponent(watermark.image)}`)}
+              style={{
+                left: `${(watermark.x / PLAY_W) * 100}%`, top: `${(watermark.y / PLAY_H) * 100}%`,
+                // KOTAK-nya yang diberi ukuran; object-fit: contain (globals.css)
+                // yang memuat gambarnya ke dalam — sama dengan sisi ffmpeg.
+                width: `${watermark.width}%`, height: `${watermark.height}%`,
+              }}
+              {...wmDrag} />
+          )}
+          {/* Headline. Sumber "llm" menampilkan CONTOH: judulnya dipilih per
+              klip dan belum ada saat posisinya diatur — menampilkan teks kosong
+              di situ akan membuat orang mengira fiturnya mati. */}
+          {(watermark.hlText.trim() || watermark.hlSource === "llm") && (
+            <div className="suboverlay headlineoverlay"
+              style={{
+                left: `${(watermark.hlX / PLAY_W) * 100}%`, top: `${(watermark.hlY / PLAY_H) * 100}%`,
+                fontFamily: `"${subFont}", sans-serif`,
+                fontSize: `calc(${(watermark.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
+                lineHeight: 1 / fontScale,
+                color: hex(watermark.hlColor),
+                textShadow: watermark.hlOutline > 0
+                  ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
+                  : "none",
+              }}
+              {...headlineDrag}>
+              {wrapHeadline(watermark.hlSource === "llm" ? t("headlineSample") : watermark.hlText, watermark.hlSize)
+                .map((line, i) => <div key={i}>{line}</div>)}
+            </div>
           )}
           <div className="suboverlay"
             style={{
@@ -333,12 +295,7 @@ export default function PreviewPanel({
                 ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
                 : "none"),
             }}
-            tabIndex={0}
-            onKeyDown={onKeyDown}
-            onPointerDown={startDrag}
-            onPointerMove={onPointerMove}
-            onPointerUp={endDrag}
-            onPointerCancel={endDrag}>
+            {...subDrag}>
             {/* Contoh ditampilkan sebanyak baris terbanyak yang mungkin
                 muncul, bukan satu baris pendek. Dulu preview selalu 1 baris
                 sehingga pengguna menaruhnya pas, lalu terkejut waktu hasilnya
@@ -374,6 +331,11 @@ export default function PreviewPanel({
           kolomnya ditentukan sekali dan semua kendali berdiri di garis yang
           sama, berapa pun isinya. */}
       <div className="sub-settings">
+        {/* Kelompok subtitle, penempatan, dan bingkai MENGHILANG selagi watermark
+            terbuka. Bukan disembunyikan supaya rapi — kolom ini tidak punya sisa
+            tinggi sama sekali, jadi dua kelompok besar tidak bisa berdiri
+            bersama tanpa membuatnya bergulir. */}
+        {!wmOpen && <>
         <div className="group">
         <div className="group-title">{t("groupSubtitle")}</div>
         <div className="grid3">
@@ -448,16 +410,7 @@ export default function PreviewPanel({
               subtitle. Dan karena selnya selalu ada — tidak bergantung pada
               apakah frame sudah dimuat — bilah di bawah gambar tidak lagi
               tumbuh-susut, yang dulu menggeser seluruh kolom. */}
-          <div className="field"><label>{t("grid")}</label>
-            <div className="field-inline">
-              <Select value={String(grid)} onChange={(v) => setGrid(Number(v))}
-                options={GRIDS.map((g) => ({ value: String(g), label: g === 0 ? t("gridOff") : String(g) }))} />
-              <button className={"ghost tiny icon-only" + (alwaysGuides ? " active" : "")}
-                aria-pressed={alwaysGuides} title={t("guidesAlways")} aria-label={t("guidesAlways")}
-                onClick={() => setAlwaysGuides((v) => !v)}>
-                <Crosshair className="ico" aria-hidden="true" />
-              </button>
-            </div></div>
+          <GridPicker grid={grid} setGrid={setGrid} always={alwaysGuides} setAlways={setAlwaysGuides} />
         </div>
         </div>
 
@@ -472,20 +425,14 @@ export default function PreviewPanel({
                 teks di bawah kisi: baris itu muncul dan hilang tiap kali
                 subtitle digeser, dan tiap kali itu terjadi kelompok Frame di
                 bawahnya melompat. */}
-            <div className="field"><label>{t("position")}
-              {inUnsafe && <Warn>{t("unsafeWarning")}</Warn>}</label>
-              {/* "540 · 960", bukan "x 540 · y 960". Labelnya sudah berkata
-                  Position, dan pasangan angka di bawahnya terbaca x·y tanpa
-                  perlu dieja — sedangkan dua huruf itu memakan 16 px yang tidak
-                  ada: terukur, "x 540 · y 960" tidak muat di sel kisinya dan
-                  yang terdorong keluar justru lambang tombolnya. */}
-              <div className="position-value" title={`x ${subX} · y ${subY}`}>
-                <span>{subX} · {subY}</span>
-                <button className="ghost tiny" title={t("resetCentre")} aria-label={t("resetCentre")}
-                  onClick={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }}>
-                  <Crosshair className="ico" aria-hidden="true" />
-                </button>
-              </div></div>
+            {/* Peringatan "menabrak zona" jadi LAMBANG di label, bukan baris
+                teks di bawah kisi: baris itu muncul dan hilang tiap kali
+                subtitle digeser, dan tiap kali itu terjadi kelompok Frame di
+                bawahnya melompat. */}
+            <PositionField
+              label={<>{t("position")}{inUnsafe && <Warn>{t("unsafeWarning")}</Warn>}</>}
+              x={subX} y={subY}
+              onReset={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }} />
             <div className="field"><label title={t("platformGuideTip")}>{t("platformGuide")} <Info className="ico hint" aria-hidden="true" /></label>
               <Select value={platform} onChange={setPlatform} options={[
                 ...Object.keys(PLATFORMS).map((k) => ({
@@ -500,6 +447,9 @@ export default function PreviewPanel({
         </div>
 
         {children}
+        </>}
+
+        {watermarkPanel}
 
         {/* Kendali pratinjau tinggal DI SINI, bukan di bawah bingkainya.
             Alasannya tinggi, bukan kerapian: kolom pratinjau dan kotak log

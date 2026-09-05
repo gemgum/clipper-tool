@@ -18,8 +18,10 @@ import (
 	"github.com/gemgum/clipper/engine/internal/caption"
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/correct"
+	"github.com/gemgum/clipper/engine/internal/ffmpeg"
 	"github.com/gemgum/clipper/engine/internal/job"
 	"github.com/gemgum/clipper/engine/internal/pipeline"
+	"github.com/gemgum/clipper/engine/internal/watermark"
 	"github.com/gemgum/clipper/engine/internal/writer"
 )
 
@@ -43,6 +45,8 @@ func main() {
 		cmdWrite(layout, os.Args[2:])
 	case "caption":
 		cmdCaption(layout, os.Args[2:])
+	case "watermark":
+		cmdWatermark(layout, os.Args[2:])
 	case "serve":
 		cmdServe(layout, os.Args[2:])
 	case "version", "-v", "--version":
@@ -61,6 +65,8 @@ Usage:
   clipper write <url>... [flags] Write one article from up to 5 source articles
   clipper caption <video>... [flags]  Write scroll-stopping captions for one or
                                 more videos, one .txt next to each video's name
+  clipper watermark <video>... [flags]  Burn your watermark + headline into videos
+                                that are already 9:16, one *_watermarked.mp4 each
   clipper serve [flags]          Run the HTTP API for the GUI
   clipper version
 
@@ -76,6 +82,23 @@ Usage:
   -lang        en|id — language of the fixed text the engine writes (default en)
   -out         where to write the article folder (default <data>/posts)
   -max-words   article body budget sent to the model per source (default 1500)
+
+'watermark' flags:
+  -watermark-image  PNG/JPEG image burned into every video listed
+  -watermark-x -watermark-y  centre of the watermark in the 1080x1920 placement space
+  -watermark-width -watermark-height  the BOX the image sits in, as a percent of
+               the frame's width and height (default 25 each). The image is fitted
+               inside that box whole: never stretched, never cropped.
+  -watermark-at    second it appears, counted from the start of the video
+  -watermark-for   how long it stays; 0 = until the video ends (default)
+  -headline    text drawn on top of the watermark
+  -headline-x -headline-y -headline-size  placement and size of that text
+  -font        font family for the headline (default Montserrat)
+  -quality     draft|hd|max — encoder effort (default hd)
+  -out         one folder for every result. The default writes each next to its
+               own video, which is where you go looking for it.
+  Videos that are not 9:16 are refused by name, not silently cropped: the
+  placement space is 1080x1920, so the watermark would land somewhere else.
 
 'caption' flags:
   -engine      ollama|claude|openai|gemini|deepseek (default ollama). Cloud engines
@@ -130,6 +153,17 @@ Usage:
                regional language, and abbreviations. Whisper writes down the
                nearest word it does know instead, so the correction step uses
                this list to put them back. Needs -transcript-fix on.
+  -watermark       PNG/JPEG banner burned into every clip — your account watermark.
+               Only reaches the burned-in file; the clean file stays clean.
+  -watermark-x -watermark-y  centre of the watermark in the 1080x1920 placement space
+  -watermark-width -watermark-height  the BOX the image sits in, as a percent of
+               the frame's width and height (default 25 each). The image is fitted
+               inside that box whole: never stretched, never cropped.
+  -watermark-at    second it appears, counted from the start of the clip
+  -watermark-for   how long it stays; 0 = until the clip ends (default)
+  -headline    text drawn on top of the watermark, the same on every clip
+  -headline-llm  use the title the LLM picked for each clip instead
+  -headline-x -headline-y -headline-size  placement and size of that text
   -max         maximum number of clips (default 10)
   -min-score   minimum score 0-100 (default 0)
   -llm-model   Claude model (default claude-haiku-4-5)
@@ -171,6 +205,20 @@ func cmdRun(layout config.Layout, args []string) {
 	minScore := fs.Int("min-score", opts.MinScore, "")
 	llmModel := fs.String("llm-model", opts.LLMModel, "")
 	outDir := fs.String("out", opts.OutputDir, "")
+	// Watermark: banner PNG milik pengguna + teks di atasnya. Hanya ikut ke
+	// berkas yang subtitle-nya dibakar.
+	wmImage := fs.String("watermark-image", "", "")
+	wmX := fs.Int("watermark-x", opts.Watermark.X, "")
+	wmY := fs.Int("watermark-y", opts.Watermark.Y, "")
+	wmWidth := fs.Int("watermark-width", opts.Watermark.Width, "")
+	wmHeight := fs.Int("watermark-height", opts.Watermark.Height, "")
+	wmAt := fs.Float64("watermark-at", 0, "")
+	wmFor := fs.Float64("watermark-for", 0, "")
+	headline := fs.String("headline", "", "")
+	headlineLLM := fs.Bool("headline-llm", false, "")
+	headlineX := fs.Int("headline-x", opts.Watermark.Headline.X, "")
+	headlineY := fs.Int("headline-y", opts.Watermark.Headline.Y, "")
+	headlineSize := fs.Int("headline-size", opts.Watermark.Headline.Size, "")
 	_ = fs.Parse(flagArgs)
 
 	if input == "" {
@@ -197,6 +245,16 @@ func cmdRun(layout config.Layout, args []string) {
 	opts.MinScore = *minScore
 	opts.LLMModel = *llmModel
 	opts.OutputDir = *outDir
+	opts.Watermark.Image = *wmImage
+	opts.Watermark.X, opts.Watermark.Y = *wmX, *wmY
+	opts.Watermark.Width, opts.Watermark.Height = *wmWidth, *wmHeight
+	opts.Watermark.At, opts.Watermark.For = *wmAt, *wmFor
+	opts.Watermark.Headline.Text = *headline
+	opts.Watermark.Headline.X, opts.Watermark.Headline.Y = *headlineX, *headlineY
+	opts.Watermark.Headline.Size = *headlineSize
+	if *headlineLLM {
+		opts.Watermark.Headline.Source = config.HeadlineLLM
+	}
 	// Nilai bawaan -zoom hanya cocok untuk mode center. Bila pengguna memilih
 	// mode lain TANPA menyebut -zoom, dipakai titik awal mode itu — kalau tidak,
 	// "clipper run -reframe fit" justru menghasilkan gambar yang terpotong
@@ -578,6 +636,13 @@ func splitInput(args []string) (input string, flagArgs []string) {
 		"-sub-mode": true, "-sub-speed": true, "-save": true, "-duration": true,
 		"-provider": true, "-ollama-model": true, "-transcript-fix": true,
 		"-terms": true,
+		// Tanpa entri di sini, "clipper run -watermark logo.png video.mp4" membaca
+		// logo.png sebagai path videonya — flag bernilai yang lupa didaftarkan
+		// tidak gagal, ia diam-diam mencuri argumen positional berikutnya.
+		"-watermark-image": true, "-watermark-x": true, "-watermark-y": true, "-watermark-width": true, "-watermark-height": true,
+		"-watermark-at": true, "-watermark-for": true,
+		"-headline": true, "-headline-x": true, "-headline-y": true,
+		"-headline-size": true,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -668,4 +733,88 @@ func firstWords(s string, n int) string {
 		f = f[:n]
 	}
 	return strings.Join(f, " ")
+}
+
+// cmdWatermark membakar banner + headline ke video yang SUDAH jadi.
+//
+// Tidak ada transkripsi dan tidak ada LLM di sini — masuk video 9:16, keluar
+// video yang sama dengan identitas akun tertanam. Bulk BUKAN jalan kedua: satu
+// berkas cuma daftar sepanjang satu, dan kegagalan satu video tidak membuang
+// sisanya.
+func cmdWatermark(layout config.Layout, args []string) {
+	videos, flagArgs := splitPositional(args, map[string]bool{
+		"-watermark-image": true, "-watermark-x": true, "-watermark-y": true, "-watermark-width": true, "-watermark-height": true,
+		"-watermark-at": true, "-watermark-for": true,
+		"-headline": true, "-headline-x": true, "-headline-y": true,
+		"-headline-size": true, "-font": true, "-quality": true, "-out": true,
+	})
+
+	fs := flag.NewFlagSet("watermark", flag.ExitOnError)
+	defaults := config.DefaultOptions()
+	image := fs.String("watermark-image", "", "")
+	x := fs.Int("watermark-x", defaults.Watermark.X, "")
+	y := fs.Int("watermark-y", defaults.Watermark.Y, "")
+	width := fs.Int("watermark-width", defaults.Watermark.Width, "")
+	height := fs.Int("watermark-height", defaults.Watermark.Height, "")
+	at := fs.Float64("watermark-at", 0, "")
+	dur := fs.Float64("watermark-for", 0, "")
+	headline := fs.String("headline", "", "")
+	hlX := fs.Int("headline-x", defaults.Watermark.Headline.X, "")
+	hlY := fs.Int("headline-y", defaults.Watermark.Headline.Y, "")
+	hlSize := fs.Int("headline-size", defaults.Watermark.Headline.Size, "")
+	font := fs.String("font", defaults.Subtitle.Font, "")
+	quality := fs.String("quality", defaults.Quality, "")
+	outDir := fs.String("out", "", "")
+	_ = fs.Parse(flagArgs)
+
+	if len(videos) == 0 {
+		fmt.Fprintln(os.Stderr, "error: at least one video path is required. Example: clipper watermark -watermark-image logo.png clip_01.mp4")
+		os.Exit(1)
+	}
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+
+	opts := defaults
+	opts.Quality = *quality
+	opts.Subtitle.Font = *font
+	opts.Watermark = config.Watermark{
+		Image: *image, X: *x, Y: *y, Width: *width, Height: *height, At: *at, For: *dur,
+		Headline: config.Headline{
+			Source: config.HeadlineText, Text: *headline,
+			X: *hlX, Y: *hlY, Size: *hlSize,
+		},
+	}
+	if err := opts.Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
+	paths := config.ResolvePaths(layout, opts)
+
+	res, err := watermark.Run(context.Background(),
+		watermark.Options{
+			Videos: videos, Watermark: opts.Watermark, Subtitle: opts.Subtitle,
+			OutDir: *outDir, Quality: opts.Quality,
+		},
+		ffmpeg.New(paths.FFmpeg, paths.FFprobe), paths,
+		func(pr watermark.Progress) {
+			fmt.Fprintf(os.Stderr, "[%3.0f%%] %-10s %s\n", pr.Value*100, pr.Stage, pr.Message)
+		})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "FAILED:", err)
+		os.Exit(1)
+	}
+
+	fmt.Fprintf(os.Stderr, "\n%d video(s):\n", len(res.Files))
+	for _, f := range res.Files {
+		if f.Error != "" {
+			fmt.Fprintf(os.Stderr, "  %-30s FAILED: %s\n", f.Name, f.Error)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "  %-30s %s\n", f.Name, f.Output)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(res)
 }

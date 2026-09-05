@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"os/user"
@@ -452,4 +453,75 @@ func windowsHomes() []string {
 		}
 	}
 	return out
+}
+
+// Gambar watermark: dipilih pengguna, dibaca engine di tempat.
+//
+// Alurnya sengaja sama persis dengan video (notes/24): tidak ada yang diunggah,
+// yang berpindah cuma path-nya. Bedanya satu — banner harus TERLIHAT di
+// pratinjau supaya bisa digeser, dan <img> di browser tidak bisa membuka path
+// lokal. /api/image itulah jembatannya, dan ia sengaja sesempit mungkin:
+// hanya berkas gambar, hanya yang benar-benar ada, dan ada batas ukurannya.
+var imageExts = map[string]string{
+	".png":  "image/png",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".webp": "image/webp",
+}
+
+// maxImageBytes membatasi apa yang boleh dikirim ke browser sebagai banner.
+// Banner 1080 px lebar berukuran ratusan kilobyte; 20 MB sudah sangat longgar,
+// dan batas ini yang mencegah satu salah pilih (berkas .png hasil ekspor 8K)
+// membekukan pratinjau.
+const maxImageBytes = 20 << 20
+
+// checkImage memastikan path itu benar-benar berkas gambar yang bisa dipakai,
+// dan mengembalikan tipe MIME-nya.
+//
+// Diperiksa SEBELUM job dibuat, bukan dibiarkan gagal di dalam ffmpeg: rantai
+// filter yang gagal membuka `movie=` berhenti dengan pesan yang menyebut sintaks
+// filter, bukan nama berkas yang salah — dan itu terjadi setelah transkripsi
+// selesai, belasan menit sesudah tombol ditekan.
+func checkImage(path string) (string, error) {
+	mime, ok := imageExts[strings.ToLower(filepath.Ext(path))]
+	if !ok {
+		return "", fmt.Errorf("the watermark must be a PNG, JPEG, or WebP image: %s", path)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("the watermark image was not found on this computer: %s", path)
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("that path is a folder, not an image: %s", path)
+	}
+	if st.Size() > maxImageBytes {
+		return "", fmt.Errorf("the watermark image is larger than %d MB: %s", maxImageBytes>>20, path)
+	}
+	return mime, nil
+}
+
+// image menyajikan satu berkas gambar lokal supaya pratinjau bisa menampilkannya.
+func (s *Server) image(w http.ResponseWriter, r *http.Request) {
+	path := hostPath(r.URL.Query().Get("path"))
+	if path == "" {
+		writeErr(w, 400, "the 'path' parameter is required")
+		return
+	}
+	mime, err := checkImage(path)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		writeErr(w, 400, "the watermark image could not be read: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	// Tanpa cache: berkasnya bisa ditimpa di luar aplikasi, dan pratinjau yang
+	// menampilkan versi lama adalah persis jenis kebohongan yang membuat orang
+	// menyerahkan render dengan banner yang salah.
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(200)
+	_, _ = w.Write(data)
 }

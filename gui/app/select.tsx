@@ -111,7 +111,7 @@ export default function Select({
       </button>
 
       {open && pos && (
-        <div className="sel-list" role="listbox" ref={list}
+        <div className={"sel-list" + (pos.up ? " up" : "")} role="listbox" ref={list}
           style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.maxH }}>
           {options.map((o, i) => (
             <button
