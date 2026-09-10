@@ -118,24 +118,35 @@ func headlineStyle(h config.Headline, on bool) string {
 		h.Font, h.Size, assColor(h.Color), assColor(h.Color), assColor(h.OutlineColor), bold, h.Outline, margin, margin)
 }
 
-// headlineLines memenggal teks headline supaya muat di bingkai.
+// headlinePad = ruang napas di dalam kotak, di kedua sisi.
 //
-// Acuannya lebar BINGKAI, bukan lebar kotak watermark. Sempat sebaliknya —
-// waktu gambarnya diasumsikan kartu selebar layar dan teksnya duduk di dalam
-// kartu itu. Sejak kotaknya berbawaan seperempat bingkai, asumsi itu
-// menghasilkan empat karakter per baris: gambar dan headline adalah dua lapis
-// yang berdiri sendiri, dan masing-masing ditaruh di mana pun pengguna mau.
+// Kecil dan TETAP, bukan margin bingkai 60: kotaknya sendiri bisa cuma
+// seperempat lebar layar, dan margin sebesar itu memakan separuhnya.
+const headlinePad = 16
+
+// headlineLines memenggal teks headline supaya muat di dalam KOTAKNYA.
+//
+// boxW = lebar kotak dalam satuan PlayRes (bukan persen). Kotaknya adalah
+// gambar watermark bila ada, atau seluruh bingkai bila tidak — lihat
+// config.Watermark.HeadlineBox.
+//
+// Acuan kotak, bukan bingkai. Sempat bingkai, dan itu keliru: teks yang ditulis
+// untuk duduk di dalam kartu meluber keluar kartunya, dan tidak ada satu pun
+// batas yang menahannya.
 //
 // Baris yang diketik pengguna sendiri dihormati lebih dulu: kalau ia menekan
 // enter, di situlah ia ingin barisnya patah.
-func headlineLines(text string, size int) []string {
-	usable := playResX - 2*margin
+func headlineLines(text string, size, boxW int) []string {
 	if size <= 0 {
 		size = 64
 	}
+	usable := boxW - 2*headlinePad
 	maxChars := int(float64(usable) / (float64(size) * 0.6))
-	if maxChars < 6 {
-		maxChars = 6
+	// Di bawah 4 huruf teksnya tidak lagi terbaca sebagai kata. Kotak sesempit
+	// itu berarti fontnya yang harus dikecilkan, dan pratinjau menunjukkannya
+	// meluber — jujur, dan bisa diperbaiki pengguna.
+	if maxChars < 4 {
+		maxChars = 4
 	}
 
 	var out []string
@@ -165,13 +176,15 @@ func headlineLines(text string, size int) []string {
 // tindih — subtitle datang dan pergi, headline adalah identitas yang tidak boleh
 // tertutup.
 func writeHeadline(b *strings.Builder, watermark config.Watermark, text string, clipDur float64) {
-	// Sisi GUI (wrapHeadline di gui/app/watermark-model.ts) memenggal dengan
-	// aturan yang sama persis; kalau tidak, pratinjau memenggal di tempat lain
-	// daripada hasil rendernya.
-	lines := headlineLines(escapeText(text), watermark.Headline.Size)
+	// Sisi GUI (wrapHeadline & clampHeadline di gui/app/watermark-model.ts)
+	// menghitung dengan aturan yang sama persis; kalau tidak, pratinjau
+	// memenggal dan mengurung di tempat lain daripada hasil rendernya.
+	cx, cy, boxW, boxH := watermark.HeadlineBox()
+	lines := headlineLines(escapeText(text), watermark.Headline.Size, boxW)
 	if len(lines) == 0 {
 		return
 	}
+	x, y := headlineAnchor(lines, watermark.Headline, cx, cy, boxW, boxH)
 	end := watermark.At + watermark.For
 	if watermark.For <= 0 {
 		// Sampai klip habis. Klip tanpa durasi yang diketahui (pemanggil lama,
@@ -183,9 +196,41 @@ func writeHeadline(b *strings.Builder, watermark config.Watermark, text string, 
 			end = 3600
 		}
 	}
-	fmt.Fprintf(b, "Dialogue: 1,%s,%s,Headline,,0,0,0,,{\\an8\\pos(%d,%d)}%s\n",
-		tc(watermark.At), tc(end), watermark.Headline.X, watermark.Headline.Y, strings.Join(lines, "\\N"))
+	// an5 = jangkar di TENGAH blok teks, bukan tepi atasnya (an8 yang dipakai
+	// subtitle). Bedanya berarti di sini: headline dikurung sebuah kotak, dan
+	// "di tengah kotak" hanya bisa tepat kalau titik jangkarnya juga tengah.
+	// Subtitle memakai an8 karena jumlah barisnya berubah sepanjang klip; blok
+	// headline tidak pernah berubah, jadi alasan itu tidak berlaku.
+	fmt.Fprintf(b, "Dialogue: 1,%s,%s,Headline,,0,0,0,,{\\an5\\pos(%d,%d)}%s\n",
+		tc(watermark.At), tc(end), x, y, strings.Join(lines, "\\N"))
 }
+
+// headlineAnchor menaruh blok teks di dalam kotaknya: tengah kotak, digeser
+// sebanyak DX/DY, lalu DIJEPIT supaya seluruh bloknya tetap di dalam.
+//
+// Penjepitannya memakai perkiraan yang sama dengan pemenggalan (0,6 x ukuran
+// per huruf, satu baris setinggi ukurannya) — bukan pengukuran font sungguhan.
+// Itu cukup: yang dijaga di sini bukan presisi sub-piksel melainkan janji bahwa
+// teksnya tidak keluar dari gambar yang memuatnya.
+func headlineAnchor(lines []string, h config.Headline, cx, cy, boxW, boxH int) (int, int) {
+	longest := 0
+	for _, ln := range lines {
+		if len(ln) > longest {
+			longest = len(ln)
+		}
+	}
+	blockW := int(float64(longest) * float64(h.Size) * 0.6)
+	blockH := len(lines) * h.Size
+
+	// Blok yang lebih besar daripada kotaknya tidak bisa dijepit ke dalam —
+	// yang bisa dilakukan cuma menengahkannya, dan membiarkan pratinjau
+	// menunjukkan bahwa fontnya terlalu besar.
+	limitX := max(0, (boxW-blockW)/2)
+	limitY := max(0, (boxH-blockH)/2)
+	return cx + clamp(h.DX, -limitX, limitX), cy + clamp(h.DY, -limitY, limitY)
+}
+
+func clamp(v, lo, hi int) int { return min(hi, max(lo, v)) }
 
 func tc(sec float64) string {
 	if sec < 0 {

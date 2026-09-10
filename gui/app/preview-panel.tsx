@@ -9,7 +9,7 @@ import { eng } from "./engine";
 import Stepper from "./stepper";
 import { PLAY_H, PLAY_W, CENTER_X, CENTER_Y, snap, useLayerDrag } from "./drag";
 import Guides, { GridPicker, PositionField } from "./guides";
-import { wrapHeadline } from "./watermark-model";
+import { headlineAnchor, headlineBox, wrapHeadline } from "./watermark-model";
 import type { Watermark } from "./watermark-model";
 import Select from "./select";
 import Warn from "./warn";
@@ -185,7 +185,14 @@ export default function PreviewPanel({
     centerAnchorY, PLAY_H - blockH,
   );
   const wmDrag = dragProps(watermark.x, watermark.y, moveWatermark, CENTER_Y, PLAY_H);
-  const headlineDrag = dragProps(watermark.hlX, watermark.hlY, moveHeadline, CENTER_Y, PLAY_H);
+  // Headline: koordinat di layar dihitung dari kotaknya, yang disimpan geseran.
+  const hlBox = headlineBox(watermark);
+  const hlLines = wrapHeadline(
+    watermark.hlSource === "llm" ? t("headlineSample") : watermark.hlText,
+    watermark.hlSize, hlBox.w);
+  const hlAt = headlineAnchor(hlLines, watermark.hlSize, watermark.hlDX, watermark.hlDY, hlBox);
+  const headlineDrag = dragProps(hlAt.x, hlAt.y,
+    (x, y) => moveHeadline(x - hlBox.cx, y - hlBox.cy), hlBox.cy, PLAY_H, hlBox.cx);
 
   const atCenterX = (dragAt?.x ?? subX) === CENTER_X;
   const atCenterY = dragAt ? dragAt.y === CENTER_Y || dragAt.y === centerAnchorY : subY === centerAnchorY;
@@ -259,25 +266,33 @@ export default function PreviewPanel({
               }}
               {...wmDrag} />
           )}
-          {/* Headline. Sumber "llm" menampilkan CONTOH: judulnya dipilih per
-              klip dan belum ada saat posisinya diatur — menampilkan teks kosong
-              di situ akan membuat orang mengira fiturnya mati. */}
-          {(watermark.hlText.trim() || watermark.hlSource === "llm") && (
-            <div className="suboverlay headlineoverlay"
-              style={{
-                left: `${(watermark.hlX / PLAY_W) * 100}%`, top: `${(watermark.hlY / PLAY_H) * 100}%`,
-                fontFamily: `"${subFont}", sans-serif`,
-                fontSize: `calc(${(watermark.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
-                lineHeight: 1 / fontScale,
-                color: hex(watermark.hlColor),
-                textShadow: watermark.hlOutline > 0
-                  ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
-                  : "none",
-              }}
-              {...headlineDrag}>
-              {wrapHeadline(watermark.hlSource === "llm" ? t("headlineSample") : watermark.hlText, watermark.hlSize)
-                .map((line, i) => <div key={i}>{line}</div>)}
-            </div>
+          {/* Headline duduk DI DALAM kotak watermark: jangkarnya tengah kotak,
+              digeser sebanyak hlDX/hlDY, dan dijepit supaya bloknya tidak
+              pernah keluar. Batas kotaknya digambar saat dipegang — janji
+              "tidak melewati watermark" harus TERLIHAT, bukan cuma berlaku. */}
+          {(hlLines.length > 0) && (
+            <>
+              {dragAt && <div className="wmbox" style={{
+                left: `${((hlBox.cx - hlBox.w / 2) / PLAY_W) * 100}%`,
+                top: `${((hlBox.cy - hlBox.h / 2) / PLAY_H) * 100}%`,
+                width: `${(hlBox.w / PLAY_W) * 100}%`,
+                height: `${(hlBox.h / PLAY_H) * 100}%`,
+              }} />}
+              <div className="suboverlay headlineoverlay"
+                style={{
+                  left: `${(hlAt.x / PLAY_W) * 100}%`, top: `${(hlAt.y / PLAY_H) * 100}%`,
+                  fontFamily: `"${subFont}", sans-serif`,
+                  fontSize: `calc(${(watermark.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
+                  lineHeight: 1 / fontScale,
+                  color: hex(watermark.hlColor),
+                  textShadow: watermark.hlOutline > 0
+                    ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
+                    : "none",
+                }}
+                {...headlineDrag}>
+                {hlLines.map((line, i) => <div key={i}>{line}</div>)}
+              </div>
+            </>
           )}
           <div className="suboverlay"
             style={{

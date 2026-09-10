@@ -92,7 +92,9 @@ Usage:
   -watermark-at    second it appears, counted from the start of the video
   -watermark-for   how long it stays; 0 = until the video ends (default)
   -headline    text drawn on top of the watermark
-  -headline-x -headline-y -headline-size  placement and size of that text
+  -headline-dx -headline-dy  nudge the text from the centre of the image; 0,0 is
+               the centre, and it is kept inside the image either way
+  -headline-size  font size of that text
   -font        font family for the headline (default Montserrat)
   -quality     draft|hd|max — encoder effort (default hd)
   -out         one folder for every result. The default writes each next to its
@@ -163,7 +165,9 @@ Usage:
   -watermark-for   how long it stays; 0 = until the clip ends (default)
   -headline    text drawn on top of the watermark, the same on every clip
   -headline-llm  use the title the LLM picked for each clip instead
-  -headline-x -headline-y -headline-size  placement and size of that text
+  -headline-dx -headline-dy  nudge the text from the centre of the image; 0,0 is
+               the centre, and it is kept inside the image either way
+  -headline-size  font size of that text
   -max         maximum number of clips (default 10)
   -min-score   minimum score 0-100 (default 0)
   -llm-model   Claude model (default claude-haiku-4-5)
@@ -216,8 +220,8 @@ func cmdRun(layout config.Layout, args []string) {
 	wmFor := fs.Float64("watermark-for", 0, "")
 	headline := fs.String("headline", "", "")
 	headlineLLM := fs.Bool("headline-llm", false, "")
-	headlineX := fs.Int("headline-x", opts.Watermark.Headline.X, "")
-	headlineY := fs.Int("headline-y", opts.Watermark.Headline.Y, "")
+	headlineDX := fs.Int("headline-dx", opts.Watermark.Headline.DX, "")
+	headlineDY := fs.Int("headline-dy", opts.Watermark.Headline.DY, "")
 	headlineSize := fs.Int("headline-size", opts.Watermark.Headline.Size, "")
 	_ = fs.Parse(flagArgs)
 
@@ -250,7 +254,7 @@ func cmdRun(layout config.Layout, args []string) {
 	opts.Watermark.Width, opts.Watermark.Height = *wmWidth, *wmHeight
 	opts.Watermark.At, opts.Watermark.For = *wmAt, *wmFor
 	opts.Watermark.Headline.Text = *headline
-	opts.Watermark.Headline.X, opts.Watermark.Headline.Y = *headlineX, *headlineY
+	opts.Watermark.Headline.DX, opts.Watermark.Headline.DY = *headlineDX, *headlineDY
 	opts.Watermark.Headline.Size = *headlineSize
 	if *headlineLLM {
 		opts.Watermark.Headline.Source = config.HeadlineLLM
@@ -641,7 +645,7 @@ func splitInput(args []string) (input string, flagArgs []string) {
 		// tidak gagal, ia diam-diam mencuri argumen positional berikutnya.
 		"-watermark-image": true, "-watermark-x": true, "-watermark-y": true, "-watermark-width": true, "-watermark-height": true,
 		"-watermark-at": true, "-watermark-for": true,
-		"-headline": true, "-headline-x": true, "-headline-y": true,
+		"-headline": true, "-headline-dx": true, "-headline-dy": true,
 		"-headline-size": true,
 	}
 	for i := 0; i < len(args); i++ {
@@ -745,7 +749,7 @@ func cmdWatermark(layout config.Layout, args []string) {
 	videos, flagArgs := splitPositional(args, map[string]bool{
 		"-watermark-image": true, "-watermark-x": true, "-watermark-y": true, "-watermark-width": true, "-watermark-height": true,
 		"-watermark-at": true, "-watermark-for": true,
-		"-headline": true, "-headline-x": true, "-headline-y": true,
+		"-headline": true, "-headline-dx": true, "-headline-dy": true,
 		"-headline-size": true, "-font": true, "-quality": true, "-out": true,
 	})
 
@@ -759,8 +763,8 @@ func cmdWatermark(layout config.Layout, args []string) {
 	at := fs.Float64("watermark-at", 0, "")
 	dur := fs.Float64("watermark-for", 0, "")
 	headline := fs.String("headline", "", "")
-	hlX := fs.Int("headline-x", defaults.Watermark.Headline.X, "")
-	hlY := fs.Int("headline-y", defaults.Watermark.Headline.Y, "")
+	hlDX := fs.Int("headline-dx", defaults.Watermark.Headline.DX, "")
+	hlDY := fs.Int("headline-dy", defaults.Watermark.Headline.DY, "")
 	hlSize := fs.Int("headline-size", defaults.Watermark.Headline.Size, "")
 	font := fs.String("font", defaults.Subtitle.Font, "")
 	quality := fs.String("quality", defaults.Quality, "")
@@ -783,7 +787,7 @@ func cmdWatermark(layout config.Layout, args []string) {
 		Image: *image, X: *x, Y: *y, Width: *width, Height: *height, At: *at, For: *dur,
 		Headline: config.Headline{
 			Source: config.HeadlineText, Text: *headline,
-			X: *hlX, Y: *hlY, Size: *hlSize,
+			DX: *hlDX, DY: *hlDY, Size: *hlSize,
 		},
 	}
 	if err := opts.Validate(); err != nil {

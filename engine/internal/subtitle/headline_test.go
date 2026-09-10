@@ -18,28 +18,45 @@ func headlineWatermark() config.Watermark {
 	return b
 }
 
-// Headline dipenggal memakai lebar BINGKAI, dan ukuran font yang menentukan
-// berapa karakter yang muat. Acuannya BUKAN kotak watermark: sejak kotak itu
-// berbawaan seperempat bingkai, memakainya menghasilkan empat karakter per baris.
-func TestHeadlineLinesFollowFrameWidth(t *testing.T) {
+// Headline dipenggal memakai lebar KOTAKNYA — kotak gambar watermark, bukan
+// lebar bingkai. Itu janji yang diminta: teks tidak boleh melewati gambar yang
+// memuatnya.
+func TestHeadlineLinesFollowBoxWidth(t *testing.T) {
 	text := "BEGINI KATA MIDLANER ANDALAN RRQ HOSHI SOAL KEKALAHAN KEMARIN"
-	small := headlineLines(text, 40)
-	big := headlineLines(text, 96)
-	if len(big) <= len(small) {
-		t.Fatalf("font besar harus menghasilkan lebih banyak baris: %d vs %d", len(big), len(small))
+	wide := headlineLines(text, 40, 1080)
+	narrow := headlineLines(text, 40, 400)
+	if len(narrow) <= len(wide) {
+		t.Fatalf("kotak sempit harus menghasilkan lebih banyak baris: %d vs %d", len(narrow), len(wide))
 	}
-	// 1080 - 2*60 margin, huruf 0,6 x ukuran → 40 karakter pada ukuran 40.
-	for _, ln := range small {
-		if len(ln) > 40 {
-			t.Fatalf("baris melewati lebar bingkai: %q", ln)
+	// (400 - 2*16) / (40 * 0,6) = 15 karakter.
+	for _, ln := range narrow {
+		if len(ln) > 15 {
+			t.Fatalf("baris melewati lebar kotak: %q", ln)
 		}
+	}
+}
+
+// Blok teks DIJEPIT ke dalam kotaknya: geseran sebesar apa pun tidak bisa
+// mengeluarkannya. Inilah "batas teks" yang dulu tidak ada.
+func TestHeadlineAnchorStaysInsideBox(t *testing.T) {
+	h := config.DefaultWatermark().Headline
+	h.Size = 40
+	lines := []string{"HALO"} // ~96 unit lebar, 40 tinggi
+	// Kotak 400x300 berpusat di (540, 700); geseran 9999 harus terjepit.
+	x, y := headlineAnchor(lines, config.Headline{Size: h.Size, DX: 9999, DY: 9999}, 540, 700, 400, 300)
+	if x > 540+200 || y > 700+150 {
+		t.Fatalf("jangkar keluar dari kotak: %d,%d", x, y)
+	}
+	// Tanpa geseran ia TEPAT di tengah kotak — itu bawaannya.
+	if x0, y0 := headlineAnchor(lines, config.Headline{Size: h.Size}, 540, 700, 400, 300); x0 != 540 || y0 != 700 {
+		t.Fatalf("tanpa geseran harus di tengah kotak, dapat %d,%d", x0, y0)
 	}
 }
 
 // Baris yang diketik pengguna sendiri dihormati: kalau ia menekan enter, di
 // situlah barisnya patah.
 func TestHeadlineLinesKeepManualBreaks(t *testing.T) {
-	got := headlineLines("RINZ\nKENA MENTAL", 64)
+	got := headlineLines("RINZ\nKENA MENTAL", 64, 1080)
 	if len(got) != 2 || got[0] != "RINZ" {
 		t.Fatalf("pemenggalan manual hilang: %#v", got)
 	}

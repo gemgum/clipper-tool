@@ -19,9 +19,10 @@ import { eng } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
 import WatermarkPanel from "../watermark-panel";
-import { DEFAULT_WATERMARK, watermarkToAPI, watermarkOn, wrapHeadline } from "../watermark-model";
+import { DEFAULT_WATERMARK, watermarkToAPI, watermarkOn, headlineAnchor, headlineBox, wrapHeadline } from "../watermark-model";
 import type { Watermark } from "../watermark-model";
 import { CENTER_X, CENTER_Y, PLAY_H, PLAY_W, useLayerDrag } from "../drag";
+import type { Font } from "../preview-panel";
 import Guides, { GridPicker } from "../guides";
 import LogPanel from "../log-panel";
 import Picker from "../picker";
@@ -41,6 +42,10 @@ type WatermarkJob = {
 };
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
+
+// Font headline. Satu untuk seluruh aplikasi — pemilihnya ada di halaman klip,
+// dan pemilih kedua berarti pengukuran kedua (notes/29).
+const HL_FONT = "Montserrat";
 const hex = (c: string) => (c === "yellow" ? "#ffdd00" : "#ffffff");
 
 export default function WatermarkPage() {
@@ -61,10 +66,26 @@ export default function WatermarkPage() {
   // Menggeser banner ikut membawa headline-nya — aturan yang sama dengan
   // halaman klip, dan alasannya juga sama (lihat page.tsx).
   const moveWatermark = useCallback((x: number, y: number) => {
-    setWatermarkState((b) => ({ ...b, x, y, hlX: b.hlX + (x - b.x), hlY: b.hlY + (y - b.y) }));
+    setWatermarkState((b) => ({ ...b, x, y }));
   }, []);
-  const moveHeadline = useCallback((x: number, y: number) => {
-    setWatermarkState((b) => ({ ...b, hlX: x, hlY: y }));
+  // Geseran dari tengah kotak, bukan koordinat mutlak — pemanggilnya yang
+  // mengurangi titik tengah kotaknya.
+  const moveHeadline = useCallback((dx: number, dy: number) => {
+    setWatermarkState((b) => ({ ...b, hlDX: dx, hlDY: dy }));
+  }, []);
+
+  // Metrik font headline, dari engine.
+  //
+  // Wajib, bukan kemewahan: .ass mengartikan ukuran sebagai tinggi kotak font
+  // sedangkan CSS mengartikannya sebagai em, dan selisihnya berbeda tiap font.
+  // Tanpa ini pratinjau memakai font cadangan sistem — terukur, teksnya 19 px
+  // lebih lebar daripada hasil rendernya, dan itu justru menembus batas kotak
+  // yang seharusnya dijaga halaman ini.
+  const [fontScale, setFontScale] = useState(1);
+  useEffect(() => {
+    fetch(eng("/api/fonts")).then((r) => r.json())
+      .then((f: Font[]) => setFontScale(f.find((x) => x.name === HL_FONT)?.scale || 1))
+      .catch(() => {});
   }, []);
 
   const [jobId, setJobId] = useState("");
@@ -83,7 +104,11 @@ export default function WatermarkPage() {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const { dragAt, dragProps } = useLayerDrag(boxRef, grid);
   const wmDrag = dragProps(watermark.x, watermark.y, moveWatermark, CENTER_Y, PLAY_H);
-  const headlineDrag = dragProps(watermark.hlX, watermark.hlY, moveHeadline, CENTER_Y, PLAY_H);
+  const hlBox = headlineBox(watermark);
+  const hlLines = wrapHeadline(watermark.hlText, watermark.hlSize, hlBox.w);
+  const hlAt = headlineAnchor(hlLines, watermark.hlSize, watermark.hlDX, watermark.hlDY, hlBox);
+  const headlineDrag = dragProps(hlAt.x, hlAt.y,
+    (x, y) => moveHeadline(x - hlBox.cx, y - hlBox.cy), hlBox.cy, PLAY_H, hlBox.cx);
 
   // Bingkai pratinjau diambil dari video PERTAMA di daftar: watermark-nya sama
   // untuk semuanya, jadi satu contoh sudah cukup untuk menaruhnya.
@@ -179,8 +204,8 @@ export default function WatermarkPage() {
           videos, quality, out_dir: outDir,
           // Font headline mengikuti bawaan halaman klip; satu pemilih font untuk
           // seluruh aplikasi, jadi pratinjau di sini memakai metrik yang sama.
-          font: "Montserrat",
-          watermark: watermarkToAPI(watermark, "Montserrat"),
+          font: HL_FONT,
+          watermark: watermarkToAPI(watermark, HL_FONT),
         }),
       });
       const data = await r.json();
@@ -207,6 +232,12 @@ export default function WatermarkPage() {
 
   return (
     <div className="screen">
+      {/* Font asli dimuat supaya pratinjau memakai huruf yang SAMA dengan yang
+          dibakar libass. Dua aturan, tegak dan tebal — alasannya di page.tsx. */}
+      <style dangerouslySetInnerHTML={{ __html: [400, 700].map((w) =>
+        `@font-face{font-family:"${HL_FONT}";font-weight:${w};src:url("${eng(`/api/font-file?name=${encodeURIComponent(HL_FONT)}&weight=${w}`)}");font-display:swap;}`
+      ).join("") }} />
+
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
       <div className="screen-body two">
@@ -241,22 +272,36 @@ export default function WatermarkPage() {
                       }}
                       {...wmDrag} />
                   )}
-                  {watermark.hlText.trim() && (
-                    <div className="suboverlay headlineoverlay"
-                      style={{
-                        left: `${(watermark.hlX / PLAY_W) * 100}%`, top: `${(watermark.hlY / PLAY_H) * 100}%`,
-                        fontFamily: `"Montserrat", sans-serif`,
-                        fontSize: `calc(${watermark.hlSize / PLAY_H} * var(--pvh))`,
-                        color: hex(watermark.hlColor),
-                        textShadow: watermark.hlOutline > 0
-                          ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
-                          : "none",
-                      }}
-                      {...headlineDrag}>
-                      {wrapHeadline(watermark.hlText, watermark.hlSize)
-                        .map((line, i) => <div key={i}>{line}</div>)}
-                    </div>
-                  )}
+                    {/* Headline duduk DI DALAM kotak watermark: jangkarnya tengah kotak,
+                        digeser sebanyak hlDX/hlDY, dan dijepit supaya bloknya tidak
+                        pernah keluar. Batas kotaknya digambar saat dipegang — janji
+                        "tidak melewati watermark" harus TERLIHAT, bukan cuma berlaku. */}
+                    {(hlLines.length > 0) && (
+                      <>
+                        {dragAt && <div className="wmbox" style={{
+                          left: `${((hlBox.cx - hlBox.w / 2) / PLAY_W) * 100}%`,
+                          top: `${((hlBox.cy - hlBox.h / 2) / PLAY_H) * 100}%`,
+                          width: `${(hlBox.w / PLAY_W) * 100}%`,
+                          height: `${(hlBox.h / PLAY_H) * 100}%`,
+                        }} />}
+                        <div className="suboverlay headlineoverlay"
+                          style={{
+                            left: `${(hlAt.x / PLAY_W) * 100}%`, top: `${(hlAt.y / PLAY_H) * 100}%`,
+                            fontFamily: `"${HL_FONT}", sans-serif`,
+                            fontSize: `calc(${(watermark.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
+                            // Kotak baris setinggi ukuran .ass; font-size di atas
+                            // sudah dikecilkan jadi em-nya, 1/scale mengembalikannya.
+                            lineHeight: 1 / fontScale,
+                            color: hex(watermark.hlColor),
+                            textShadow: watermark.hlOutline > 0
+                              ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
+                              : "none",
+                          }}
+                          {...headlineDrag}>
+                          {hlLines.map((line, i) => <div key={i}>{line}</div>)}
+                        </div>
+                      </>
+                    )}
                 </div>
               </div>
 

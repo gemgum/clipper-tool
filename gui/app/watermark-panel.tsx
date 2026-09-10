@@ -9,7 +9,7 @@ import { GridPicker, PositionField } from "./guides";
 import Stepper from "./stepper";
 import Select from "./select";
 import type { Watermark } from "./watermark-model";
-import { watermarkOn } from "./watermark-model";
+import { headlineAnchor, headlineBox, watermarkOn, wrapHeadline } from "./watermark-model";
 
 // Watermark: banner PNG milik pengguna + teks di atasnya, dibakar ke tiap klip.
 //
@@ -54,6 +54,13 @@ export default function WatermarkPanel({
   // akan mematikan kotak teksnya tanpa ada satu pun kendali untuk menghidupkannya
   // lagi — persis jebakan yang baru saja dibuang.
   const source = allowLLM ? watermark.hlSource : "text";
+  // Angkanya ditampilkan sebagai TITIK SEBENARNYA di bidang, walau yang
+  // disimpan geseran: "540·520" langsung terbaca sebagai tempat, sedangkan
+  // "0·-40" menuntut pembacanya menghitung sendiri.
+  const hlBox = headlineBox(watermark);
+  const hlAt = headlineAnchor(
+    wrapHeadline(watermark.hlText, watermark.hlSize, hlBox.w),
+    watermark.hlSize, watermark.hlDX, watermark.hlDY, hlBox);
 
   return (
     <Section open={open} onToggle={setOpen}
@@ -109,11 +116,11 @@ export default function WatermarkPanel({
           ]} /></div>
         <div className="field"><label>{t("outline")}</label>
           <Stepper value={watermark.hlOutline} onChange={(v) => setWatermark({ hlOutline: v })} min={0} max={12} /></div>
-        {/* Penempatan teksnya SENDIRI. Menyeret memberi rasa, angka memberi
-            yang bisa diulang — dan tanpa sel ini tidak ada satu pun tanda bahwa
-            teksnya memang bisa dipindah terpisah dari gambarnya. */}
-        <PositionField label={t("headlinePosition")} x={watermark.hlX} y={watermark.hlY}
-          onReset={() => setWatermark({ hlX: 540, hlY: 960 })} />
+        {/* Penempatan teksnya SENDIRI, di dalam kotak gambarnya. Tombolnya
+            mengembalikan ke TENGAH KOTAK — bukan tengah bingkai — sebab di
+            situlah teks itu memang seharusnya berdiri. */}
+        <PositionField label={t("headlinePosition")} x={Math.round(hlAt.x)} y={Math.round(hlAt.y)}
+          onReset={() => setWatermark({ hlDX: 0, hlDY: 0 })} />
         {gridControl}
 
         {/* Teks headline melintasi seluruh kisi: ia satu-satunya isian bebas di

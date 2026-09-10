@@ -86,18 +86,18 @@ export default function Home() {
   const setWatermark = useCallback((patch: Partial<Watermark>) => {
     setWatermarkState((b) => ({ ...b, ...patch }));
   }, []);
-  // Menggeser banner ikut membawa headline-nya.
-  //
-  // Keduanya disimpan sebagai koordinat mutlak, bukan "teks relatif terhadap
-  // banner": yang kedua terdengar lebih rapi tapi menambah satu ruang koordinat
-  // lagi yang harus diterjemahkan di pratinjau, di engine, dan di .ass. Yang
-  // dibutuhkan cuma satu perilaku — teks tidak ditinggalkan saat kartunya
-  // dipindah — dan itu selisih dua angka.
+  // Menggeser watermark otomatis membawa headline-nya, dan itu TIDAK butuh kode
+  // lagi: posisi headline disimpan sebagai geseran dari tengah kotak, jadi ia
+  // ikut ke mana pun kotaknya pergi. Dulu keduanya koordinat mutlak dan
+  // selisihnya dijumlahkan sendiri di sini — dan itu pula yang membuat teksnya
+  // tidak pernah benar-benar terikat pada gambarnya.
   const moveWatermark = useCallback((x: number, y: number) => {
-    setWatermarkState((b) => ({ ...b, x, y, hlX: b.hlX + (x - b.x), hlY: b.hlY + (y - b.y) }));
+    setWatermarkState((b) => ({ ...b, x, y }));
   }, []);
-  const moveHeadline = useCallback((x: number, y: number) => {
-    setWatermarkState((b) => ({ ...b, hlX: x, hlY: y }));
+  // Geseran dari tengah kotak, bukan koordinat mutlak — pemanggilnya yang
+  // mengurangi titik tengah kotaknya.
+  const moveHeadline = useCallback((dx: number, dy: number) => {
+    setWatermarkState((b) => ({ ...b, hlDX: dx, hlDY: dy }));
   }, []);
 
   // Font manual (di luar daftar bawaan) + hasil pengecekannya di engine.

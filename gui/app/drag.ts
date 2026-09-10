@@ -60,6 +60,10 @@ export function useLayerDrag(boxRef: React.RefObject<HTMLDivElement | null>, gri
     x: number, y: number,
     onMove: (x: number, y: number) => void,
     magnetY: number, maxY: number,
+    // Titik magnet mendatar. Bawaannya tengah BINGKAI, tapi headline dikurung
+    // kotak watermark yang bisa berdiri di mana saja — magnet ke tengah bingkai
+    // di situ justru menarik teks keluar dari kotaknya.
+    magnetX: number = CENTER_X,
   ) => {
     const clamp = (nx: number, ny: number) =>
       onMove(Math.round(Math.max(0, Math.min(PLAY_W, nx))),
@@ -87,7 +91,7 @@ export function useLayerDrag(boxRef: React.RefObject<HTMLDivElement | null>, gri
         // bukan kelipatan grid (pada grid 24, X tengah 540 tidak terjangkau sama
         // sekali), jadi menempelkan ke grid lebih dulu membuat "tepat di tengah"
         // mustahil dicapai — persis kemampuan yang tidak boleh hilang.
-        nx = Math.abs(nx - CENTER_X) < MAGNET ? CENTER_X : snap(nx, g);
+        nx = Math.abs(nx - magnetX) < MAGNET ? magnetX : snap(nx, g);
         ny = Math.abs(ny - magnetY) < MAGNET ? magnetY : snap(ny, g);
         setDragAt({ x: Math.round(nx), y: Math.round(ny) });
         clamp(nx, ny);

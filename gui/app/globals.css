@@ -2250,12 +2250,22 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 .wmoverlay:active { cursor: grabbing; }
 
 /* Headline memakai seluruh gaya .suboverlay — itu memang teks .ass yang sama
-   mesinnya, termasuk nowrap-nya.
+   mesinnya, termasuk nowrap-nya. Yang beda: jangkarnya TENGAH blok (an5 di
+   .ass), bukan tepi atas (an8) seperti subtitle — headline dikurung sebuah
+   kotak, dan "di tengah kotak" hanya tepat kalau jangkarnya juga tengah.
    Nowrap WAJIB dipertahankan: pemenggalan barisnya sudah dihitung wrapHeadline()
    dengan aturan yang sama dengan engine, dan membiarkan browser melipat sendiri
    memberi hasil yang lain sama sekali — kotak melayang ini shrink-to-fit, jadi
    lebar yang dipakainya browser cuma separuh bingkai (terukur: 22 karakter
    dipenggal jadi 11). Yang terlihat bukan pratinjau, melainkan tebakan. */
+.headlineoverlay {
+  transform: translate(-50%, -50%);
+  /* Tanpa bantalan. .suboverlay memakainya supaya subtitle tidak menempel di
+     tepi layar, tapi headline dikurung sebuah kotak dan .ass tidak mengenal
+     bantalan sama sekali — 16 px kiri-kanan di sini adalah 16 px yang menembus
+     batas kotak di pratinjau padahal di hasil render tidak ada. */
+  padding: 0;
+}
 
 .grid3 > .field-wide { grid-column: 1 / -1; }
 
@@ -2274,3 +2284,14 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    dipaku, kalau tidak kolom setelan tumbuh tiap satu video selesai dan seluruh
    kolom bergerak persis saat pengguna sedang menatapnya. */
 .wm-results { max-height: 150px; overflow-y: auto; }
+
+/* Batas kotak watermark, digambar hanya selagi sesuatu dipegang.
+   Janji "teks tidak melewati watermark" harus TERLIHAT saat orang menggeser —
+   aturan yang berlaku diam-diam terbaca sebagai aturan yang tidak ada. */
+.wmbox {
+  position: absolute;
+  pointer-events: none;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  opacity: 0.7;
+}

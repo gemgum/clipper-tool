@@ -28,15 +28,17 @@ export type Watermark = {
   hlSize: number;
   hlColor: string;
   hlOutline: number;
-  hlX: number;     // jangkar tepi ATAS blok teks (sama dengan subtitle)
-  hlY: number;
+  // Geseran dari TITIK TENGAH kotak watermark, bukan koordinat mutlak. 0,0
+  // berarti tepat di tengah gambarnya — dan itu bawaannya.
+  hlDX: number;
+  hlDY: number;
 };
 
 // Harus sama dengan config.DefaultWatermark() di engine.
 export const DEFAULT_WATERMARK: Watermark = {
   image: "", x: 540, y: 700, width: 25, height: 25, at: 0, dur: 0,
   hlSource: "text", hlText: "", hlSize: 64, hlColor: "white", hlOutline: 3,
-  hlX: 540, hlY: 640,
+  hlDX: 0, hlDY: 0,
 };
 
 // watermarkOn = ada yang akan tergambar. Headline tanpa banner sah: teks tetap di
@@ -66,7 +68,7 @@ export const watermarkToAPI = (b: Watermark, font: string) => ({
     color: b.hlColor,
     bold: true,
     outline: Math.round(b.hlOutline),
-    x: Math.round(b.hlX), y: Math.round(b.hlY),
+    dx: Math.round(b.hlDX), dy: Math.round(b.hlDY),
   },
 });
 
@@ -79,11 +81,18 @@ export const watermarkToAPI = (b: Watermark, font: string) => ({
 //
 // Angka-angkanya harus sama dengan sisi Go: margin 60 di ruang 1080, dan faktor
 // lebar huruf 0,6.
-const HL_MARGIN = 60;
+const HL_PAD = 16;
 
-export function wrapHeadline(text: string, size: number): string[] {
-  const usable = 1080 - 2 * HL_MARGIN;
-  const maxChars = Math.max(6, Math.floor(usable / ((size || 64) * 0.6)));
+// headlineBox = kotak yang MENGURUNG teks: kotak gambar bila ada gambarnya,
+// seluruh bingkai bila tidak. Harus sama dengan config.Watermark.HeadlineBox.
+export function headlineBox(b: Watermark) {
+  if (!b.image) return { cx: 540, cy: 960, w: 1080, h: 1920 };
+  return { cx: b.x, cy: b.y, w: (1080 * b.width) / 100, h: (1920 * b.height) / 100 };
+}
+
+export function wrapHeadline(text: string, size: number, boxW: number): string[] {
+  const usable = boxW - 2 * HL_PAD;
+  const maxChars = Math.max(4, Math.floor(usable / ((size || 64) * 0.6)));
   const out: string[] = [];
   for (const para of text.split("\n")) {
     let line = "";
@@ -95,4 +104,24 @@ export function wrapHeadline(text: string, size: number): string[] {
     if (line) out.push(line);
   }
   return out;
+}
+
+// headlineAnchor menaruh blok teks di dalam kotaknya: tengah kotak, digeser
+// sebanyak dx/dy, lalu DIJEPIT supaya seluruh bloknya tetap di dalam.
+//
+// Meniru headlineAnchor() di engine (internal/subtitle), termasuk perkiraannya
+// (0,6 x ukuran per huruf, satu baris setinggi ukurannya). Digandakan dengan
+// alasan yang sama seperti wrapHeadline: engine yang menulis .ass, tapi
+// pratinjau harus mengurung di tempat yang SAMA.
+export function headlineAnchor(lines: string[], size: number, dx: number, dy: number,
+                               box: { cx: number; cy: number; w: number; h: number }) {
+  const longest = lines.reduce((n, l) => Math.max(n, l.length), 0);
+  const blockW = longest * (size || 64) * 0.6;
+  const blockH = lines.length * (size || 64);
+  const limitX = Math.max(0, (box.w - blockW) / 2);
+  const limitY = Math.max(0, (box.h - blockH) / 2);
+  return {
+    x: box.cx + Math.max(-limitX, Math.min(limitX, dx)),
+    y: box.cy + Math.max(-limitY, Math.min(limitY, dy)),
+  };
 }

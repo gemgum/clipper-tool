@@ -525,8 +525,14 @@ type Headline struct {
 	Bold         bool   `json:"bold"`
 	Outline      int    `json:"outline"`
 	OutlineColor string `json:"outline_color"`
-	X            int    `json:"x"` // jangkar tepi ATAS blok teks (an8), 0..1080
-	Y            int    `json:"y"` // 0..1920
+	// DX/DY = geseran dari TITIK TENGAH kotak watermark, bukan koordinat mutlak.
+	//
+	// 0,0 berarti tepat di tengah gambarnya, dan itu bawaannya. Dulu koordinat
+	// mutlak, dan akibatnya dilaporkan dari lapangan: teks tidak menitik ke
+	// tengah watermark, jadi tidak ada satu pun batas yang menahannya keluar
+	// dari gambar yang seharusnya memuatnya.
+	DX int `json:"dx"`
+	DY int `json:"dy"`
 }
 
 // Watermark = banner PNG milik pengguna yang dibakar ke tiap klip, plus headline
@@ -589,7 +595,6 @@ func DefaultWatermark() Watermark {
 			Source: HeadlineText,
 			Font:   "Montserrat", Size: 64, Color: "white", Bold: true,
 			Outline: 3, OutlineColor: "black",
-			X: PlayResX / 2, Y: 640,
 		},
 	}
 }
@@ -634,8 +639,19 @@ func (b *Watermark) validate() {
 	if h.OutlineColor == "" {
 		h.OutlineColor = d.Headline.OutlineColor
 	}
-	h.X = clampCoord(h.X, d.Headline.X, PlayResX)
-	h.Y = clampCoord(h.Y, d.Headline.Y, PlayResY)
+}
+
+// HeadlineBox = kotak yang MENGURUNG teks headline: kotak gambarnya bila ada
+// gambar, seluruh bingkai bila tidak.
+//
+// Satu aturan untuk dua keadaan. Teks yang berdiri sendiri (tanpa gambar) tidak
+// boleh terkurung di kotak tak terlihat, dan teks yang ditulis untuk duduk di
+// dalam kartu tidak boleh meluber keluar kartunya.
+func (b Watermark) HeadlineBox() (cx, cy, w, h int) {
+	if b.Image == "" {
+		return PlayResX / 2, PlayResY / 2, PlayResX, PlayResY
+	}
+	return b.X, b.Y, PlayResX * b.Width / 100, PlayResY * b.Height / 100
 }
 
 // clampCoord: 0 berarti "belum diisi" (pakai bawaan), sisanya dijepit ke bidang.
