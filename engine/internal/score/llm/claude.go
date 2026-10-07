@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/httpx"
 	"github.com/gemgum/clipper/engine/internal/types"
 )
 
@@ -46,7 +47,7 @@ func New(apiKey, model string) *Client {
 	return &Client{
 		APIKey: apiKey,
 		Model:  model,
-		HTTP:   &http.Client{Timeout: 120 * time.Second},
+		HTTP:   &http.Client{Timeout: 120 * time.Second, Transport: httpx.Retry(nil)},
 	}
 }
 

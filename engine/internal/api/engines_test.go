@@ -37,6 +37,13 @@ func TestEngineDefsLengkap(t *testing.T) {
 		if d.Kind == kindLocal {
 			continue
 		}
+		// "custom" adalah satu-satunya pengecualian yang disengaja: ia justru
+		// TIDAK punya alamat pabrik, sebab yang dituju gateway milik pengguna.
+		// Ditulis sebagai nama, bukan sebagai aturan longgar, supaya penyedia
+		// berikutnya yang lupa diisi tetap ketahuan di sini.
+		if d.ID == "custom" {
+			continue
+		}
 		// Mesin cloud harus bisa dipakai TANPA pengguna mengetik apa pun selain
 		// kuncinya — jadi alamat, model, dan halaman kunci wajib ada bawaannya.
 		if d.Base == "" || d.Model == "" || d.KeysURL == "" {

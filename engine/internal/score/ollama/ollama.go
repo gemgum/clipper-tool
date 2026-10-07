@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/httpx"
 	"github.com/gemgum/clipper/engine/internal/score/llm"
 	"github.com/gemgum/clipper/engine/internal/types"
 )
@@ -139,7 +140,7 @@ func New(url, model string) *Client {
 	if model == "" {
 		model = "qwen2.5"
 	}
-	return &Client{URL: strings.TrimRight(url, "/"), Model: model, HTTP: &http.Client{Timeout: chatTimeout}}
+	return &Client{URL: strings.TrimRight(url, "/"), Model: model, HTTP: &http.Client{Timeout: chatTimeout, Transport: httpx.Retry(nil)}}
 }
 
 type chatMsg struct {

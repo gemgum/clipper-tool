@@ -87,6 +87,17 @@ var engineDefs = []engineDef{
 		EnvKey: "DEEPSEEK_API_KEY", EnvBase: "DEEPSEEK_BASE_URL", EnvModel: "DEEPSEEK_MODEL",
 		KeysURL: "https://platform.deepseek.com/api_keys",
 	},
+	{
+		// Gateway OpenAI-compatible milik pengguna: satu alamat + satu kunci
+		// menyajikan banyak model sekaligus (claude-*, gpt-*, kimi-*, glm-*,
+		// minimax-*, deepseek-*). Karena itu Base dan Model dibiarkan kosong —
+		// pabrik tidak tahu alamatmu — dan nama modelnya TIDAK dipetakan ulang:
+		// dipakai persis seperti yang diterbitkan gateway lewat /v1/models.
+		//
+		// Env-nya sendiri, jadi memasang ini tidak menyentuh kunci penyedia lain.
+		ID: "custom", Name: "Custom (OpenAI-compatible)", Kind: kindOpenAI, Path: "/v1",
+		EnvKey: "CUSTOM_API_KEY", EnvBase: "CUSTOM_BASE_URL", EnvModel: "CUSTOM_MODEL",
+	},
 }
 
 func engineByID(id string) (engineDef, bool) {
@@ -118,7 +129,10 @@ type Engine struct {
 func resolve(d engineDef) Engine {
 	e := Engine{ID: d.ID, Name: d.Name, Kind: d.Kind, BaseURL: d.Base, Model: d.Model, KeysURL: d.KeysURL}
 	if v := envOr(d.EnvBase, ""); v != "" {
-		e.BaseURL = v
+		// Dinormalkan saat DIBACA, bukan cuma saat disimpan lewat GUI: .env juga
+		// diisi tangan dan lewat variabel lingkungan, dan alamat berakhiran /v1
+		// dari dokumentasi penyedia adalah salah ketik yang paling sering.
+		e.BaseURL = normalizeBase(v)
 	}
 	if v := envOr(d.EnvModel, ""); v != "" {
 		e.Model = v
@@ -135,7 +149,10 @@ func resolve(d engineDef) Engine {
 		e.Ready = e.BaseURL != ""
 		return e
 	}
-	e.Ready = e.HasKey
+	// Alamat ikut menentukan siap atau tidak: mesin "custom" tidak punya alamat
+	// pabrik, dan tanpa syarat ini kunci tanpa alamat lolos ke klien OpenAI yang
+	// lalu jatuh ke localhost:11434 — galat yang tidak menyebut sebab aslinya.
+	e.Ready = e.HasKey && e.BaseURL != ""
 	return e
 }
 
@@ -198,6 +215,9 @@ func EngineFor(id, model string) (writer.Completer, string, error) {
 		}, d.Name + " (" + c.Model + ")", nil
 
 	case kindOpenAI:
+		if e.BaseURL == "" {
+			return nil, "", fmt.Errorf("%s has no address yet — add it on the Requirements page", d.Name)
+		}
 		if key == "" {
 			return nil, "", fmt.Errorf("%s has no API key yet — add it on the Requirements page", d.Name)
 		}
@@ -315,6 +335,11 @@ func (s *Server) setEnv(name, value string) {
 
 func normalizeBase(v string) string {
 	v = strings.TrimRight(strings.TrimSpace(v), "/")
+	// Alamat di dokumentasi penyedia SELALU berakhiran /v1, sedangkan tiap klien
+	// menambahkan jalurnya sendiri (Path, atau /v1/messages untuk Claude). Yang
+	// tersusun jadi .../v1/v1/messages, dan gejalanya cuma "404 Not found".
+	// Ditambal di sini sekali, bukan di tiap klien.
+	v = strings.TrimSuffix(v, "/v1")
 	if v != "" && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") {
 		v = "http://" + v
 	}

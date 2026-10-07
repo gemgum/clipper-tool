@@ -120,6 +120,7 @@ pun saat membuat caption, jadi selalu ditulis apa pun mode simpannya.
 | job             | store job in-memory + SSE broadcast                                           |
 | api             | HTTP handlers + SSE, pemilih berkas, kunci sesi                               |
 | setup           | status komponen + unduh/pasang whisper.cpp, ffmpeg, model                     |
+| httpx           | satu perilaku ulang-coba (429/5xx) untuk semua panggilan LLM                   |
 | capture         | foto layar halaman web via Chrome headless (exec, + terjemah path WSL)        |
 | news            | RSS + metadata artikel (Open Graph) + ekstraksi paragraf + pemilih hook (LLM) |
 | news/google.go  | membuka pengalih news.google.com lewat RPC-nya sendiri (tanpa browser)        |
@@ -187,9 +188,20 @@ Rinciannya di `notes/23`–`26`; yang wajib diingat saat menulis kode baru:
 ## Mesin skor
 
 Satu daftar mesin untuk SELURUH aplikasi (`internal/api/engines.go`, notes/39):
-Ollama lokal, Claude, ChatGPT, Gemini, DeepSeek — plus `heuristic` (tanpa LLM)
-khusus halaman klip. Kunci API diisi sekali di halaman Requirements; mesin &
-model dipilih tiap kali bekerja lewat `<EnginePicker>` yang sama di semua tab.
+Ollama lokal, Claude, ChatGPT, Gemini, DeepSeek, **Custom (OpenAI-compatible)**
+— plus `heuristic` (tanpa LLM) khusus halaman klip. `custom` adalah gateway
+milik pengguna: satu-satunya mesin tanpa alamat & model bawaan, sebab keduanya
+memang cuma dia yang tahu. Alamat yang disimpan SELALU dipangkas akhiran `/v1`
+(`normalizeBase`) — dokumentasi penyedia menuliskannya, klien menambahkannya
+sendiri, dan gabungannya jadi `/v1/v1/messages`. Kunci API diisi sekali di
+halaman Requirements; mesin & model dipilih tiap kali bekerja lewat
+`<EnginePicker>` yang sama di semua tab.
+
+Semua panggilan LLM lewat `internal/httpx.Retry`: 3x percobaan dengan jeda
+berlipat, HANYA untuk 429/500/502/503/504, menghormati `Retry-After`. Bukan
+setelan dan jangan dijadikan setelan — satu 429 di panggilan ke sekian membunuh
+job yang whispernya sudah dibayar, dan angka yang bisa diketik cuma menambah
+cara untuk salah. 400/401/404 tidak pernah diulang: itu salah konfigurasi.
 
 `-mode offline|hybrid` **dibuang 18 Agustus 2026**: ia tinggal menentukan nilai
 bawaan `-provider` dan mesin koreksi transkrip, dan keduanya kini dijawab

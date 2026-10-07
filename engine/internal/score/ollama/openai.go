@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/gemgum/clipper/engine/internal/httpx"
 )
 
 // Server LLM lokal SELAIN Ollama.
@@ -262,7 +265,7 @@ func errorMessage(v any) string {
 // memakainya sebagai Client.NumCtx, dan nilai 0 membuat koreksi transkrip
 // menebak sendiri seberapa besar potongan yang muat.
 func openAIModels(ctx context.Context, url string) []ModelInfo {
-	return openAIModelsAt(ctx, url, "/v1", "")
+	return openAIModelsAt(ctx, url, "/v1", "", probeTimeout)
 }
 
 // Models membaca daftar model satu server OpenAI-compatible, dengan jalur dan
@@ -273,12 +276,16 @@ func Models(ctx context.Context, url, path, key string) []ModelInfo {
 	if path == "" {
 		path = "/v1"
 	}
-	return openAIModelsAt(ctx, url, path, key)
+	// Bukan probeTimeout: 1,2 detik itu jatah untuk MEMINDAI port di komputer
+	// sendiri, dan dipakai pada penyedia cloud ia mengembalikan daftar kosong
+	// setiap kali jaringannya sedang lambat — terbaca sebagai "gateway tidak
+	// punya model", bukan sebagai kehabisan waktu.
+	return openAIModelsAt(ctx, url, path, key, 10*time.Second)
 }
 
 // openAIModelsAt sama, dengan jalur dan kunci yang ditentukan pemanggil —
 // itulah yang dibutuhkan penyedia cloud.
-func openAIModelsAt(ctx context.Context, url, path, key string) []ModelInfo {
+func openAIModelsAt(ctx context.Context, url, path, key string, timeout time.Duration) []ModelInfo {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+path+"/models", nil)
 	if err != nil {
 		return nil
@@ -287,7 +294,10 @@ func openAIModelsAt(ctx context.Context, url, path, key string) []ModelInfo {
 		key = apiKey()
 	}
 	req.Header.Set("authorization", "Bearer "+key)
-	resp, err := (&http.Client{Timeout: probeTimeout}).Do(req)
+	// Retry ikut di sini: daftar model dibaca ulang tiap kali mesin diganti di
+	// pemilih, dan satu 429 dari gateway bersama membuat kotaknya kosong tanpa
+	// sebab yang terlihat.
+	resp, err := (&http.Client{Timeout: timeout, Transport: httpx.Retry(nil)}).Do(req)
 	if err != nil {
 		return nil
 	}

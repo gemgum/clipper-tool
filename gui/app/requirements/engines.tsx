@@ -83,7 +83,9 @@ function Row({ e, onSaved }: { e: EngineInfo; onSaved: () => void }) {
 
   const status = local
     ? (e.ready ? t("engineReady") : t("engineOffline"))
-    : (e.has_key ? t("engineReady") : t("engineNoKey"));
+    // e.ready, bukan e.has_key: mesin "custom" juga butuh alamat, dan lampu
+    // hijau di sebelah tulisan "belum siap" adalah dua jawaban untuk satu hal.
+    : (e.ready ? t("engineReady") : t("engineNoKey"));
 
   return (
     <div className="engine-row">
