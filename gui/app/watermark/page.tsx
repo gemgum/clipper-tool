@@ -1,34 +1,31 @@
 "use client";
 
-// Tab keenam: watermark untuk video yang SUDAH jadi.
+// Tab watermark: logo + judul untuk video yang SUDAH jadi (DESIGN-Clipper-Lanjutan §4).
 //
 // Halaman klip memotong lalu membakar identitas; halaman ini hanya membakar.
-// Yang dipakai orang saat klipnya sudah dipotong di tempat lain — atau saat
-// kontesnya menuntut satu berkas panjang berlogo.
-//
-// Bentuknya menyalin halaman "/" apa adanya (CLAUDE.md → Tampilan): kiri yang
-// DILIHAT (bingkai pratinjau + setelan yang mengubah rupanya, lalu log), kanan
-// yang DIISI lalu dijalankan (daftar video, mutu, folder tujuan, tombol Mulai).
+// Koordinat mentah diganti tarikan langsung: logo dan judul diseret di
+// pratinjau, sembilan titik jangkar jadi jalan cepat, dan ukuran logo satu
+// angka yang menjaga proporsinya.
 //
 // Ikon: lucide-react (ISC). Tanpa satu emoji pun — alasannya di gui/app/page.tsx.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import PageHeader from "../page-header";
-import { Film, Folder, X } from "lucide-react";
+import { Film, Folder, Plus, X, ImageIcon } from "lucide-react";
 
 import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
-import WatermarkPanel from "../watermark-panel";
 import { DEFAULT_WATERMARK, watermarkToAPI, watermarkOn, headlineAnchor, headlineBox, wrapHeadline } from "../watermark-model";
 import type { Watermark } from "../watermark-model";
 import { CENTER_X, CENTER_Y, PLAY_H, PLAY_W, useLayerDrag } from "../drag";
 import type { Font } from "../preview-panel";
-import Guides, { GridPicker } from "../guides";
+import Guides from "../guides";
+import { Segmented } from "../clip-steps";
 import LogPanel from "../log-panel";
 import Picker from "../picker";
-import RunPanel from "../run-panel";
 import Select from "../select";
+import Stepper from "../stepper";
 import { useKeep, useRestore } from "../persist";
 
 type FileResult = { video: string; name: string; output?: string; seconds?: number; error?: string };
@@ -41,52 +38,92 @@ type WatermarkJob = {
   error?: string;
   result?: { files: FileResult[] };
 };
+type Probe = { w: number; h: number; dur: number } | "error";
 
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
+const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-// Font headline. Satu untuk seluruh aplikasi — pemilihnya ada di halaman klip,
+// Font judul. Satu untuk seluruh aplikasi — pemilihnya ada di halaman klip,
 // dan pemilih kedua berarti pengukuran kedua (notes/29).
 const HL_FONT = "Montserrat";
-const hex = (c: string) => (c === "yellow" ? "#ffdd00" : "#ffffff");
+const COLORS: Record<string, string> = { white: "#ffffff", yellow: "#ffd400", black: "#15181d" };
+// Kecil / Sedang / Besar dalam satuan bingkai 1080x1920.
+const SIZES = [48, 64, 88];
+// Garis tepi dihitung dari ukuran, bukan disetel: makin besar huruf, makin tebal tepinya.
+const outlineFor = (size: number) => Math.max(2, Math.round(size / 20));
+// Sama dengan aspectTolerance di engine/internal/watermark.
+const is916 = (p: Probe | undefined) => !!p && p !== "error" && Math.abs(p.w / p.h - 9 / 16) <= 0.02;
+
+// Titik tengah logo untuk jangkar 0..8 (baris lalu kolom), menurut tabel §4:
+// tepi kiri/kanan 5%, atas 4%, tengah mulai 46%, bawah 16% dari dasar.
+function anchorPoint(i: number, wPx: number, hPx: number) {
+  const col = i % 3, row = Math.floor(i / 3);
+  const x = col === 0 ? 0.05 * PLAY_W + wPx / 2 : col === 1 ? CENTER_X : PLAY_W - 0.05 * PLAY_W - wPx / 2;
+  const y = row === 0 ? 0.04 * PLAY_H + hPx / 2 : row === 1 ? 0.46 * PLAY_H + hPx / 2 : PLAY_H - 0.16 * PLAY_H - hPx / 2;
+  return { x: Math.round(x), y: Math.round(y) };
+}
 
 export default function WatermarkPage() {
   const { t } = useI18n();
 
   const [videos, setVideos] = useState<string[]>([]);
-  // Mode web (notes/42): video DIUNGGAH lewat input berkas ini, dan kabar
-  // unggahannya tampil di bawah tombolnya.
+  const [probes, setProbes] = useState<Record<string, Probe>>({});
+  // Mode web (notes/42): video & logo DIUNGGAH lewat input berkas.
   const web = useWeb();
   const fileInput = useRef<HTMLInputElement>(null);
+  const logoInput = useRef<HTMLInputElement>(null);
   const [upNote, setUpNote] = useState("");
   const [paste, setPaste] = useState("");
-  const [picking, setPicking] = useState<"" | "file" | "folder" | "out" | "banner">("");
+  const [picking, setPicking] = useState<"" | "file" | "folder" | "out" | "logo">("");
   const [outDir, setOutDir] = useState("");
   const [quality, setQuality] = useState("hd");
   const [dragOver, setDragOver] = useState(false);
 
   const [watermark, setWatermarkState] = useState<Watermark>(DEFAULT_WATERMARK);
-  const [wmOpen, setWmOpen] = useState(true);
   const setWatermark = useCallback((patch: Partial<Watermark>) => {
     setWatermarkState((b) => ({ ...b, ...patch }));
   }, []);
-  // Menggeser banner ikut membawa headline-nya — aturan yang sama dengan
-  // halaman klip, dan alasannya juga sama (lihat page.tsx).
-  const moveWatermark = useCallback((x: number, y: number) => {
-    setWatermarkState((b) => ({ ...b, x, y }));
-  }, []);
-  // Geseran dari tengah kotak, bukan koordinat mutlak — pemanggilnya yang
-  // mengurangi titik tengah kotaknya.
-  const moveHeadline = useCallback((dx: number, dy: number) => {
-    setWatermarkState((b) => ({ ...b, hlDX: dx, hlDY: dy }));
-  }, []);
+  const [logoOn, setLogoOn] = useState(true);
+  // Jangkar terpilih; -1 = posisi bebas hasil seretan.
+  const [anchor, setAnchor] = useState(2);
+  const [timed, setTimed] = useState(false);
+  // Rasio lebar/tinggi logo, dibaca dari gambarnya sendiri saat dimuat.
+  const [logoDims, setLogoDims] = useState<{ w: number; h: number } | null>(null);
+  const aspect = logoDims ? logoDims.w / logoDims.h : 1;
 
-  // Metrik font headline, dari engine.
-  //
-  // Wajib, bukan kemewahan: .ass mengartikan ukuran sebagai tinggi kotak font
-  // sedangkan CSS mengartikannya sebagai em, dan selisihnya berbeda tiap font.
-  // Tanpa ini pratinjau memakai font cadangan sistem — terukur, teksnya 19 px
-  // lebih lebar daripada hasil rendernya, dan itu justru menembus batas kotak
-  // yang seharusnya dijaga halaman ini.
+  // Satu angka ukuran (persen lebar bingkai); tinggi kotaknya diturunkan dari
+  // rasio logo supaya kotaknya pas dengan gambarnya.
+  const heightFor = (width: number, a: number) =>
+    Math.min(100, Math.max(5, Math.round((width * PLAY_W) / a / PLAY_H)));
+  const place = useCallback((i: number, width: number, a: number) => {
+    const h = heightFor(width, a);
+    const p = anchorPoint(i, (PLAY_W * width) / 100, (PLAY_H * h) / 100);
+    setWatermarkState((b) => ({ ...b, width, height: h, x: p.x, y: p.y }));
+  }, []);
+  const setSize = (width: number) => {
+    if (anchor >= 0) place(anchor, width, aspect);
+    else setWatermark({ width, height: heightFor(width, aspect) });
+  };
+  // Rasio baru (logo diganti) = kotak & jangkar dihitung ulang.
+  useEffect(() => {
+    if (!logoDims) return;
+    if (anchor >= 0) place(anchor, watermark.width, aspect);
+    else setWatermark({ height: heightFor(watermark.width, aspect) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [logoDims]);
+
+  // Yang dipratinjau & dikirim: logo hanya bila "Pakai logo" menyala, judul
+  // selalu bebas di bingkai, tepi dihitung otomatis.
+  const eff: Watermark = {
+    ...watermark,
+    image: logoOn ? watermark.image : "",
+    hlFree: true, hlSource: "text",
+    hlOutline: outlineFor(watermark.hlSize),
+    at: timed ? watermark.at : 0, dur: timed ? watermark.dur : 0,
+  };
+
+  // Metrik font judul dari engine: .ass mengartikan ukuran sebagai tinggi kotak
+  // font, CSS sebagai em. Tanpa ini pratinjau meleset dari hasil render.
   const [fontScale, setFontScale] = useState(1);
   useEffect(() => {
     fetch(eng("/api/fonts")).then((r) => r.json())
@@ -98,50 +135,53 @@ export default function WatermarkPage() {
   const [job, setJob] = useState<WatermarkJob | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState("");
-
   const busy = job?.status === "running" || (!!jobId && !job);
 
-  // Kisi & garis tengah: penanda yang sama dengan halaman klip. Tanpa keduanya
-  // tidak ada satu pun tanda bahwa gambar dan teks di atas bingkai BISA
-  // dipegang — dan itu persis yang dilaporkan waktu halaman ini tidak punya.
-  const [grid, setGrid] = useState(20);
-  const [alwaysGuides, setAlwaysGuides] = useState(false);
-
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const { dragAt, dragProps } = useLayerDrag(boxRef, grid);
-  const wmDrag = dragProps(watermark.x, watermark.y, moveWatermark, CENTER_Y, PLAY_H);
-  const hlBox = headlineBox(watermark);
-  const hlLines = wrapHeadline(watermark.hlText, watermark.hlSize, hlBox.w);
-  const hlAt = headlineAnchor(hlLines, watermark.hlSize, watermark.hlDX, watermark.hlDY, hlBox);
+  // Kisi 10 tetap menempelkan seretan, tapi tidak digambar (Guides: < 20).
+  const { dragAt, dragProps } = useLayerDrag(boxRef, 10);
+  const wmDrag = dragProps(eff.x, eff.y, (x, y) => { setAnchor(-1); setWatermark({ x, y }); }, CENTER_Y, PLAY_H);
+  const hlBox = headlineBox(eff);
+  const hlLines = wrapHeadline(eff.hlText, eff.hlSize, hlBox.w);
+  const hlAt = headlineAnchor(hlLines, eff.hlSize, eff.hlDX, eff.hlDY, hlBox);
   const headlineDrag = dragProps(hlAt.x, hlAt.y,
-    (x, y) => moveHeadline(x - hlBox.cx, y - hlBox.cy), hlBox.cy, PLAY_H, hlBox.cx);
+    (x, y) => setWatermark({ hlDX: x - hlBox.cx, hlDY: y - hlBox.cy }), hlBox.cy, PLAY_H, hlBox.cx);
 
-  // Bingkai pratinjau diambil dari video PERTAMA di daftar: watermark-nya sama
-  // untuk semuanya, jadi satu contoh sudah cukup untuk menaruhnya.
-  const first = videos[0] || "";
-  const [frame, setFrame] = useState("");
+  // Pratinjau memakai video 9:16 PERTAMA: watermark-nya sama untuk semuanya.
+  const first = videos.find((v) => is916(probes[v])) || "";
+  const frame = first ? eng(`/api/frame?path=${encodeURIComponent(first)}&t=1&reframe=center&background=black&zoom=100`) : "";
+
+  // Rasio dibaca dari berkasnya (bukan namanya) begitu video masuk daftar.
   useEffect(() => {
-    if (!first) { setFrame(""); return; }
-    setFrame(eng(`/api/frame?path=${encodeURIComponent(first)}&t=1&reframe=center&background=black&zoom=100`));
-  }, [first]);
+    for (const v of videos) {
+      if (probes[v]) continue;
+      fetch(eng(`/api/probe?path=${encodeURIComponent(v)}`)).then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => setProbes((p) => ({ ...p, [v]: ok && d.width ? { w: d.width, h: d.height, dur: d.duration } : "error" })))
+        .catch(() => setProbes((p) => ({ ...p, [v]: "error" })));
+    }
+  }, [videos, probes]);
 
-  // Setelan watermark LENGKET, dan itu inti fiturnya: identitas akun dipilih
-  // sekali, bukan disusun ulang tiap kali hendak memposting.
-  useKeep("watermark", { videos, outDir, quality, watermark });
+  // Setelan watermark LENGKET: identitas akun dipilih sekali, bukan disusun
+  // ulang tiap kali hendak memposting.
+  useKeep("watermark", { videos, outDir, quality, watermark, logoOn, anchor, timed });
   useRestore<Record<string, unknown>>("watermark", (v) => {
     if (Array.isArray(v.videos)) setVideos(v.videos as string[]);
     if (typeof v.outDir === "string") setOutDir(v.outDir);
     if (typeof v.quality === "string") setQuality(v.quality);
+    if (typeof v.logoOn === "boolean") setLogoOn(v.logoOn);
+    if (typeof v.anchor === "number") setAnchor(v.anchor);
+    if (typeof v.timed === "boolean") setTimed(v.timed);
     if (v.watermark && typeof v.watermark === "object") {
-      // hlSource dipaksa "text": halaman ini tidak punya klip, jadi tidak ada
-      // judul LLM — dan setelan tersimpan dari versi lain tidak boleh
-      // menyelundupkannya masuk lalu ditolak engine setelah tombol ditekan.
-      setWatermarkState({ ...DEFAULT_WATERMARK, ...(v.watermark as Partial<Watermark>), hlSource: "text" });
+      const w = { ...DEFAULT_WATERMARK, ...(v.watermark as Partial<Watermark>), hlSource: "text" as const };
+      // Ukuran judul dari versi lama dibulatkan ke tingkat terdekat.
+      w.hlSize = SIZES.reduce((a, b) => (Math.abs(b - w.hlSize) < Math.abs(a - w.hlSize) ? b : a));
+      if (!(w.hlColor in COLORS)) w.hlColor = "white";
+      setWatermarkState(w);
     }
   });
 
-  // Satu langganan SSE untuk seluruh halaman. Membakar video panjang itu
-  // hitungan menit per berkas, jadi kabarnya datang dari sini — bukan polling.
+  // Satu langganan SSE untuk seluruh halaman — membakar video panjang itu
+  // hitungan menit per berkas.
   useEffect(() => {
     const es = new EventSource(eng("/api/watermark/events"));
     es.addEventListener("watermark", (ev) => {
@@ -151,10 +191,9 @@ export default function WatermarkPage() {
         setJob(j);
         if (j.log) setLogs(j.log);
         if (j.error) setError(j.error);
-        // Mode web: engine menghapus video unggahan begitu job sukses, jadi
-        // daftarnya ikut dibersihkan — menjalankannya lagi butuh unggah ulang.
+        // Mode web: engine menghapus video unggahan begitu job sukses.
         if (j.status === "done") {
-          const done = (j.result?.files ?? []).map((f) => f.video);
+          const done = (j.result?.files ?? []).filter((f) => !f.error).map((f) => f.video);
           isWeb().then((w) => w && setVideos((v) => v.filter((x) => !done.includes(x))));
         }
         return cur || j.id;
@@ -167,9 +206,7 @@ export default function WatermarkPage() {
     setVideos((cur) => {
       const out = [...cur];
       for (const p of paths) {
-        // Kutip pembungkus dibuang di sini juga: "Copy as path" di Explorer
-        // selalu memasangnya, dan daftar di layar harus menampilkan nama
-        // berkasnya — bukan `"C:\…mp4"` lengkap dengan kutip.
+        // Kutip pembungkus dari "Copy as path" di Explorer dibuang.
         const path = p.trim().replace(/^["']|["']$/g, "").trim();
         if (path && !out.includes(path)) out.push(path);
       }
@@ -191,10 +228,9 @@ export default function WatermarkPage() {
     }
   }, [add, t]);
 
-  // Berkas yang dilepas TIDAK diunggah: engine jalan di mesin yang sama, jadi
-  // ia ditanya di mana berkasnya (notes/24).
+  // Berkas yang dilepas TIDAK diunggah di desktop: engine ditanya di mana
+  // berkasnya (notes/24). Mode web mengunggahnya.
   const dropFiles = useCallback(async (files: FileList | File[]) => {
-    // Mode web: engine di server, mencarinya di sana pasti gagal — unggah.
     const web = await isWeb();
     for (const f of Array.from(files)) {
       if (web) {
@@ -216,17 +252,27 @@ export default function WatermarkPage() {
     }
   }, [add, t]);
 
+  const pickLogo = async (f: File) => {
+    try {
+      const p = await upload(f, (x) => setUpNote(`${f.name}: ${t("uploadingPct", { pct: Math.round(x * 100) })}`));
+      setWatermark({ image: p }); setLogoOn(true);
+    } catch (e) { setError(`${f.name}: ${String(e)}`); }
+    setUpNote("");
+  };
+
+  // Yang dikirim hanya video 9:16; sisanya ditandai di daftar dan dilewati.
+  const ready = videos.filter((v) => is916(probes[v]));
+  const nothing = !watermarkOn(eff);
+
   const start = async () => {
     setError(""); setLogs([]); setJob(null); setJobId("");
     try {
       const r = await fetch(eng("/api/watermark"), {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          videos, quality, out_dir: outDir,
-          // Font headline mengikuti bawaan halaman klip; satu pemilih font untuk
-          // seluruh aplikasi, jadi pratinjau di sini memakai metrik yang sama.
+          videos: ready, quality, out_dir: outDir,
           font: HL_FONT,
-          watermark: watermarkToAPI(watermark, HL_FONT),
+          watermark: watermarkToAPI(eff, HL_FONT),
         }),
       });
       const data = await r.json();
@@ -250,241 +296,274 @@ export default function WatermarkPage() {
   };
 
   const files = job?.result?.files ?? [];
+  const resultOf = (v: string) => files.findIndex((f) => f.video === v);
+  const pct = Math.round((job?.progress ?? 0) * 100);
+  const logoName = watermark.image ? baseName(watermark.image) : "";
+  const logoURL = watermark.image ? eng(`/api/image?path=${encodeURIComponent(watermark.image)}`) : "";
+  const onLogoLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth: w, naturalHeight: h } = e.currentTarget;
+    if (w && h && (w !== logoDims?.w || h !== logoDims?.h)) setLogoDims({ w, h });
+  };
+  const outline = COLORS[eff.hlColor === "black" ? "white" : "black"];
+  const o = 2;
 
   return (
-    <div className="screen">
+    <div className="screen scroll clips-v2 wm-v2">
       <PageHeader title={t("tabWatermark")} subtitle={t("subWatermark")}>
-        <RunPanel
-          busy={busy} testing={false}
-          disabled={busy || videos.length === 0 || !watermarkOn(watermark)}
-          cancellable={busy && !!jobId}
-          onStart={start} onCancel={cancel}
-          progress={job?.progress ?? 0}
-        />
+        {busy ? (
+          <button type="button" className="danger" onClick={cancel}>{t("cancelRun")}</button>
+        ) : (
+          <button type="button" className="primary big" onClick={start} disabled={ready.length === 0 || nothing}
+            title={nothing ? t("wmNothing") : undefined}>
+            {files.length ? t("wmRedo") : ready.length === 1 ? t("wmStartOne") : t("wmStart", { n: ready.length })}
+          </button>
+        )}
       </PageHeader>
       {/* Font asli dimuat supaya pratinjau memakai huruf yang SAMA dengan yang
-          dibakar libass. Dua aturan, tegak dan tebal — alasannya di page.tsx. */}
+          dibakar libass. */}
       <style dangerouslySetInnerHTML={{ __html: [400, 700].map((w) =>
         `@font-face{font-family:"${HL_FONT}";font-weight:${w};src:url("${eng(`/api/font-file?name=${encodeURIComponent(HL_FONT)}&weight=${w}`)}");font-display:swap;}`
       ).join("") }} />
 
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
-      <div className="screen-body two">
-        {/* KIRI: yang dilihat, dan setelan yang mengubah rupanya. */}
-        <div className="screen-main">
-          <div className="panel">
-            <div className="sub-layout">
-              <div className="sub-preview">
-                <div className="preview9x16" ref={boxRef}>
-                  {frame ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={frame} alt="preview" draggable={false} />
-                  ) : (
-                    <div className="preview-empty">
-                      <div className="pe-icon" aria-hidden="true" />
-                      <div className="pe-title">{t("wmEmptyFrame")}</div>
-                    </div>
-                  )}
-                  <Guides grid={grid} visible={dragAt !== null || alwaysGuides}
-                    atX={(dragAt?.x ?? watermark.x) === CENTER_X}
-                    atY={(dragAt?.y ?? watermark.y) === CENTER_Y}
-                    dragAt={dragAt} />
-                  {watermark.image && (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img className="wmoverlay" alt="watermark" draggable={false}
-                      src={eng(`/api/image?path=${encodeURIComponent(watermark.image)}`)}
-                      style={{
-                        left: `${(watermark.x / PLAY_W) * 100}%`, top: `${(watermark.y / PLAY_H) * 100}%`,
-                        // KOTAK-nya yang diberi ukuran; object-fit: contain
-                        // (globals.css) yang memuat gambarnya ke dalam.
-                        width: `${watermark.width}%`, height: `${watermark.height}%`,
-                      }}
-                      {...wmDrag} />
-                  )}
-                    {/* Headline duduk DI DALAM kotak watermark: jangkarnya tengah kotak,
-                        digeser sebanyak hlDX/hlDY, dan dijepit supaya bloknya tidak
-                        pernah keluar. Batas kotaknya digambar saat dipegang — janji
-                        "tidak melewati watermark" harus TERLIHAT, bukan cuma berlaku. */}
-                    {(hlLines.length > 0) && (
-                      <>
-                        {dragAt && <div className="wmbox" style={{
-                          left: `${((hlBox.cx - hlBox.w / 2) / PLAY_W) * 100}%`,
-                          top: `${((hlBox.cy - hlBox.h / 2) / PLAY_H) * 100}%`,
-                          width: `${(hlBox.w / PLAY_W) * 100}%`,
-                          height: `${(hlBox.h / PLAY_H) * 100}%`,
-                        }} />}
-                        <div className="suboverlay headlineoverlay"
-                          style={{
-                            left: `${(hlAt.x / PLAY_W) * 100}%`, top: `${(hlAt.y / PLAY_H) * 100}%`,
-                            fontFamily: `"${HL_FONT}", sans-serif`,
-                            fontSize: `calc(${(watermark.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
-                            // Kotak baris setinggi ukuran .ass; font-size di atas
-                            // sudah dikecilkan jadi em-nya, 1/scale mengembalikannya.
-                            lineHeight: 1 / fontScale,
-                            color: hex(watermark.hlColor),
-                            textShadow: watermark.hlOutline > 0
-                              ? "-2px -2px 0 #000,2px -2px 0 #000,-2px 2px 0 #000,2px 2px 0 #000,0 0 4px #000"
-                              : "none",
-                          }}
-                          {...headlineDrag}>
-                          {hlLines.map((line, i) => <div key={i}>{line}</div>)}
-                        </div>
-                      </>
-                    )}
+      <div className="cap-body">
+        {/* KIRI: pratinjau yang bisa dipegang. */}
+        <section className="wm-stage">
+          <div className="preview9x16 wm-frame" ref={boxRef}>
+            {frame ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={frame} alt="" draggable={false} />
+            ) : (
+              <div className="preview-empty">
+                <div className="pe-icon" aria-hidden="true" />
+                <div className="pe-title">{t("wmEmptyFrame")}</div>
+              </div>
+            )}
+            <Guides grid={10} visible={dragAt !== null}
+              atX={(dragAt?.x ?? eff.x) === CENTER_X} atY={(dragAt?.y ?? eff.y) === CENTER_Y} dragAt={dragAt} />
+            {eff.image && (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img className="wmoverlay wm-grab" alt={t("wmLogoTitle")} draggable={false} src={logoURL} onLoad={onLogoLoad}
+                style={{
+                  left: `${(eff.x / PLAY_W) * 100}%`, top: `${(eff.y / PLAY_H) * 100}%`,
+                  width: `${eff.width}%`, height: `${eff.height}%`,
+                }}
+                {...wmDrag} />
+            )}
+            {hlLines.length > 0 && (
+              <div className="suboverlay headlineoverlay wm-grab"
+                style={{
+                  left: `${(hlAt.x / PLAY_W) * 100}%`, top: `${(hlAt.y / PLAY_H) * 100}%`,
+                  fontFamily: `"${HL_FONT}", sans-serif`,
+                  fontSize: `calc(${(eff.hlSize * fontScale) / PLAY_H} * var(--pvh))`,
+                  lineHeight: 1 / fontScale,
+                  color: COLORS[eff.hlColor],
+                  textShadow: `-${o}px -${o}px 0 ${outline},${o}px -${o}px 0 ${outline},-${o}px ${o}px 0 ${outline},${o}px ${o}px 0 ${outline}`,
+                }}
+                {...headlineDrag}>
+                {hlLines.map((line, i) => <div key={i}>{line}</div>)}
+              </div>
+            )}
+            <div className="wm-drag-hint" aria-hidden="true">{t("wmDragHint")}</div>
+          </div>
+          <p className="meta">{t("wmFrameMeta")}</p>
+        </section>
+
+        {/* KANAN: logo, judul, waktu, lalu daftar video. */}
+        <section className="cap-results">
+          <div className="card">
+            <div className="card-head">
+              <h2>{t("wmLogoTitle")}</h2>
+              <label className="wm-check">
+                <input type="checkbox" checked={logoOn} onChange={(e) => setLogoOn(e.target.checked)} />
+                {t("wmUseLogo")}
+              </label>
+            </div>
+            {web && (
+              <input ref={logoInput} type="file" accept="image/png,image/*" hidden
+                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) pickLogo(f); }} />
+            )}
+            {watermark.image ? (
+              <div className="wm-logo-row">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img className="wm-logo-thumb" src={logoURL} alt="" onLoad={onLogoLoad} />
+                <div className="grow">
+                  <p className="hi-title">{logoName}</p>
+                  {logoDims && <p className="meta">{logoDims.w} × {logoDims.h}</p>}
+                </div>
+                <button type="button" className="ghost" onClick={() => (web ? logoInput.current?.click() : setPicking("logo"))}>{t("wmChange")}</button>
+              </div>
+            ) : (
+              <button type="button" className="ghost cap-add wm-logo-empty" onClick={() => (web ? logoInput.current?.click() : setPicking("logo"))}>
+                <ImageIcon className="ico" aria-hidden="true" /> {t("wmPickLogo")}
+              </button>
+            )}
+            {!watermark.image && <p className="meta cap-hint">{t("wmLogoHint")}</p>}
+            {upNote && <p className="meta">{upNote}</p>}
+
+            {watermark.image && logoOn && (
+              <div className="wm-place">
+                <div>
+                  <p className="step-label">{t("wmPlaceAt")}</p>
+                  <div className="wm-anchors" role="group" aria-label={t("wmPlaceAt")}>
+                    {Array.from({ length: 9 }, (_, i) => (
+                      <button key={i} type="button" className={anchor === i ? "on" : ""} aria-pressed={anchor === i}
+                        aria-label={t(`wmAnchor${i}` as "wmAnchor0")} title={t(`wmAnchor${i}` as "wmAnchor0")}
+                        onClick={() => { setAnchor(i); place(i, watermark.width, aspect); }} />
+                    ))}
+                  </div>
+                </div>
+                <div className="grow">
+                  <p className="step-label">{t("wmLogoSize")}</p>
+                  <Stepper value={watermark.width} onChange={setSize} min={5} max={60} step={1} suffix="%" />
+                  <p className="meta cap-hint">{t("wmLogoSizeHint")}</p>
                 </div>
               </div>
+            )}
+          </div>
 
-              <div className="sub-settings">
-                <WatermarkPanel watermark={watermark} setWatermark={setWatermark} allowLLM={false}
-                  open={wmOpen} setOpen={setWmOpen}
-                  onPickImage={() => setPicking("banner")}
-                  gridControl={
-                    <GridPicker grid={grid} setGrid={setGrid}
-                      always={alwaysGuides} setAlways={setAlwaysGuides} />
-                  } />
-
-                {/* Hasil per berkas. Daftar, jadi ia BOLEH bergulir — dan
-                    tingginya dipaku supaya kolom ini tidak tumbuh tiap satu
-                    video selesai. */}
-                {!!files.length && (
-                  <div className="group">
-                    <div className="group-title" role="heading" aria-level={3}>{t("wmResults")}</div>
-                    <div className="basket watermark-results">
-                      {files.map((f, i) => (
-                        <div key={f.video} className="basket-item">
-                          <span className="basket-text">
-                            <span className="news-title" title={f.output || f.video}>{f.name}</span>
-                            <span className="meta">
-                              {f.error ? f.error : t("wmSaved", { name: baseName(f.output || "") })}
-                            </span>
-                          </span>
-                          {web && f.output && (
-                            <a className="dl" href={eng(`/api/watermark/${jobId}/file?i=${i}`)} download>{t("download")}</a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+          <div className="card">
+            <h2>{t("wmTitleTitle")}</h2>
+            <label className="step-label wr-gap" htmlFor="wm-title">{t("wmTitleText")}</label>
+            <input id="wm-title" value={watermark.hlText} spellCheck={false} placeholder={t("wmTitlePlaceholder")}
+              onChange={(e) => setWatermark({ hlText: e.target.value })} />
+            <div className="wm-row">
+              <div className="grow">
+                <p className="step-label">{t("wmTextSize")}</p>
+                <Segmented label={t("wmTextSize")} value={watermark.hlSize} onChange={(v) => setWatermark({ hlSize: v })}
+                  options={[{ value: SIZES[0], name: t("wmSmall") }, { value: SIZES[1], name: t("wmMedium") }, { value: SIZES[2], name: t("wmLarge") }]} />
+              </div>
+              <div className="grow">
+                <p className="step-label">{t("wmTextColor")}</p>
+                <div className="wm-swatches" role="group" aria-label={t("wmTextColor")}>
+                  {(["white", "yellow", "black"] as const).map((c) => {
+                    const name = t(c === "white" ? "colorWhite" : c === "yellow" ? "colorYellow" : "colorBlack");
+                    return <button key={c} type="button" className={watermark.hlColor === c ? "on" : ""} aria-pressed={watermark.hlColor === c}
+                      aria-label={name} title={name} style={{ background: COLORS[c] }} onClick={() => setWatermark({ hlColor: c })} />;
+                  })}
+                </div>
               </div>
             </div>
           </div>
 
+          <div className="card">
+            <h2>{t("wmWhenTitle")}</h2>
+            <label className="wm-radio">
+              <input type="radio" name="wm-when" checked={!timed} onChange={() => setTimed(false)} />
+              <span>{t("wmWhole")}</span>
+            </label>
+            <label className="wm-radio">
+              <input type="radio" name="wm-when" checked={timed} onChange={() => { setTimed(true); if (!watermark.dur) setWatermark({ dur: 5 }); }} />
+              <span>
+                {t("wmFromA")}
+                <input type="number" min={0} value={watermark.at} aria-label={t("wmFromA")} onFocus={() => setTimed(true)}
+                  onChange={(e) => setWatermark({ at: Math.max(0, Number(e.target.value) || 0) })} />
+                {t("wmFromB")}
+                <input type="number" min={1} value={watermark.dur || 5} aria-label={t("wmFromC")} onFocus={() => setTimed(true)}
+                  onChange={(e) => setWatermark({ dur: Math.max(1, Number(e.target.value) || 1) })} />
+                {t("wmFromC")}
+              </span>
+            </label>
+          </div>
+
+          <div className={"card cap-drop" + (dragOver ? " over" : "")}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) dropFiles(e.dataTransfer.files); }}>
+            <div className="card-head">
+              <h2>{t("wmVideosTitle")}</h2>
+              <span className="meta">{videos.length === 1 ? t("capFilesOne") : t("capFiles", { n: videos.length })}</span>
+            </div>
+            {busy && (
+              <div aria-live="polite">
+                <p className="meta">{t("wmRunning")} {pct}%</p>
+                <div className="bar wr-gap"><div style={{ width: `${pct}%` }} /></div>
+              </div>
+            )}
+            <ul className="cap-videos wm-videos">
+              {videos.map((v) => {
+                const p = probes[v];
+                const ri = resultOf(v);
+                const r = ri >= 0 ? files[ri] : undefined;
+                const info = p && p !== "error" ? `${mmss(p.dur)} · ${p.w}×${p.h}` : "";
+                const [tag, cls] = r ? (r.error ? [t("wmFailedTag"), "bad"] : [t("wmDone"), "ok"])
+                  : !p ? [t("wmChecking"), ""] : is916(p) ? [t("wmReady"), "ok"] : [t("wmNot916"), "bad"];
+                return (
+                  <li key={v}>
+                    <Film className="ico" aria-hidden="true" />
+                    <div className="grow">
+                      <p className="wm-name" title={v}>{baseName(v)}</p>
+                      <p className="meta">{r?.error || (r?.output ? t("wmSaved", { name: baseName(r.output) }) : info)}</p>
+                    </div>
+                    {web && r?.output && <a className="btn-ghost" href={eng(`/api/watermark/${jobId}/file?i=${ri}`)} download>{t("download")}</a>}
+                    <span className={"wm-tag " + cls}>{tag}</span>
+                    <button type="button" className="ghost tiny icon-only" aria-label={t("capRemove")} title={t("capRemove")} disabled={busy}
+                      onClick={() => setVideos((cur) => cur.filter((x) => x !== v))}><X className="ico" aria-hidden="true" /></button>
+                  </li>
+                );
+              })}
+            </ul>
+            {web ? (
+              <>
+                <input ref={fileInput} type="file" accept="video/*" multiple hidden
+                  onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; if (fs.length) dropFiles(fs); }} />
+                <button type="button" className="ghost cap-add wr-gap" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
+                  <Plus className="ico" aria-hidden="true" /> {t("capAddVideo")}
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="cap-add-row">
+                  <button type="button" className="ghost cap-add" onClick={() => setPicking("file")}><Plus className="ico" aria-hidden="true" /> {t("capAddVideo")}</button>
+                  <button type="button" className="ghost" onClick={() => setPicking("folder")}><Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}</button>
+                </div>
+                <div className="path-row wr-gap">
+                  <input value={paste} onChange={(e) => setPaste(e.target.value)} aria-label={t("capPastePlaceholder")}
+                    onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }} placeholder={t("capPastePlaceholder")} />
+                  <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>{t("capAdd")}</button>
+                </div>
+              </>
+            )}
+            <p className="meta cap-hint">{t("wmVideosNote")}</p>
+          </div>
+
+          <details className="card adv">
+            <summary>{t("advancedTitle")}</summary>
+            <label className="step-label wr-gap" title={t("wmQualityTip")}>{t("quality")}</label>
+            <Select value={quality} onChange={setQuality} disabled={busy} options={[
+              { value: "draft", label: t("qualityDraft") },
+              { value: "hd", label: t("qualityHd") },
+              { value: "max", label: t("qualityMax") },
+            ]} />
+            {!web && (
+              <>
+                <label className="step-label wr-gap" htmlFor="wm-out">{t("outputDir")}</label>
+                <div className="path-row">
+                  <input id="wm-out" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder={t("wmOutPlaceholder")} disabled={busy} />
+                  <button type="button" className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
+                </div>
+              </>
+            )}
+          </details>
+        </section>
+      </div>
+
+      <div className="wr-tech">
+        <details className="card tech">
+          <summary>{t("techNotes")}</summary>
           <LogPanel logs={logs} />
-        </div>
-
-        {/* KANAN: yang diisi & dijalankan. */}
-        <div className="screen-col">
-          <div className="panel feed-panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("capVideos", { n: videos.length })}</div>
-
-            <div className={"cap-drop" + (dragOver ? " over" : "")}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault(); setDragOver(false);
-                if (e.dataTransfer.files?.length) dropFiles(e.dataTransfer.files);
-              }}>
-              {videos.length > 0 && (
-                <div className="basket cap-list">
-                  {videos.map((v) => (
-                    <div key={v} className="basket-item">
-                      <Film className="ico" aria-hidden="true" />
-                      <span className="basket-text">
-                        <span className="news-title" title={v}>{baseName(v)}</span>
-                      </span>
-                      <button className="ghost tiny icon-only" title={t("capRemove")} aria-label={t("capRemove")}
-                        disabled={busy}
-                        onClick={() => setVideos((cur) => cur.filter((x) => x !== v))}>
-                        <X className="ico" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Mode web: satu tombol unggah (boleh banyak berkas sekaligus)
-                  menggantikan pilih video, pilih folder, dan tempel path —
-                  ketiganya menunjuk berkas di SERVER, bukan di komputer ini. */}
-              {web ? (
-                <div className="path-row">
-                  <input ref={fileInput} type="file" accept="video/*" multiple hidden
-                    onChange={(e) => {
-                      const fs = Array.from(e.target.files ?? []);
-                      e.target.value = "";
-                      if (fs.length) dropFiles(fs);
-                    }} />
-                  <button className="ghost" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
-                    <Film className="ico" aria-hidden="true" /> {t("webUploadVideos")}
-                  </button>
-                  {upNote && <span className="meta">{upNote}</span>}
-                </div>
-              ) : (
-                <>
-                  <div className="path-row">
-                    <button className="ghost" onClick={() => setPicking("file")}>
-                      <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
-                    </button>
-                    <button className="ghost" onClick={() => setPicking("folder")}>
-                      <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
-                    </button>
-                  </div>
-
-                  <div className="path-row">
-                    <input value={paste} onChange={(e) => setPaste(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
-                      placeholder={t("capPastePlaceholder")} />
-                    <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
-                      {t("capAdd")}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Mode web: hasil tinggal di server dan diunduh dari daftar hasil. */}
-              {!web && (
-              <div className="field">
-                <label>{t("outputDir")}</label>
-                <div className="path-row">
-                  <input value={outDir} onChange={(e) => setOutDir(e.target.value)}
-                    placeholder={t("wmOutPlaceholder")} disabled={busy} />
-                  <button className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
-                </div>
-              </div>
-              )}
-
-              {/* Satu kalimat, dan ia memang perlu ada: video yang bukan 9:16
-                  ditolak per berkas, dan mengetahuinya SEBELUM menunggu satu
-                  encode penuh jauh lebih murah daripada sesudahnya. */}
-              <p className="meta">{t("wmNote")}</p>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("wmOutputTitle")}</div>
-            <div className="grid3">
-              <div className="field">
-                <label title={t("wmQualityTip")}>{t("quality")}</label>
-                <Select value={quality} onChange={setQuality} disabled={busy} options={[
-                  { value: "draft", label: t("qualityDraft") },
-                  { value: "hd", label: t("qualityHd") },
-                  { value: "max", label: t("qualityMax") },
-                ]} />
-              </div>
-            </div>
-          </div>
-
-        </div>
+        </details>
       </div>
 
       {picking && (
         <Picker
           mode={picking === "folder" || picking === "out" ? "folder" : "file"}
+          start={picking === "logo" ? watermark.image : undefined}
           onPick={(p) => {
             if (picking === "folder") addFolder(p);
             else if (picking === "out") setOutDir(p);
-            else if (picking === "banner") setWatermark({ image: p });
+            else if (picking === "logo") { setWatermark({ image: p }); setLogoOn(true); }
             else add([p]);
             setPicking("");
           }}

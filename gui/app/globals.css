@@ -3029,3 +3029,37 @@ button.cap-add { flex: 1; min-height: 44px; border-style: dashed; }
 .cap-drop.over { border-color: var(--accent); background: var(--accent-soft); }
 .cap-hint { margin: 8px 0 0; }
 .cap-side .stepper { max-width: 200px; }
+
+/* ================= Watermark — DESIGN-Clipper-Lanjutan §4 ================= */
+.wm-stage { flex: 0 0 340px; display: flex; flex-direction: column; align-items: center; gap: 12px; position: sticky; top: 96px; }
+/* Tinggi tetap, sebab ukuran huruf pratinjau dihitung dari --pvh. */
+.wm-stage .wm-frame { height: 604px; --pvh: 604px; border-radius: 14px; }
+.wm-grab { cursor: grab; outline: 1.5px dashed rgba(47, 91, 234, 0.75); outline-offset: 2px; }
+.wm-grab:active { cursor: grabbing; }
+.wm-drag-hint { position: absolute; left: 0; right: 0; bottom: 0; padding: 9px; background: rgba(0, 0, 0, 0.55);
+  color: #fff; font-size: 11px; font-weight: 600; text-align: center; pointer-events: none; }
+.wm-check { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.wm-check input, .wm-radio > input { width: 20px; height: 20px; accent-color: var(--accent); margin: 0; flex: none; }
+.wm-logo-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.wm-logo-thumb { width: 72px; height: 72px; object-fit: contain; border-radius: 10px; background: var(--sunken); border: 1px solid var(--border); flex: none; }
+button.wm-logo-empty { width: 100%; min-height: 72px; }
+.wm-place { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; margin-top: 18px; }
+.wm-anchors { display: grid; grid-template-columns: repeat(3, 40px); gap: 6px; }
+.wm-anchors button { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 7px; background: var(--panel); border: 1px solid var(--border-strong); }
+.wm-anchors button.on { background: var(--accent); border-color: var(--accent); }
+.wm-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 16px; }
+.wm-row > .grow { flex: 1 1 180px; }
+.wm-swatches { display: flex; gap: 10px; }
+.wm-swatches button { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 9px; border: 1px solid var(--border-strong); }
+.wm-swatches button.on { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wm-radio { display: flex; align-items: center; gap: 11px; margin-top: 12px; font-size: 15px; cursor: pointer; }
+.wm-radio span { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.wm-radio span input { width: 64px; min-height: 34px; height: 34px; text-align: center; padding: 0 6px; }
+.wm-videos li .grow { min-width: 0; }
+.wm-name { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-videos .meta { margin: 3px 0 0; font-weight: 400; }
+.wm-videos .btn-ghost { min-height: 32px; padding: 0 12px; font-size: 13px; }
+.wm-tag { font-size: 12px; font-weight: 700; padding: 4px 9px; border-radius: 5px; flex: none; color: var(--muted); background: var(--sunken); }
+.wm-tag.ok { color: var(--good-text); background: var(--good-soft); }
+.wm-tag.bad { color: var(--bad-text); background: var(--bad-soft); }
+.wm-place .stepper { max-width: 200px; }

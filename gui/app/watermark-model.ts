@@ -32,6 +32,9 @@ export type Watermark = {
   // berarti tepat di tengah gambarnya — dan itu bawaannya.
   hlDX: number;
   hlDY: number;
+  // Judul berdiri sendiri di bingkai, tidak dikurung kotak gambar. Hanya
+  // halaman watermark yang menyalakannya (config.Headline.Free di engine).
+  hlFree?: boolean;
 };
 
 // Harus sama dengan config.DefaultWatermark() di engine.
@@ -68,6 +71,9 @@ export const watermarkToAPI = (b: Watermark, font: string) => ({
     color: b.hlColor,
     bold: true,
     outline: Math.round(b.hlOutline),
+    // Teks hitam butuh tepi terang; warna lain tepi hitam.
+    outline_color: b.hlColor === "black" ? "white" : "black",
+    free: !!b.hlFree,
     dx: Math.round(b.hlDX), dy: Math.round(b.hlDY),
   },
 });
@@ -86,7 +92,7 @@ const HL_PAD = 16;
 // headlineBox = kotak yang MENGURUNG teks: kotak gambar bila ada gambarnya,
 // seluruh bingkai bila tidak. Harus sama dengan config.Watermark.HeadlineBox.
 export function headlineBox(b: Watermark) {
-  if (!b.image) return { cx: 540, cy: 960, w: 1080, h: 1920 };
+  if (!b.image || b.hlFree) return { cx: 540, cy: 960, w: 1080, h: 1920 };
   return { cx: b.x, cy: b.y, w: (1080 * b.width) / 100, h: (1920 * b.height) / 100 };
 }
 

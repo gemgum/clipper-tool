@@ -551,6 +551,10 @@ type Headline struct {
 	// dari gambar yang seharusnya memuatnya.
 	DX int `json:"dx"`
 	DY int `json:"dy"`
+	// Free = judul berdiri sendiri di bingkai, tidak dikurung kotak gambarnya.
+	// Dipakai halaman watermark (DESIGN-Clipper-Lanjutan §4): di sana logo dan
+	// judul diseret masing-masing, dan logo kecil di pojok tidak bisa memuat judul.
+	Free bool `json:"free"`
 }
 
 // Watermark = banner PNG milik pengguna yang dibakar ke tiap klip, plus headline
@@ -666,7 +670,7 @@ func (b *Watermark) validate() {
 // boleh terkurung di kotak tak terlihat, dan teks yang ditulis untuk duduk di
 // dalam kartu tidak boleh meluber keluar kartunya.
 func (b Watermark) HeadlineBox() (cx, cy, w, h int) {
-	if b.Image == "" {
+	if b.Image == "" || b.Headline.Free {
 		return PlayResX / 2, PlayResY / 2, PlayResX, PlayResY
 	}
 	return b.X, b.Y, PlayResX * b.Width / 100, PlayResY * b.Height / 100

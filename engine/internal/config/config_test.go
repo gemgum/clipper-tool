@@ -141,3 +141,14 @@ func TestCenterZoomBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestHeadlineBoxFree(t *testing.T) {
+	b := Watermark{Image: "logo.png", X: 900, Y: 200, Width: 20, Height: 10}
+	if cx, _, w, _ := b.HeadlineBox(); cx != 900 || w != 216 {
+		t.Fatalf("boxed headline: cx=%d w=%d", cx, w)
+	}
+	b.Headline.Free = true
+	if cx, cy, w, h := b.HeadlineBox(); cx != 540 || cy != 960 || w != 1080 || h != 1920 {
+		t.Fatalf("free headline should use the whole frame, got %d,%d %dx%d", cx, cy, w, h)
+	}
+}
