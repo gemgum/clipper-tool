@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -63,18 +64,16 @@ func parseArticle(htmlStr string, u *url.URL, lang string) (Article, error) {
 	//     atau iklan. Pada halaman tabloidlugas itu badannya memuat NOL <img>,
 	//     jadi lapisan ini benar-benar mengembalikan kosong — dan kosong memang
 	//     jawaban yang benar untuk artikel yang tidak berfoto.
-	image := clean(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"]))
-	if image == "" {
-		image = clean(jsonLDImage(htmlStr))
-	}
-	if image == "" {
-		image = clean(firstBodyImage(htmlStr))
-	}
-	if image != "" {
-		// Sebagian situs menulis og:image sebagai path relatif.
-		if abs, err := address.Parse(image); err == nil {
-			image = abs.String()
-		}
+	//
+	// Images (DESIGN-NEWSCARD §5.2, "Foto"): SEMUA kandidat yang layak, urut
+	// dari yang paling bisa dipercaya — pengguna memilih salah satunya di GUI.
+	// Image tetap yang pertama, jadi perilaku lama tidak berubah.
+	images := articleImages(htmlStr, address,
+		clean(firstNonEmpty(meta["og:image"], meta["og:image:url"], meta["twitter:image"])),
+		clean(jsonLDImage(htmlStr)))
+	image := ""
+	if len(images) > 0 {
+		image = images[0]
 	}
 	// Tanggal juga berlapis. Dua sumber terakhir yang baru: sebagian media
 	// (termasuk Blogspot) tidak memasang meta tanggal sama sekali, tapi
@@ -90,6 +89,7 @@ func parseArticle(htmlStr string, u *url.URL, lang string) (Article, error) {
 		Summary:   truncate(clean(summary), 300),
 		URL:       address.String(),
 		Image:     image,
+		Images:    images,
 		Source:    siteBadge(clean(meta["og:site_name"]), domain(address.String())),
 		Domain:    domain(address.String()),
 		Date:      formatDate(published, lang),
@@ -160,29 +160,68 @@ func jsonLDImage(h string) string {
 	return ""
 }
 
-// firstBodyImage mengambil <img> pertama DARI DALAM badan artikel.
-//
-// Sengaja tidak dari seluruh halaman: gambar pertama sebuah halaman berita
-// hampir selalu logo situs atau iklan, dan kartu yang memasang logo situs
-// sebagai fotonya lebih buruk daripada kartu tanpa foto.
-func firstBodyImage(h string) string {
-	body := h
-	if m := reArticleBody.FindStringIndex(h); m != nil {
-		body = h[m[0]:]
-		if end := reBodyEnd.FindStringIndex(body); end != nil {
-			body = body[:end[0]]
+// maxImages: batas kandidat foto per artikel. Lebih dari ini cuma memenuhi
+// baris pilihan foto dengan gambar sisipan yang tidak pernah dipilih.
+const maxImages = 8
+
+// articleImages menyusun daftar foto: og/twitter, JSON-LD, lalu <img> di
+// badan artikel. Alamat dijadikan absolut, kembar dibuang, ikon/logo/piksel
+// pelacak dan gambar ber-width/height < 100 dilewati.
+func articleImages(h string, base *url.URL, meta, ld string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(src string) {
+		src = clean(src)
+		if src == "" || strings.HasPrefix(src, "data:") || strings.HasPrefix(src, "#") || len(out) >= maxImages {
+			return
 		}
-	} else {
-		return "" // badan artikel tidak dikenali — jangan menebak dari halaman
+		abs, err := base.Parse(src)
+		if err != nil || (abs.Scheme != "http" && abs.Scheme != "https") || seen[abs.String()] {
+			return
+		}
+		seen[abs.String()] = true
+		out = append(out, abs.String())
 	}
-	for _, m := range reImgTag.FindAllStringSubmatch(body, -1) {
-		src := m[1]
-		if strings.HasPrefix(src, "data:") || strings.HasPrefix(src, "#") {
+	add(meta)
+	add(ld)
+	body := bodyOf(h)
+	for _, tag := range reImgFull.FindAllString(body, -1) {
+		m := reImgTag.FindStringSubmatch(tag)
+		if m == nil || tinyOrIcon(tag, m[1]) {
 			continue
 		}
-		return src
+		add(m[1])
 	}
-	return ""
+	return out
+}
+
+var (
+	reImgFull = regexp.MustCompile(`(?is)<img\b[^>]*>`)
+	reImgDim  = regexp.MustCompile(`(?is)\b(?:width|height)\s*=\s*["']?(\d+)`)
+	reIconish = regexp.MustCompile(`(?i)(logo|icon|sprite|avatar|pixel|spacer|blank|emoji|badge|button|ads?[/_-])`)
+)
+
+// tinyOrIcon: gambar yang hampir pasti bukan foto berita.
+func tinyOrIcon(tag, src string) bool {
+	for _, d := range reImgDim.FindAllStringSubmatch(tag, -1) {
+		if n, err := strconv.Atoi(d[1]); err == nil && n < 100 {
+			return true
+		}
+	}
+	return reIconish.MatchString(src)
+}
+
+// bodyOf memotong HTML ke badan artikel yang dikenali; "" bila tidak dikenali.
+func bodyOf(h string) string {
+	m := reArticleBody.FindStringIndex(h)
+	if m == nil {
+		return ""
+	}
+	body := h[m[0]:]
+	if end := reBodyEnd.FindStringIndex(body); end != nil {
+		body = body[:end[0]]
+	}
+	return body
 }
 
 var (

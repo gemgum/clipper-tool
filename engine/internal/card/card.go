@@ -195,6 +195,63 @@ type Request struct {
 	// berisi semua yang dibutuhkan saat memposting.
 	Caption  string   `json:"caption"`
 	Hashtags []string `json:"hashtags"`
+	// Theme = salah satu dari empat tampilan jadi (DESIGN-NEWSCARD §5.2):
+	// dark | light | photo | paper. Kosong = perilaku lama (style + colors).
+	// Bila diisi, ia menang atas Colors.
+	Theme string `json:"theme"`
+}
+
+// Tampilan jadi kartu berita.
+const (
+	ThemeDark  = "dark"
+	ThemeLight = "light"
+	ThemePhoto = "photo"
+	ThemePaper = "paper"
+)
+
+// themeColors = warna satu tampilan jadi. Panel = latar kartu, Title = judul
+// artikel, Body = teks ringkasan, Badge/OnBadge = lencana sumber & stempel,
+// Footer = kaki kartu.
+type themeColors struct {
+	Panel, PanelRGB, Title, Body, Badge, OnBadge, Footer string
+	TitlePx, BodyPx                                      int
+}
+
+// themeTable: nilai persis dari DESIGN-NEWSCARD §5.2. "photo" di sini adalah
+// cadangannya saat kartu tidak berfoto (atau ronanya tidak terbaca).
+var themeTable = map[string]themeColors{
+	ThemeDark:  {Panel: "#15181D", Title: "#FFFFFF", Body: "#C8D1DC", Badge: "#FFD400", OnBadge: "#15181D", Footer: "#8A93A1"},
+	ThemeLight: {Panel: "#FFFFFF", Title: "#15181D", Body: "#5A6472", Badge: "#15181D", OnBadge: "#FFFFFF", Footer: "#8A93A1"},
+	ThemePhoto: {Panel: "#3C2A1E", Title: "#FFF6EC", Body: "#DEC9B4", Badge: "#E8A33D", OnBadge: "#2A1C12", Footer: "#B49C84"},
+	ThemePaper: {Panel: "#F2EBDD", Title: "#2A2318", Body: "#5E5444", Badge: "#2A2318", OnBadge: "#F2EBDD", Footer: "#8C8070"},
+}
+
+// themePhotoPct: tinggi area foto per rasio saat tampilan jadi dipakai.
+func themePhotoPct(ratio string) int {
+	switch ratio {
+	case Ratio45:
+		return 42
+	case Ratio11:
+		return 38
+	}
+	return 46
+}
+
+// imageURL menandai alamat foto sebagai aman bagi html/template, HANYA bila
+// sudah lolos hasImage (http(s) atau data:image/). Tanpa ini data URI
+// disensor jadi "#ZgotmplZ" dan foto unggahan tidak pernah tampil.
+func imageURL(src string, ok bool) template.URL {
+	if !ok {
+		return ""
+	}
+	return template.URL(src)
+}
+
+// rgbOf "#RRGGBB" → "r,g,b" untuk gradasi rgba().
+func rgbOf(hex string) string {
+	var r, g, b int
+	fmt.Sscanf(strings.TrimPrefix(hex, "#"), "%02x%02x%02x", &r, &g, &b)
+	return fmt.Sprintf("%d,%d,%d", r, g, b)
 }
 
 // Nama berkas di dalam folder kartu.
@@ -515,7 +572,7 @@ type templateData struct {
 	Dark          bool
 	Quote         bool
 	HasImage      bool
-	Image         string
+	Image         template.URL // sudah diperiksa: http(s) atau data:image/
 	Source        string
 	Domain        string
 	Date          string
@@ -544,12 +601,15 @@ type templateData struct {
 	ContextSize int
 	SmallSize   int
 	Padding     int
+	Theme       *themeColors // nil = tanpa tampilan jadi
 }
 
 func (b *Builder) render(ctx context.Context, req Request, width, height int) ([]byte, error) {
 	a := req.Article
 	quote := req.Style == StyleQuote
-	hasImage := strings.HasPrefix(a.Image, "http") && !quote
+	// Foto boleh alamat http(s) ATAU data URI — unggahan pengguna ditanam
+	// sebagai data URI oleh pemanggil (api), sebab Chrome tidak membaca path.
+	hasImage := (strings.HasPrefix(a.Image, "http") || strings.HasPrefix(a.Image, "data:image/")) && !quote
 
 	// Warna kartu: dari warna pilihan pengguna bila ada, selain itu dari rona
 	// fotonya. Keduanya lewat paletteFor yang sama, jadi satu warna cukup untuk
@@ -571,6 +631,20 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 	boxTransparent := box == BoxNone
 	if hex, ok := parseHex(box); ok {
 		pal.Paper = hex
+	}
+
+	// Tampilan jadi: menimpa warna lewat satu blok CSS di akhir template, jadi
+	// jalur lama (style + colors) tidak tersentuh sama sekali.
+	var theme *themeColors
+	if tc, ok := themeTable[req.Theme]; ok {
+		if req.Theme == ThemePhoto && hasImage {
+			if t := b.tone(ctx, a.Image); t.ok {
+				p := paletteFor(t, true)
+				tc = themeColors{Panel: p.Ink, Title: p.Paper, Body: p.Muted, Badge: p.Accent, OnBadge: p.OnAccent, Footer: p.Faint}
+			}
+		}
+		tc.PanelRGB = rgbOf(tc.Panel)
+		theme = &tc
 	}
 
 	// Skala mengikuti tinggi kanvas supaya kartu 1:1 dan 4:5 tidak terlihat
@@ -613,6 +687,9 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 		// pita gelap saat kutipannya singkat.
 		photoHeight = 48
 	}
+	if theme != nil {
+		photoHeight = themePhotoPct(req.Ratio)
+	}
 	// Ukuran bingkai foto dalam piksel — dipakai untuk membatasi geseran.
 	frameHeight := height * photoHeight / 100
 	zoom := clampZoom(req.Photo.Zoom)
@@ -637,7 +714,7 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 		Dark:      req.Style != StyleLight,
 		Quote:     quote,
 		HasImage:  hasImage,
-		Image:     a.Image,
+		Image:     imageURL(a.Image, hasImage),
 		Hero:      hero,
 		Context:   context,
 		Source:    firstNonEmpty(a.Source, a.Domain),
@@ -665,6 +742,12 @@ func (b *Builder) render(ctx context.Context, req Request, width, height int) ([
 		ContextSize: px(max(contextMin, scaled(contextSize, req.Fonts.Title))),
 		SmallSize:   px(26),
 		Padding:     px(64),
+		Theme:       theme,
+	}
+	if theme != nil {
+		// Skala tipografi DESIGN-NEWSCARD §7.2: judul 72/700, isi 40/400.
+		theme.TitlePx = px(scaled(72, req.Fonts.Title))
+		theme.BodyPx = px(scaled(40, req.Fonts.Paragraph))
 	}
 
 	var buf bytes.Buffer
@@ -873,6 +956,23 @@ body{
 .footer{padding-top:28px;font-family:'Clipper Condensed','Clipper Sans',sans-serif;
   font-size:{{.SmallSize}}px;letter-spacing:.12em;text-transform:uppercase;
   color:{{.Palette.Faint}}}
+{{with .Theme}}
+/* Tampilan jadi (DESIGN-NEWSCARD §5.2): panel polos, judul besar di atas,
+   ringkasan di bawahnya, lencana berwarna. Ditaruh terakhir supaya menimpa. */
+body{background:{{.Panel}};color:{{.Body}}}
+.photo{background:{{.Panel}}}
+.photo::after{background:linear-gradient(180deg,rgba(0,0,0,.35) 0%,rgba(0,0,0,0) 26%,
+  rgba({{.PanelRGB}},0) 60%,rgba({{.PanelRGB}},.92) 88%,{{.Panel}} 100%)}
+.badge b{background:{{.Badge}};color:{{.OnBadge}};font-family:'Clipper Sans',sans-serif;font-weight:700}
+.rule{background:{{.Badge}}}
+.context{color:{{.Title}};font-family:'Clipper Sans',sans-serif;font-weight:700;
+  font-size:{{.TitlePx}}px;line-height:1.22;letter-spacing:0;text-transform:none;
+  -webkit-line-clamp:4}
+.clipping{background:none;box-shadow:none;text-shadow:none;transform:none;padding:0;color:{{.Body}}}
+.hero{font-size:{{.BodyPx}}px;font-weight:400;line-height:1.5;color:{{.Body}}}
+.stamp span{background:{{.Badge}};color:{{.OnBadge}}}
+.footer{color:{{.Footer}}}
+{{end}}
 </style></head><body>
 {{if .HasImage}}
 <div class="photo">

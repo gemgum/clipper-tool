@@ -332,7 +332,7 @@ func SortRankings(r []Ranking) {
 // articleBodyHTML memotong HTML jadi badan artikelnya saja, "" bila penandanya
 // tidak dikenali.
 //
-// Penandanya sama dengan yang dipakai firstBodyImage (article.go) — satu daftar
+// Penandanya sama dengan yang dipakai bodyOf (article.go) — satu daftar
 // untuk dua keperluan, supaya gambar dan teks tidak pernah diambil dari dua
 // wilayah yang berbeda.
 func articleBodyHTML(h string) string {

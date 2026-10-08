@@ -48,14 +48,16 @@ var DefaultSources = []Source{
 
 // Article satu item berita — bentuk yang dipakai kartu.
 type Article struct {
-	Title     string `json:"title"`
-	Summary   string `json:"summary"`
-	URL       string `json:"url"`
-	Image     string `json:"image"`
-	Source    string `json:"source"`    // nama media, mis. "ANTARA"
-	Domain    string `json:"domain"`    // mis. "antaranews.com"
-	Date      string `json:"date"`      // sudah diformat untuk manusia
-	Published string `json:"published"` // RFC3339 bila terbaca
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	URL     string `json:"url"`
+	Image   string `json:"image"`
+	// Images = semua foto layak dari artikel, Image di depan (article.go).
+	Images    []string `json:"images"`
+	Source    string   `json:"source"`    // nama media, mis. "ANTARA"
+	Domain    string   `json:"domain"`    // mis. "antaranews.com"
+	Date      string   `json:"date"`      // sudah diformat untuk manusia
+	Published string   `json:"published"` // RFC3339 bila terbaca
 }
 
 // bentuk XML RSS 2.0. Field yang tidak dipakai sengaja tidak didaftarkan.

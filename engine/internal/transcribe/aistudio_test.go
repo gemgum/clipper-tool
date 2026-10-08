@@ -44,7 +44,9 @@ func TestAIStudioChunksAndOffsets(t *testing.T) {
 	defer srv.Close()
 
 	a := &AIStudio{Key: "k", Model: "m", Base: srv.URL, HTTP: srv.Client(),
-		Encode: func(_ context.Context, _, _ float64, out string) error { return os.WriteFile(out, []byte("ogg"), 0o644) }}
+		Encode: func(_ context.Context, _, _ float64, out string) error {
+			return os.WriteFile(out, []byte("ogg"), 0o644)
+		}}
 	tr, err := a.Transcribe(context.Background(), 900, "id", t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)

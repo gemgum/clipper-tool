@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -138,6 +139,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/news/article", s.newsArticle)
 	mux.HandleFunc("POST /api/news/resolve", s.newsResolve)
 	mux.HandleFunc("POST /api/news/analyze", s.newsAnalyze)
+	// Rancangan ulang News cards (DESIGN-NEWSCARD.md) — lihat newscard.go.
+	mux.HandleFunc("POST /api/news/image", s.newsImage)
+	mux.HandleFunc("POST /api/news/write", s.newsWrite)
 	mux.HandleFunc("POST /api/card", s.makeCard)
 	mux.HandleFunc("GET /api/card/{id}/file", s.cardFile)
 	mux.HandleFunc("GET /api/card/{id}/zip", s.cardZip)
@@ -427,6 +431,12 @@ func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Lang = firstNonEmpty(req.Lang, lang(r))
+	img, err := s.inlineCardImage(req.Article.Image)
+	if err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	req.Article.Image = img
 	id := previewID
 	if !req.Preview {
 		id = fmt.Sprintf("card-%d", time.Now().UnixNano())
@@ -1491,6 +1501,44 @@ type cardEntry struct {
 	File    string `json:"file"`
 	Zip     string `json:"zip"`
 	Caption string `json:"caption,omitempty"`
+	Title   string `json:"title"`
+	Source  string `json:"source"`
+	Ratio   string `json:"ratio,omitempty"` // 9:16 | 4:5 | 1:1, dari ukuran PNG
+}
+
+// sidecarField membaca nilai baris ke-n source.txt ("Label: nilai"). Barisnya
+// tetap urutannya (card.writeSidecars): judul, media, tanggal, tautan.
+func sidecarField(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if n >= len(lines) {
+		return ""
+	}
+	_, v, ok := strings.Cut(lines[n], ": ")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+// pngRatio membaca ukuran PNG dari kepalanya saja (IHDR), tanpa memuat gambar.
+func pngRatio(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	cfg, err := png.DecodeConfig(f)
+	if err != nil || cfg.Width == 0 {
+		return ""
+	}
+	switch r := float64(cfg.Height) / float64(cfg.Width); {
+	case r > 1.6:
+		return "9:16"
+	case r > 1.1:
+		return "4:5"
+	default:
+		return "1:1"
+	}
 }
 
 // listCards membaca folder kartu apa adanya, terbaru dulu.
@@ -1499,7 +1547,9 @@ type cardEntry struct {
 // terpisah berarti dua kebenaran yang bisa berbeda begitu pengguna menghapus
 // sesuatu lewat file manager.
 func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
-	root := filepath.Join(s.paths.DataDir, "cards")
+	// Akar yang SAMA dengan makeCard: folder kartu bisa dipindah pengguna, dan
+	// dulu riwayat tetap membaca DataDir/cards sehingga kartunya tak terlihat.
+	root := s.layout.CardsRoot()
 	dirs, err := os.ReadDir(root)
 	if err != nil {
 		writeJSON(w, 200, []cardEntry{}) // belum pernah menyimpan satu pun
@@ -1525,6 +1575,10 @@ func (s *Server) listCards(w http.ResponseWriter, r *http.Request) {
 		if b, err := os.ReadFile(filepath.Join(root, d.Name(), "caption.txt")); err == nil {
 			e.Caption = trimLine(string(b))
 		}
+		if b, err := os.ReadFile(filepath.Join(root, d.Name(), "source.txt")); err == nil {
+			e.Title, e.Source = sidecarField(string(b), 0), sidecarField(string(b), 1)
+		}
+		e.Ratio = pngRatio(png)
 		out = append(out, e)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Made > out[j].Made })
@@ -1539,7 +1593,7 @@ func (s *Server) deleteCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid card id")
 		return
 	}
-	dir := filepath.Join(s.paths.DataDir, "cards", id)
+	dir := filepath.Join(s.layout.CardsRoot(), id)
 	if err := os.RemoveAll(dir); err != nil {
 		writeErr(w, 500, "could not delete the card: "+err.Error())
 		return

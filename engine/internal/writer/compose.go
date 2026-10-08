@@ -472,10 +472,22 @@ func unusedFacts(d Draft, sources []Source) []string {
 // Yang diperiksa dan alasannya ada di notes/38. Yang TIDAK diperiksa: apakah
 // beritanya benar. Kalau semua sumber sama-sama salah, pagar diam saja.
 func inspect(d Draft, sources []Source) []Violation {
-	var vs []Violation
-	text := d.plain()
-	corpus := corpusOf(sources)
+	vs := factCheck(d.plain(), corpusOf(sources))
+	// 4-7 di bawah khusus artikel utuh; 1-3 ada di factCheck.
+	return append(vs, draftChecks(d, sources)...)
+}
 
+// CheckText menjalankan pagar fakta 1-3 (angka, kutipan, nama diri) pada teks
+// pendek dari SATU artikel: ringkasan & caption kartu berita (DESIGN-NEWSCARD,
+// keputusan pemilik 9 Oktober 2026). Panjang, cakupan, dan peta klaim tidak
+// berlaku di sana, jadi tidak ikut.
+func CheckText(text string, content news.Content) []Violation {
+	return factCheck(text, corpusOf([]Source{{Article: content}}))
+}
+
+// factCheck = pemeriksaan 1-3 dari inspect.
+func factCheck(text string, corpus corpus) []Violation {
+	var vs []Violation
 	// 1. Angka. Angka karangan adalah kesalahan paling mahal di berita, dan
 	//    paling gampang diperiksa.
 	for _, n := range numbersIn(text) {
@@ -497,6 +509,12 @@ func inspect(d Draft, sources []Source) []Violation {
 			vs = append(vs, Violation{"name", name, "name does not appear in any source article"})
 		}
 	}
+	return vs
+}
+
+// draftChecks = pemeriksaan 4-7 dari inspect.
+func draftChecks(d Draft, sources []Source) []Violation {
+	var vs []Violation
 	// 4. Panjang.
 	if d.Words < MinWords || d.Words > MaxWords {
 		vs = append(vs, Violation{"length", fmt.Sprint(d.Words),

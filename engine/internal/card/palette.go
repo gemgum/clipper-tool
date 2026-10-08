@@ -1,7 +1,11 @@
 package card
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -437,6 +441,19 @@ func toneOf(img image.Image) tone {
 // kartu membengkak dan menyulitkan penelusuran saat rendernya bermasalah,
 // sementara ongkos unduhan kedua ini kecil dan hasilnya di-cache per alamat.
 func fetchImage(ctx context.Context, url string) (image.Image, error) {
+	// Unggahan pengguna datang sebagai data URI (lihat render): dibaca di tempat.
+	if rest, ok := strings.CutPrefix(url, "data:"); ok {
+		_, b64, found := strings.Cut(rest, ";base64,")
+		if !found {
+			return nil, fmt.Errorf("data URI is not base64")
+		}
+		raw, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return nil, err
+		}
+		img, _, err := image.Decode(bytes.NewReader(raw))
+		return img, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -468,8 +485,14 @@ func (b *Builder) tone(ctx context.Context, url string) tone {
 	if url == "" {
 		return tone{}
 	}
+	// Data URI bisa berukuran megabyte: kunci cache-nya sidik jarinya saja.
+	key := url
+	if strings.HasPrefix(url, "data:") {
+		sum := sha256.Sum256([]byte(url))
+		key = fmt.Sprintf("data:%x", sum)
+	}
 	b.mu.Lock()
-	if t, seen := b.tones[url]; seen {
+	if t, seen := b.tones[key]; seen {
 		b.mu.Unlock()
 		return t
 	}
@@ -491,7 +514,7 @@ func (b *Builder) tone(ctx context.Context, url string) tone {
 	if b.tones == nil {
 		b.tones = make(map[string]tone)
 	}
-	b.tones[url] = t
+	b.tones[key] = t
 	return t
 }
 

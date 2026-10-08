@@ -694,3 +694,21 @@ minimum kata. Ukuran huruf berhenti mengecil di 22 px karena di bawah itu tidak
 terbaca di layar ponsel, jadi paragraf yang sangat panjang tetap bisa terpotong.
 Itu batas yang disengaja: pertanda paragrafnya perlu dipilih ulang, bukan
 kartunya yang perlu mengalah lagi.
+
+## Perubahan 9 Oktober 2026: AI boleh menulis ringkasan & caption
+
+Keputusan pemilik (DESIGN-NEWSCARD.md). Untuk DUA aksi saja, "Ringkas
+otomatis" (teks kartu) dan "Tulis otomatis" (caption), LLM boleh menulis dengan
+kata-katanya sendiri lewat `POST /api/news/write`. Aturan lama di atas (LLM
+hanya memilih nomor paragraf) tetap berlaku untuk `analyze`.
+
+Penjaganya pagar fakta pembuat berita (notes/38), versi pendek
+`writer.CheckText`: angka, kutipan, dan nama diri harus ada di artikel.
+Pelanggaran tidak dibuang diam-diam; ia dikembalikan sebagai `violations`
+supaya GUI menandainya untuk diperiksa manusia. Ringkasan dipotong di batas
+kata ke 180 huruf (ditandai `length`). Mesin yang gagal = galat 502 dengan
+pesan akarnya, tanpa teks cadangan (notes/12).
+
+Ikut ditambahkan: daftar foto artikel (`Article.Images`), unggah foto sendiri
+(`POST /api/news/image`, hanya PNG/JPEG/WebP, ditanam ke kartu sebagai data
+URI), dan empat tampilan jadi `theme` = dark | light | photo | paper.

@@ -51,7 +51,8 @@ import (
 //
 // Hanya unggahan berkas: bentuknya multipart karena videonya bisa berukuran
 // gigabyte dan harus dialirkan, bukan dimuat ke memori.
-var jsonFreePaths = map[string]bool{"/api/upload": true}
+// /api/news/image: foto kartu unggahan pengguna (newscard.go).
+var jsonFreePaths = map[string]bool{"/api/upload": true, "/api/news/image": true}
 
 // localHost melaporkan apakah sebuah nilai header Host menunjuk mesin ini.
 func localHost(host string, extra []string) bool {
