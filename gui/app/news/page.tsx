@@ -1,986 +1,623 @@
 "use client";
 
+// Halaman News cards — DESIGN-NEWSCARD.md (9 Oktober 2026). Tiga layar, satu
+// alur: Pilih artikel → Susun kartu → Simpan & bagikan. Logika yang sudah
+// terbukti (daftar berita, mengambil artikel, pratinjau otomatis, simpan,
+// isian tersimpan) dipakai apa adanya; yang berubah susunan layarnya.
+//
+// Keputusan pemilik di dokumen itu: AI BOLEH menulis ringkasan kartu dan
+// caption, dijaga pagar fakta engine (writer.CheckText — angka, kutipan, nama
+// yang tidak ada di artikel ditandai). notes/13 diperbarui.
+//
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Link2, Download, RotateCw, X } from "lucide-react";
-import NewsSkeleton from "../news-skeleton";
+import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Plus, Settings, Sparkles } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "../page-header";
-
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useCopyLink } from "../copy-link";
 import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import { useKeep, useRestore } from "../persist";
 import Stepper from "../stepper";
 import Popover from "../popover";
 import Select from "../select";
-import Section from "../section";
 import Alerts from "../alerts";
-import Warn from "../warn";
+import EmptyState from "../empty-state";
 import EnginePicker, { useEngines } from "../engine-picker";
+import { Segmented } from "../clip-steps";
+import { Newspaper, LayoutGrid } from "lucide-react";
 
-
-// Harus sama dengan card.FontSteps di engine: banyaknya langkah ukuran huruf ke
-// tiap arah dari ukuran standar.
+// Harus sama dengan card.FontSteps / HeaderMax / CardTopMax di engine.
 const FONT_STEPS = 10;
-// Berapa artikel ditambahkan tiap kali daftar digulir sampai dekat dasarnya.
-const PAGE = 24;
-// Harus sama dengan card.HeaderMax di engine: sejauh mana isi boleh digeser turun.
 const HEADER_MAX = 400;
-// Harus sama dengan card.CardTopMax di engine: setinggi apa pita kosong di atas
-// kartu boleh dibuat.
 const CARD_TOP_MAX = 400;
+// Berapa artikel diminta tiap "Muat lebih banyak".
+const PAGE = 24;
+// Ambang penghitung karakter (DESIGN-NEWSCARD §5.2).
+const IDEAL = 140;
+const LIMIT = 180;
+
 type Article = {
-  title: string;
-  summary: string;
-  url: string;
-  image: string;
-  source: string;
-  domain: string;
-  date: string;
-  published: string;
+  title: string; summary: string; url: string; image: string; images?: string[];
+  source: string; domain: string; date: string; published: string;
 };
-
 type Feed = { id: string; name: string; url: string; topic: string };
-type Paragraph = { index: number; text: string };
-type Ranking = {
-  index: number;
-  score: number;
-  reason: string;
-  text: string;
-  source: "llm" | "heuristic";
-};
-type Selection = {
-  card: number;
-  caption: number;
-  rankings: Ranking[];
-  hashtags: string[];
-  engine: string;
-  note: string;
-};
+type Config = { feeds: Feed[]; has_browser: boolean; browser: string };
+type Violation = { kind: string; text: string; detail: string };
+type Saved = { id: string; file: string; zip: string; width: number; height: number; bytes: number };
+type CardItem = { id: string; made: string; bytes: number; file: string; zip: string; title?: string; source?: string };
 
-type Config = {
-  feeds: Feed[];
-  has_browser: boolean;
-  browser: string;
-  styles: string[];
-  ratios: string[];
-  aligns: string[];
-  card_colours: string[][] | string[];
-};
+const EMPTY: Article = { title: "", summary: "", url: "", image: "", images: [], source: "", domain: "", date: "", published: "" };
 
-// colourRows menormalkan daftar warna dari engine.
-//
-// Bentuknya pernah berubah dari daftar datar jadi daftar per keluarga, dan GUI
-// dev bisa memuat ulang lebih dulu daripada engine di-restart. Tanpa penormalan
-// ini seluruh halaman mati dengan "row.map is not a function" — satu perbedaan
-// bentuk data seharusnya tidak menjatuhkan tab yang sedang dipakai.
-function colourRows(v: unknown): string[][] {
-  if (!Array.isArray(v)) return [];
-  if (v.every((x) => typeof x === "string")) return [v as string[]];
-  return v.filter((x): x is string[] => Array.isArray(x));
-}
-
-const EMPTY_ARTICLE: Article = {
-  title: "", summary: "", url: "", image: "",
-  source: "", domain: "", date: "", published: "",
-};
+// Empat preset tampilan (§5.2) — warnanya ditetapkan engine (card.Request.theme);
+// di sini hanya contoh warnanya untuk kotak pilihan.
+const THEMES = [
+  { id: "dark", key: "ncThemeDark", swatch: "#15181D", style: "dark" },
+  { id: "light", key: "ncThemeLight", swatch: "#FFFFFF", style: "light" },
+  { id: "photo", key: "ncThemePhoto", swatch: "#3C2A1E", style: "dark" },
+  { id: "paper", key: "ncThemePaper", swatch: "#F2EBDD", style: "light" },
+] as const;
+const RATIOS = [
+  { id: "9:16", key: "ncRatioStory", w: 1080, h: 1920 },
+  { id: "4:5", key: "ncRatioFeed", w: 1080, h: 1350 },
+  { id: "1:1", key: "ncRatioSquare", w: 1080, h: 1080 },
+] as const;
 
 export default function News() {
   const { lang, t } = useI18n();
-
+  const router = useRouter();
+  const [screen, setScreen] = useState<"pick" | "compose" | "done">("pick");
   const [config, setConfig] = useState<Config | null>(null);
-  // Daftar berita hidup di dalam <Popover>; halaman ini cuma perlu tahu kapan
-  // isinya harus ditarik.
+  const [error, setError] = useState("");
 
-  // Pintu 1: tempel link.
+  // Layar 1: dua jalan masuk.
   const [link, setLink] = useState("");
-  // Apakah artikelnya benar-benar TERBACA, bukan sekadar ringkasan RSS-nya.
-  //
-  // Bedanya menentukan: kalau pengambilan gagal, form tetap memegang judul &
-  // sumber dari daftar — dan tanpa penanda ini, peringatan "artikel ini tidak
-  // berfoto" ikut menyala. Itu keterangan yang SALAH: fotonya bukan tidak ada,
-  // artikelnya yang belum terbaca (7 Agustus 2026).
-  const [articleRead, setArticleRead] = useState(false);
-  const [fetching, setFetching] = useState(false);
-
-  // Pintu 2: jelajah RSS.
-  // Kata kunci yang SUDAH dikirim. Dipisah dari isi kotak ketik supaya daftar
-  // tidak memuat ulang di setiap huruf yang diketik.
-  const [query, setQuery] = useState("");
-  // Berapa artikel yang diminta sekarang; naik tiap kali digulir ke dasar.
-  const [limit, setLimit] = useState(PAGE);
-  // false = feednya sudah habis, jangan minta lagi.
-  const [more, setMore] = useState(true);
+  const [linkError, setLinkError] = useState("");
   const [typed, setTyped] = useState("");
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(PAGE);
+  const [more, setMore] = useState(true);
   const [items, setItems] = useState<Article[]>([]);
   const [listBusy, setListBusy] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState("");
+  const [picked, setPicked] = useState("");      // url artikel yang sedang dipilih
+  const [fetching, setFetching] = useState(false);
 
-  // Bahan kartu.
-  const [article, setArticle] = useState<Article>(EMPTY_ARTICLE);
-  const [style, setStyle] = useState("dark");
+  // Layar 2: bahan kartu.
+  const [article, setArticle] = useState<Article>(EMPTY);
+  const [theme, setTheme] = useState("dark");
   const [ratio, setRatio] = useState("9:16");
   const [align, setAlign] = useState("left");
-
-  // Analisis LLM.
+  const [caption, setCaption] = useState("");
+  const [hashtags, setHashtags] = useState("");
   const { engines } = useEngines();
   const [engine, setEngine] = useState("ollama");
   const [model, setModel] = useState("");
-  // Model yang benar-benar terpasang. Sampai kini pengguna harus mengetik
-  // namanya dari ingatan — dan satu salah ketik berujung galat dari Ollama
-  // yang tidak menyebutkan bahwa masalahnya cuma nama.
-  const [analyzeBusy, setAnalyzeBusy] = useState(false);
-  const [paragraphs, setParagraphs] = useState<Paragraph[]>([]);
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [cardIndex, setCardIndex] = useState<number | null>(null);
-  const [captionIndex, setCaptionIndex] = useState<number | null>(null);
-  const [caption, setCaption] = useState("");
-  const [hashtags, setHashtags] = useState("");
-
-  // Bingkai foto: hanya cara pas & zoom.
-  //
-  // Geseran manual (offset_x/offset_y) DIBUANG 6 Agustus 2026 bersama kotak
-  // seretnya: ia pratinjau KEDUA di halaman yang sudah punya pratinjau kartu
-  // sungguhan, dan dua pratinjau berdampingan yang tidak sama persis lebih
-  // membingungkan daripada menolong. Engine tetap menerima medannya — kalau
-  // suatu saat geseran diperlukan lagi, kembalikan bersama kendalinya, bukan
-  // sebagai state yang selalu nol.
+  const [writing, setWriting] = useState<"" | "summary" | "caption">("");
+  const [checks, setChecks] = useState<{ summary: Violation[]; caption: Violation[] }>({ summary: [], caption: [] });
+  const [writeError, setWriteError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  // Laci "atur sendiri".
   const [zoom, setZoom] = useState(1);
-  // Zoom dibaca RELATIF terhadap titik awal modenya — sumbu yang sama dengan tab
-  // klip (notes/15-sumbu-zoom.md). cover: 1 = memenuhi bingkai. whole: 1 =
-  // seluruh gambar asli masuk, berapa pun rasionya.
   const [photoFit, setPhotoFit] = useState("cover");
   const [photoFill, setPhotoFill] = useState("blur");
-
-  // Ukuran huruf dalam LANGKAH dari ukuran standar, bukan piksel mutlak: 0
-  // berarti template standar apa adanya, dan selalu bisa dikembalikan ke sana.
   const [titleStep, setTitleStep] = useState(0);
   const [paragraphStep, setParagraphStep] = useState(0);
-  // Menggeser SELURUH isi turun sebagai satu kesatuan, dalam piksel ruang kartu.
   const [header, setHeader] = useState(0);
-  // Menurunkan SELURUH kartu: area foto ikut turun, pita kosong muncul di atas.
   const [cardTop, setCardTop] = useState(0);
 
-  // Warna: dari foto (bawaan) atau dari warna yang kamu tentukan sendiri.
-  const [colorSource, setColorSource] = useState("photo");
-  const [customColor, setCustomColor] = useState("");
-  const [boxMode, setBoxMode] = useState("auto"); // auto | none | custom
-  const [boxColor, setBoxColor] = useState("#EFEBE1");
-
-  const [result, setResult] = useState<{ file: string; zip: string; preview: boolean } | null>(null);
-  const [buildBusy, setBuildBusy] = useState(false);
+  const [preview, setPreview] = useState("");
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [error, setError] = useState("");
+  // Layar 3.
+  const [saved, setSaved] = useState<Saved | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [renderError, setRenderError] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [cards, setCards] = useState<CardItem[] | null>(null);
 
   useEffect(() => {
-    fetch(eng(`/api/news/feeds`))
-      .then((r) => r.json())
-      .then((d: Config) => {
-        setConfig(d);
-        // Warna awal diambil dari daftar engine, bukan ditulis di sini — supaya
-        // tidak ada warna yang muncul di kotak tapi tidak ada di contekannya.
-        setCustomColor((v) => v || colourRows(d.card_colours)[0]?.[0] || "");
-      })
+    fetch(eng(`/api/news/feeds`)).then((r) => r.json()).then(setConfig)
       .catch(() => setError(t("engineUnreachable", { url: engineURL() })));
   }, [t]);
 
-  // Ganti artikel = buang seluruh hasil analisis artikel sebelumnya, supaya
-  // paragraf berita lama tidak tertinggal di kartu berita baru.
-  const useArticle = useCallback((a: Article) => {
-    setArticle(a);
-    setParagraphs([]);
-    setSelection(null);
-    setCardIndex(null);
-    setCaptionIndex(null);
-    setCaption("");
-    setHashtags("");
-    setResult(null);
-    setZoom(1);
-  }, []);
-
-  const loadList = useCallback(async (feedId: string, search: string, max: number) => {
+  // ---------- Layar 1 ----------
+  const loadList = useCallback(async (search: string, max: number) => {
     setListBusy(true);
-    setError("");
     try {
-      const param = search
-        ? `q=${encodeURIComponent(search)}`
-        : `feed=${encodeURIComponent(feedId)}`;
+      const param = search ? `q=${encodeURIComponent(search)}` : `feed=all`;
       const res = await fetch(eng(`/api/news/list?${param}&max=${max}&lang=${lang}`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("errLoadNews"));
       setItems(data);
-      // Kalau engine mengembalikan lebih sedikit daripada yang diminta, feednya
-      // memang sudah habis — berhenti meminta lagi, kalau tidak menggulir ke
-      // dasar akan memicu permintaan tak berujung yang selalu menjawab sama.
       setMore(Array.isArray(data) && data.length >= max);
     } catch (e: any) {
-      setItems([]);
-      setError(e.message);
-      setMore(false);
-    } finally {
-      setListBusy(false);
-    }
+      setItems([]); setMore(false); setError(e.message);
+    } finally { setListBusy(false); }
+  }, [lang, t]);
+  useEffect(() => { loadList(query, limit); }, [query, limit, loadList]);
+
+  const runSearch = () => { setLimit(PAGE); setMore(true); setSourceFilter(""); setQuery(typed.trim()); };
+
+  // Artikel baru = semua yang ditulis untuk artikel lama dibuang.
+  const useArticle = useCallback((a: Article) => {
+    setArticle({ ...EMPTY, ...a, images: a.images?.length ? a.images : (a.image ? [a.image] : []) });
+    setCaption(""); setHashtags(""); setChecks({ summary: [], caption: [] }); setWriteError("");
+    setPreview(""); setSaved(null); setZoom(1);
+  }, []);
+
+  const readArticle = useCallback(async (url: string, fallback?: Article) => {
+    const res = await fetch(eng(`/api/news/article`), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, lang }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || t("errReadArticle"));
+    // Yang sudah diketahui dari daftar tidak dibuang bila halamannya lebih miskin.
+    return { ...data, image: data.image || fallback?.image || "", source: data.source || fallback?.source || "",
+      date: data.date || fallback?.date || "", published: data.published || fallback?.published || "" } as Article;
   }, [lang, t]);
 
-  // Daftar ditarik sekali saat halaman dibuka, dan tiap kunci pencarian
-  // berubah. Tidak lagi menunggu popup dibuka — daftarnya sekarang memang
-  // selalu terlihat.
-  useEffect(() => { loadList("all", query, limit); }, [query, limit, loadList]);
-
-  // Gulir sampai dekat dasar → minta lebih banyak.
-  //
-  // Diminta pada 400 px SEBELUM dasarnya, bukan tepat di dasar: permintaan
-  // butuh waktu, dan menunggu sampai benar-benar mentok berarti pengguna selalu
-  // melihat daftar berhenti sebentar. Dijaga `more` dan `listBusy` supaya satu
-  // gerakan gulir tidak menembakkan lima permintaan sekaligus.
-  const asking = useRef(false);
-  const onListScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    if (!more || listBusy || asking.current) return;
-    const el = e.currentTarget;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 400) {
-      // Penjaga lewat ref, bukan lewat `listBusy`: satu gerakan gulir memicu
-      // puluhan peristiwa dalam satu frame, dan semuanya membaca `listBusy`
-      // yang masih false — terukur, satu gerakan menambah TIGA halaman.
-      asking.current = true;
-      setLimit((n) => n + PAGE);
-    }
-  }, [more, listBusy]);
-
-  // Dilepas begitu permintaannya selesai, bukan saat dikirim.
-  useEffect(() => { if (!listBusy) asking.current = false; }, [listBusy]);
-
-  // Mencari cukup menyetel kuncinya; daftarnya sendiri ditarik oleh efek di
-  // atas begitu popupnya terbuka.
-  const runSearch = useCallback(() => { setLimit(PAGE); setMore(true); setQuery(typed.trim()); }, [typed]);
-
-  // Menyalin tautan artikel supaya bisa dicek silang di tab lain. Isinya di
-  // app/copy-link.tsx — tab pembuat berita memakai yang sama persis.
-  const { copyLink, copied, busy: copyBusy } = useCopyLink({
-    // Alamat asli disimpan supaya kartu ini tidak perlu diresolusi lagi nanti.
-    onResolved: (from, to) =>
-      setItems((list) => list.map((a) => (a.url === from ? { ...a, url: to } : a))),
-    onError: setError,
-  });
-
-  // Mengklik satu berita di daftar = MENGAMBIL artikelnya, bukan memakai
-  // ringkasan RSS-nya.
-  //
-  // Sebelum ini `onClick` menyerahkan objek daftar apa adanya ke kartu. Objek
-  // itu berasal dari RSS, dan RSS tidak membawa gambar — jadi kartu selalu jadi
-  // tanpa foto. Yang bekerja cuma jalur memutar: tekan copy (yang diam-diam
-  // meresolusi tautannya), tempel ke kotak Fetch, baru gambarnya muncul.
-  // Dilaporkan 7 Agustus 2026 persis dengan kalimat itu.
-  //
-  // Ringkasan RSS-nya tetap dipasang LEBIH DULU supaya klik terasa langsung
-  // menjawab — judul & sumber sudah benar dari daftar — lalu ditimpa artikel
-  // lengkapnya begitu terbaca.
-  const openItem = useCallback(async (a: Article) => {
-    useArticle(a);
-    setArticleRead(false);
-    setFetching(true);
-    setError("");
+  // Klik pertama MEMILIH (artikel dibaca di belakang), klik kedua lanjut.
+  const pickItem = useCallback(async (a: Article) => {
+    if (picked === a.url && article.url) { setScreen("compose"); return; }
+    setPicked(a.url); useArticle(a); setFetching(true); setError("");
     try {
-      const res = await fetch(eng(`/api/news/article`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: a.url, lang }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("errReadArticle"));
-      // Apa yang SUDAH diketahui dari daftar tidak dibuang.
-      //
-      // Halaman artikel tidak selalu lebih kaya daripada ringkasan RSS-nya:
-      // sebagian media tidak memasang og:image, dan sebagian tidak memasang
-      // tanggal. Menimpa seluruh objek berarti thumbnail yang sudah terlihat di
-      // daftar justru HILANG begitu barisnya diklik — informasi yang sudah ada
-      // di tangan dibuang oleh langkah yang seharusnya menambah.
-      //
-      // Jadi yang kosong saja yang diisi dari daftar; sisanya tetap dari
-      // artikelnya, yang memang lebih tepat.
-      useArticle({
-        ...data,
-        image: data.image || a.image,
-        source: data.source || a.source,
-        date: data.date || a.date,
-      });
-      setArticleRead(true);
-      // Alamat yang sudah diresolusi disimpan ke daftarnya: baris yang sama
-      // tidak perlu dibuka ulang lewat browser, dan sorotan "sedang dipilih"
-      // tetap cocok sesudah alamatnya berubah.
-      if (data.url && data.url !== a.url) {
-        setItems((list) => list.map((x) => (x.url === a.url ? { ...x, url: data.url } : x)));
+      const full = await readArticle(a.url, a);
+      useArticle(full);
+      if (full.url && full.url !== a.url) {
+        setItems((list) => list.map((x) => (x.url === a.url ? { ...x, url: full.url } : x)));
+        setPicked(full.url);
       }
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setFetching(false);
-    }
-  }, [useArticle, lang, t]);
+    } catch (e: any) { setError(e.message); }
+    finally { setFetching(false); }
+  }, [picked, article.url, useArticle, readArticle]);
 
   const fetchLink = useCallback(async () => {
     if (!link.trim()) return;
-    setFetching(true);
-    setError("");
+    setFetching(true); setLinkError("");
     try {
-      const res = await fetch(eng(`/api/news/article`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: link.trim(), lang }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("errReadArticle"));
-      useArticle(data);
-      setArticleRead(true);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setFetching(false);
-    }
-  }, [link, useArticle, lang, t]);
+      const full = await readArticle(link.trim());
+      useArticle(full); setPicked(full.url); setScreen("compose");
+    } catch (e: any) { setLinkError(e.message); }
+    finally { setFetching(false); }
+  }, [link, readArticle, useArticle]);
 
-  // Isi kartu & caption SELALU diambil dari teks paragraf artikel — tidak
-  // pernah dari karangan model. Itu sebabnya yang disimpan hanya nomornya.
-  const applyToCard = useCallback((list: Paragraph[], i: number) => {
-    const p = list.find((x) => x.index === i);
-    if (!p) return;
-    setCardIndex(i);
-    setArticle((a) => ({ ...a, summary: p.text }));
-  }, []);
-
-  const applyToCaption = useCallback((list: Paragraph[], i: number) => {
-    const p = list.find((x) => x.index === i);
-    if (!p) return;
-    setCaptionIndex(i);
-    setCaption(p.text);
-  }, []);
-
-  const analyze = useCallback(async () => {
+  // ---------- Layar 2 ----------
+  const write = useCallback(async (kind: "summary" | "caption") => {
     if (!article.url) return;
-    setAnalyzeBusy(true);
-    setError("");
+    setWriting(kind); setWriteError("");
     try {
-      const res = await fetch(eng(`/api/news/analyze`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: article.url,
-          engine,
-          model,
-          lang,
-        }),
+      const res = await fetch(eng(`/api/news/write`), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: article.url, engine, model, lang, kind }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("errAnalyze"));
-      const list: Paragraph[] = data.paragraphs;
-      const picked: Selection = data.selection;
-
-      // Balasan analisis memuat artikel hasil resolusi — di sinilah alamat asli
-      // dan og:image pertama kali tersedia. Hasil pencarian Google News tidak
-      // membawa keduanya, jadi tanpa penggabungan ini kartunya terbit tanpa foto
-      // dan tautannya tetap menunjuk pengalih Google.
-      //
-      // Hanya field yang memang lebih baik yang ditimpa. Judul, ringkasan, dan
-      // badge dibiarkan apa adanya karena bisa jadi sudah disunting pengguna.
-      if (data.article) {
-        const fresh: Article = data.article;
-        setArticle((a) => ({
-          ...a,
-          url: fresh.url && !fresh.url.includes("news.google.com/") ? fresh.url : a.url,
-          image: a.image || fresh.image || "",
-          date: a.date || fresh.date || "",
-          published: a.published || fresh.published || "",
-          source: a.source || fresh.source || "",
-          domain: a.domain || fresh.domain || "",
-        }));
-        // Daftar hasil ikut diperbarui supaya artikel ini tidak perlu
-        // diresolusi lagi kalau nanti dipilih ulang.
-        if (fresh.url && !fresh.url.includes("news.google.com/")) {
-          setItems((list) => list.map((x) => (x.url === article.url ? { ...x, url: fresh.url } : x)));
-        }
-      }
-
-      setParagraphs(list);
-      setSelection(picked);
-      applyToCard(list, picked.card);
-      applyToCaption(list, picked.caption);
-      setHashtags(picked.hashtags.join(" "));
-      setResult(null);
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "write failed");
+      if (kind === "summary") setArticle((a) => ({ ...a, summary: d.text }));
+      else { setCaption(d.text); setHashtags((d.hashtags || []).map((h: string) => "#" + h.replace(/^#/, "")).join(" ")); }
+      setChecks((c) => ({ ...c, [kind]: d.violations || [] }));
     } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setAnalyzeBusy(false);
-    }
-  }, [article.url, engine, model, lang, applyToCard, applyToCaption, t]);
+      // Ringkasan gagal: textarea tetap berisi teks artikel (§9), plus catatan kecil.
+      setWriteError(t("ncAiFailed", { error: e.message }));
+    } finally { setWriting(""); }
+  }, [article.url, engine, model, lang, t]);
 
-  // buildCard dipakai untuk pratinjau maupun simpan — bedanya cuma satu flag.
-  //
-  // Pratinjau menimpa satu folder tetap di engine, jadi menyetel kartu berpuluh
-  // kali tidak meninggalkan berpuluh folder. Berkas pendamping (caption &
-  // keterangan sumber) baru ditulis saat benar-benar disimpan.
-
-  // Sidik jari dari SEMUA yang memengaruhi gambar kartu. Dipakai untuk memicu
-  // pratinjau ulang: mendaftar satu per satu di dependency effect berarti setiap
-  // setelan baru harus diingat untuk ditambahkan ke sana — dan yang terlupa
-  // berakhir sebagai "kenapa gambarku tidak berubah".
-  const cardFingerprint = JSON.stringify([
-    article.title, article.url, article.image, article.summary, article.source, article.date,
-    style, ratio, align, lang, caption, hashtags,
-    zoom, photoFit, photoFill,
-    titleStep, paragraphStep, header, cardTop,
-    colorSource, customColor, boxMode, boxColor,
-  ]);
-
-  const buildCard = useCallback(async (preview: boolean) => {
-    if (preview) setPreviewBusy(true); else setBuildBusy(true);
-    setError("");
-    try {
-      const res = await fetch(eng(`/api/card`), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          article,
-          style,
-          ratio,
-          align,
-          lang,
-          preview,
-          caption,
-          hashtags: hashtags.split(/\s+/).filter(Boolean),
-          photo: { offset_x: 0, offset_y: 0, zoom, fit: photoFit, fill: photoFill },
-          fonts: { title: titleStep, paragraph: paragraphStep },
-          header,
-          card_top: cardTop,
-          colors: {
-            source: colorSource,
-            custom: customColor,
-            box: boxMode === "custom" ? boxColor : boxMode,
-          },
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || t("errBuildCard"));
-      // Pratinjau selalu memakai id yang sama, jadi alamatnya perlu penanda
-      // waktu — tanpa itu browser menampilkan gambar lama dari cache dan
-      // penyetelanmu terlihat tidak berpengaruh.
-      setResult({
-        file: eng(`${data.file}?v=${Date.now()}`),
-        zip: eng(`${data.zip}`),
-        preview,
-      });
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setPreviewBusy(false);
-      setBuildBusy(false);
-    }
-  }, [article, style, ratio, align, lang, caption, hashtags, zoom,
-      photoFit, photoFill, titleStep, paragraphStep, header, cardTop,
-      colorSource, customColor, boxMode, boxColor, t]);
-
-  // Isian disimpan & dipulihkan sendiri: di aplikasi desktop halaman bisa
-  // termuat ulang tanpa diminta (WebView2 membuang proses penampilnya saat
-  // jendela ditinggal atau memori menipis), dan mengetik ulang semuanya karena
-  // berpindah jendela adalah hukuman yang tidak masuk akal.
-  //
-  // Yang disimpan hanya isian, bukan hasil: kartu jadi tetap ada di folder
-  // penyimpanan, dan pratinjau dibuat ulang sendiri.
-  useKeep("news", {
-    article, caption, hashtags, paragraphs, engine, model,
-    style, ratio, align, zoom, photoFit, photoFill,
-    titleStep, paragraphStep, header, cardTop, colorSource, customColor,
-    boxMode, boxColor,
-  });
-  useRestore<Record<string, unknown>>("news", (v) => {
-    const set = <T,>(fn: (x: T) => void, val: unknown) => {
-      if (val !== undefined && val !== null) fn(val as T);
-    };
-    set(setArticle, v.article);
-    set(setCaption, v.caption);
-    set(setHashtags, v.hashtags);
-    set(setParagraphs, v.paragraphs);
-    set(setEngine, v.engine);
-    set(setModel, v.model);
-    set(setStyle, v.style);
-    set(setRatio, v.ratio);
-    set(setAlign, v.align);
-    set(setZoom, v.zoom);
-    set(setPhotoFit, v.photoFit);
-    set(setPhotoFill, v.photoFill);
-    set(setTitleStep, v.titleStep);
-    set(setParagraphStep, v.paragraphStep);
-    set(setHeader, v.header);
-    set(setCardTop, v.cardTop);
-    set(setColorSource, v.colorSource);
-    set(setCustomColor, v.customColor);
-    set(setBoxMode, v.boxMode);
-    set(setBoxColor, v.boxColor);
-  });
-
-  // Pratinjau otomatis: setiap perubahan setelan langsung terlihat, tanpa
-  // menekan tombol.
-  //
-  // Ditunda 700 ms sejak perubahan TERAKHIR, bukan dijalankan tiap perubahan:
-  // satu pratinjau berarti satu Chrome headless dirender penuh, sedangkan
-  // menggeser penggeser ukuran huruf menghasilkan puluhan perubahan per detik.
-  // Penundaan mengubahnya jadi satu render setelah tangan berhenti.
+  // "Otomatis dulu" (§2): begitu masuk layar 2, caption ditulis bila masih kosong.
   useEffect(() => {
-    if (!article.title || !config?.has_browser) return;
-    const id = setTimeout(() => buildCard(true), 700);
-    return () => clearTimeout(id);
-    // Sengaja hanya bergantung pada sidik jari: buildCard berubah identitasnya
-    // tiap render, dan cardFingerprint sudah mewakili seluruh isinya.
+    if (screen === "compose" && article.url && !caption && !writing) write("caption");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardFingerprint, config?.has_browser]);
+  }, [screen, article.url]);
 
-  const edit = (key: keyof Article) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setArticle((a) => ({ ...a, [key]: e.target.value }));
+  const uploadImage = useCallback(async (f: File) => {
+    setUploading(true); setError("");
+    try {
+      const form = new FormData(); form.append("file", f);
+      const res = await fetch(eng(`/api/news/image`), { method: "POST", body: form });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "upload failed");
+      setArticle((a) => ({ ...a, image: d.path, images: [...(a.images || []), d.path] }));
+    } catch (e: any) { setError(e.message); }
+    finally { setUploading(false); }
+  }, []);
 
-  const styleLabels: Record<string, string> = {
-    dark: t("styleDark"), light: t("styleLight"), quote: t("styleQuote"),
-  };
-  const alignLabels: Record<string, string> = {
-    left: t("alignLeft"), center: t("alignCenter"),
-    right: t("alignRight"), justify: t("alignJustify"),
-  };
+  const themeDef = THEMES.find((x) => x.id === theme) || THEMES[0];
+  const cardBody = useCallback((r: string, previewOnly: boolean) => JSON.stringify({
+    article, theme, style: themeDef.style, ratio: r, align, lang, preview: previewOnly, caption,
+    hashtags: hashtags.split(/\s+/).map((h) => h.replace(/^#/, "")).filter(Boolean),
+    photo: { offset_x: 0, offset_y: 0, zoom, fit: photoFit, fill: photoFill },
+    fonts: { title: titleStep, paragraph: paragraphStep }, header, card_top: cardTop,
+  }), [article, theme, themeDef.style, align, lang, caption, hashtags, zoom, photoFit, photoFill, titleStep, paragraphStep, header, cardTop]);
 
-  // Pengukuran tinggi tumpukan setelan (--pv-h) DIBUANG 6 Agustus 2026: tidak
-  // ada satu aturan CSS pun yang masih memakainya sejak pratinjau kartu memakai
-  // sisa tinggi kolomnya, sementara efeknya berjalan tiap render (tanpa daftar
-  // dependensi) dan menulis ke style elemen — kerja yang tidak pernah dibaca.
-
-  // Kartu dilihat penuh layar. Ditutup dengan Esc, tombol X, atau mengklik
-  // gambarnya lagi — tiga jalan keluar, sebab yang mana pun yang dicoba orang
-  // harus berhasil.
-  const [zoom0, setZoom0] = useState(false);
+  const fingerprint = cardBody(ratio, true);
   useEffect(() => {
-    if (!zoom0) return;
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setZoom0(false); };
-    window.addEventListener("keydown", esc);
-    return () => window.removeEventListener("keydown", esc);
-  }, [zoom0]);
+    if (screen !== "compose" || !article.title || !config?.has_browser) return;
+    const id = setTimeout(async () => {
+      setPreviewBusy(true);
+      try {
+        const res = await fetch(eng(`/api/card`), { method: "POST", headers: { "Content-Type": "application/json" }, body: fingerprint });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || t("errBuildCard"));
+        setPreview(eng(`${d.file}?v=${Date.now()}`));
+      } catch (e: any) { setError(e.message); }
+      finally { setPreviewBusy(false); }
+    }, 700);
+    return () => clearTimeout(id);
+  }, [fingerprint, screen, config?.has_browser]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ready = article.title.trim().length > 0;
+  const save = useCallback(async () => {
+    setSaving(true); setRenderError("");
+    try {
+      const res = await fetch(eng(`/api/card`), { method: "POST", headers: { "Content-Type": "application/json" }, body: cardBody(ratio, false) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || t("errBuildCard"));
+      let bytes = 0;
+      try { bytes = Number((await fetch(eng(d.file), { method: "HEAD" })).headers.get("content-length")) || 0; } catch {}
+      setSaved({ id: d.id, file: eng(d.file), zip: eng(d.zip), width: d.width, height: d.height, bytes });
+      setCards(null); setScreen("done");
+    } catch (e: any) { setRenderError(e.message); setScreen("done"); }
+    finally { setSaving(false); }
+  }, [cardBody, ratio, t]);
 
-  return (
-    <div className="screen">
-      <PageHeader title={t("tabNews")} subtitle={t("subNews")} />
-      {/* Melayang, bukan kepala halaman — lihat alerts.tsx. */}
-      <Alerts items={[
-        error && { kind: "error" as const, text: error },
-        config && !config.has_browser && { kind: "warn" as const, key: "browser",
-          text: <>{t("browserMissing")} <code>CLIPPER_CHROME</code> {t("browserMissingTail")}</> },
-      ]} />
+  // ---------- Layar 3 ----------
+  useEffect(() => {
+    if (screen !== "done" || cards) return;
+    fetch(eng(`/api/cards`)).then((r) => r.json()).then((d) => setCards(Array.isArray(d) ? d : [])).catch(() => setCards([]));
+  }, [screen, cards]);
 
-      <div className="screen-body two">
-        {/* --- KIRI: isi kartu, lalu rupanya --- */}
-        <div className="screen-main">
-          {/* Paragraf + Isi jadi SATU panel di atas pratinjau. Keduanya
-              menjawab pertanyaan yang sama — teks apa yang masuk kartu — dan
-              memisahkannya memaksa mata bolak-balik untuk satu keputusan. */}
-          {ready && (
-            <div className="panel">
-              <Section title={t("groupParagraph")}>
-                {/* Empat sel: kisi tiga kolom akan membuatnya jadi dua baris,
-                    dan tiap baris di panel ini mendorong pratinjau kartu turun. */}
-                {/* Pemilih mesin memakai komponen bersama (notes/39): tab ini,
-                    tab klip, dan tab pembuat berita menanyakan hal yang sama,
-                    jadi bentuknya harus sama persis. Tombol Analyse & daftar
-                    peringkat menumpang sebagai anaknya — keduanya milik tab ini,
-                    bukan milik pemilih mesin. */}
-                <EnginePicker
-                  engines={engines} engine={engine} setEngine={setEngine}
-                  model={model} setModel={setModel} busy={analyzeBusy}
-                >
-                  <div className="field field-check">
-                    {/* Kabar "sedang menganalisis" ada di tombolnya sendiri, dan
-                        catatan dari mesin skor jadi lambang peringatan di
-                        sebelahnya — dua baris teks yang dulu muncul di bawah
-                        kisi ini mendorong seluruh panel isi & pratinjau turun. */}
-                    <button className="ghost" onClick={analyze} disabled={analyzeBusy}
-                      title={analyzeBusy && engine === "ollama" ? t("analyzingLocal") : undefined}>
-                      {analyzeBusy ? t("analyzing") : t("analyze")}
-                    </button>
-                  </div>
-                  {/* Daftar peringkat dibuka di POPUP, bukan tumbuh di dalam
-                      panel: tiap paragraf itu satu alinea utuh, dan sepuluh di
-                      antaranya berarti panelnya sendiri yang harus digulir —
-                      sekaligus mendorong pratinjau kartu keluar layar. */}
-                  <div className="field field-check">
-                    {selection?.note && <Warn width={340}>{selection.note}</Warn>}
-                    <Popover width={760} buttonClass="ghost" disabled={!selection}
-                      label={selection
-                        ? t("pickParagraph", { n: selection.rankings.length })
-                        : t("pickParagraphEmpty")}>
-                      {(close) => (
-                        <div className="par-list">
-                          {(selection?.rankings ?? []).map((r) => (
-                            <div key={r.index}
-                              className={"par" + (cardIndex === r.index ? " pick-card" : "") + (captionIndex === r.index ? " pick-caption" : "")}>
-                              <div className={"par-score" + (r.source === "heuristic" ? " auto" : "")}
-                                title={r.source === "heuristic" ? t("scoredAuto") : t("scoredByEngine", { engine: selection!.engine })}>
-                                {r.score.toFixed(1)}
-                                {r.source === "heuristic" && <span className="par-auto">{t("auto")}</span>}
-                              </div>
-                              <div className="par-body">
-                                <div className="par-text">{r.text}</div>
-                                {r.reason && <div className="par-reason">{r.reason}</div>}
-                                <div className="par-actions">
-                                  <button className="tiny ghost" onClick={() => { applyToCard(paragraphs, r.index); close(); }}>
-                                    {cardIndex === r.index ? t("onCard") : t("useOnCard")}
-                                  </button>
-                                  <button className="tiny ghost" onClick={() => { applyToCaption(paragraphs, r.index); close(); }}>
-                                    {captionIndex === r.index ? t("asCaption") : t("useAsCaption")}
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </Popover>
-                  </div>
-                </EnginePicker>
+  const otherRatio = ratio === "4:5" ? "9:16" : "4:5";
+  const renderAlt = useCallback(async () => {
+    try {
+      const res = await fetch(eng(`/api/card`), { method: "POST", headers: { "Content-Type": "application/json" }, body: cardBody(otherRatio, false) });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || t("errBuildCard"));
+      setCards(null);
+      const a = document.createElement("a"); a.href = eng(d.file); a.download = `card-${otherRatio.replace(":", "x")}.png`; a.click();
+    } catch (e: any) { setError(e.message); }
+  }, [cardBody, otherRatio, t]);
 
-              </Section>
+  // Caption yang tersalin PERSIS seperti kotak pratinjaunya (§6): teks, hashtag,
+  // lalu baris kredit — tanpa em dash.
+  const fullCaption = [caption.trim(), hashtags.trim(),
+    t("ncSourceLine", { source: article.source || article.domain, date: article.date ? `, ${article.date}` : "" })]
+    .filter(Boolean).join("\n\n");
+  const copyCaption = async () => {
+    try { await navigator.clipboard.writeText(fullCaption); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+  };
 
-              <Section title={t("groupContent")}>
-                <div className="field">
-                  <label>{t("articleTitle")}</label>
-                  <textarea rows={2} value={article.title} onChange={edit("title")} />
-                </div>
-                <div className="grid2">
-                  <div className="field">
-                    <label>{t("cardText")} {cardIndex !== null && <em>{t("fromParagraph", { n: cardIndex })}</em>}</label>
-                    <textarea rows={2} value={article.summary} onChange={edit("summary")} />
-                  </div>
-                  <div className="field">
-                    <label>{t("caption")} {captionIndex !== null && <em>{t("fromParagraph", { n: captionIndex })}</em>}</label>
-                    <textarea rows={2} value={caption} onChange={(e) => setCaption(e.target.value)} />
-                  </div>
-                </div>
-                <div className="grid4">
-                  <div className="field">
-                    <label>{t("sourceBadge")}</label>
-                    <input value={article.source} onChange={edit("source")} />
-                  </div>
-                  <div className="field">
-                    <label>{t("date")}</label>
-                    <input value={article.date} onChange={edit("date")} />
-                  </div>
-                  <div className="field">
-                    <label>{t("imageURL")} {style === "quote" && <em>{t("imageUnusedInQuote")}</em>}
-                      {/* Peringatan MUNCUL saat artikel sudah terbaca tapi tidak
-                          membawa foto. Sebagai lambang di label, bukan baris
-                          baru — label sudah setinggi satu baris, jadi tidak ada
-                          satu piksel pun yang bergerak (notes/32).
-                          Sebabnya nyata: sebagian media tidak memasang og:image
-                          sama sekali, dan kartu jadi polos tanpa ada yang
-                          menjelaskan kenapa. */}
-                      {articleRead && !article.image && (
-                        <Warn>{t("imageNone")}</Warn>
-                      )}</label>
-                    {/* Kotak kosong tidak bisa membedakan "belum diambil" dari
-                        "artikelnya memang tidak berfoto". Yang kedua nyata dan
-                        tidak jarang — sebagian media (mis. blog Blogspot) tidak
-                        memasang og:image sama sekali, dan kartunya jadi polos
-                        tanpa ada yang menjelaskan kenapa. Pesannya masuk ke
-                        placeholder, jadi tidak ada baris baru yang muncul. */}
-                    <input value={article.image} onChange={edit("image")}
-                      placeholder={articleRead ? t("imageNonePlaceholder") : ""} />
-                  </div>
-                  <div className="field">
-                    <label>{t("hashtags")}</label>
-                    <input value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder={t("hashtagsPlaceholder")} />
-                  </div>
-                </div>
-                <p className="meta">{t("creditSource")}</p>
-              </Section>
-            </div>
-          )}
+  const newCard = () => { setScreen("pick"); setPicked(""); useArticle(EMPTY); setRenderError(""); };
 
-          <div className="panel">
-            <div className="sub-layout">
-              <div className="sub-preview">
-                {/* Rasio kartu yang SEDANG dipilih diteruskan ke CSS: bingkai
-                    kosongnya mengikuti bentuk kartu, bukan kotak persegi
-                    setinggi kolom. Kotak persegi berbohong soal apa yang akan
-                    keluar, dan bentuknya berubah begitu gambarnya datang. */}
-                <div className={"card-view" + (result ? " clickable" : "")}
-                  style={{ "--card-ar": ratio.replace(":", " / ") } as React.CSSProperties}
-                  onClick={() => result && setZoom0(true)}
-                  title={result ? t("cardFullscreen") : undefined}>
-                  {result ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={result.file} alt="" />
-                  ) : (
-                    <div className="preview-empty">
-                      <div className="pe-icon" aria-hidden="true" />
-                      <div className="pe-title">{t("previewEmpty")}</div>
-                    </div>
-                  )}
-                  {(previewBusy || buildBusy) && <div className="card-view-busy">{t("rendering")}</div>}
-                </div>
-              </div>
+  // ---------- isian tersimpan ----------
+  useKeep("news", { article, caption, hashtags, engine, model, theme, ratio, align, zoom, photoFit, photoFill, titleStep, paragraphStep, header, cardTop });
+  useRestore<Record<string, unknown>>("news", (v) => {
+    const set = <T,>(fn: (x: T) => void, val: unknown) => { if (val !== undefined && val !== null) fn(val as T); };
+    set(setArticle, v.article); set(setCaption, v.caption); set(setHashtags, v.hashtags);
+    set(setEngine, v.engine); set(setModel, v.model);
+    if (typeof v.theme === "string" && THEMES.some((x) => x.id === v.theme)) setTheme(v.theme);
+    set(setRatio, v.ratio); set(setAlign, v.align); set(setZoom, v.zoom);
+    set(setPhotoFit, v.photoFit); set(setPhotoFill, v.photoFill);
+    set(setTitleStep, v.titleStep); set(setParagraphStep, v.paragraphStep); set(setHeader, v.header); set(setCardTop, v.cardTop);
+  });
 
-              <div className="sub-settings">
-                <div className="sub-stack">
-                <Section title={t("groupDesign")}>
-                  <div className="grid3">
-                    <div className="field">
-                      <label>{t("style")}</label>
-                      <Select value={style} onChange={setStyle}
-                        options={(config?.styles ?? []).map((s) => ({ value: s, label: styleLabels[s] || s }))} />
-                    </div>
-                    <div className="field">
-                      <label>{t("ratio")}</label>
-                      <Select value={ratio} onChange={setRatio}
-                        options={(config?.ratios ?? []).map((r) => ({
-                          value: r, label: r,
-                          note: r === "9:16" ? t("ratioStory") : r === "4:5" ? t("ratioFeed") : t("ratioSquare"),
-                        }))} />
-                    </div>
-                    <div className="field">
-                      <label>{t("textAlign")}</label>
-                      <Select value={align} onChange={setAlign}
-                        options={(config?.aligns ?? ["left", "center", "right", "justify"]).map((a) => ({
-                          value: a, label: alignLabels[a] || a,
-                        }))} />
-                    </div>
-                    <div className="field">
-                      <label>{t("cardColour")}</label>
-                      <Popover width={300} buttonClass="ghost swatch-trigger"
-                        label={
-                          <>
-                            <span className="swatch-dot" style={{
-                              background: colorSource === "photo" ? undefined : customColor,
-                            }} data-auto={colorSource === "photo" ? "" : undefined} />
-                            {colorSource === "photo" ? t("colourFromPhoto") : (customColor || t("colourCustom"))}
-                          </>
-                        }>
-                        {(close) => (
-                          <>
-                            {/* Dua tombol berdampingan, BUKAN dropdown. Dropdown di
-                                dalam popup berarti popup di dalam popup, dan yang
-                                terlihat cuma dua kotak melayang bertumpuk. */}
-                            <div className="seg">
-                              {[["photo", t("colourFromPhoto")], ["custom", t("colourCustom")]].map(([v, label]) => (
-                                <button key={v} type="button"
-                                  className={colorSource === v ? "active" : ""}
-                                  aria-pressed={colorSource === v}
-                                  onClick={() => setColorSource(v)}>{label}</button>
-                              ))}
-                            </div>
-                            {colorSource === "custom" && colourRows(config?.card_colours).map((row, i) => (
-                              <div className="swatches" key={i}>
-                                {row.map((c) => (
-                                  <button key={c} type="button"
-                                    className={"swatch" + (c === customColor ? " on" : "")}
-                                    style={{ background: c }} title={c} aria-label={c}
-                                    onClick={() => { setCustomColor(c); close(); }} />
-                                ))}
-                              </div>
-                            ))}
-                          </>
-                        )}
-                      </Popover>
-                    </div>
-                    <div className="field">
-                      <label>{t("cardBoxBackground")}</label>
-                      <Select value={boxMode} onChange={setBoxMode} options={[
-                        { value: "auto", label: t("boxAuto") }, { value: "none", label: t("boxNone") },
-                        { value: "custom", label: t("boxCustom") },
-                      ]} />
-                    </div>
-                    <div className="field">
-                      {boxMode === "custom" && (
-                        <>
-                          <label>{t("boxCustom")}</label>
-                          <div className="path-row">
-                            <input type="color" className="colour-dot" value={boxColor}
-                              onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
-                            <input value={boxColor} spellCheck={false}
-                              onChange={(e) => setBoxColor(e.target.value.toUpperCase())} />
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </Section>
+  // ---------- turunan ----------
+  const ago = useMemo(() => {
+    const rtf = new Intl.RelativeTimeFormat(lang === "id" ? "id" : "en", { numeric: "auto" });
+    return (iso: string) => {
+      const ms = Date.parse(iso);
+      if (!iso || Number.isNaN(ms)) return "";
+      const min = Math.round((ms - Date.now()) / 60000);
+      if (Math.abs(min) < 60) return rtf.format(min, "minute");
+      const h = Math.round(min / 60);
+      if (Math.abs(h) < 24) return rtf.format(h, "hour");
+      return rtf.format(Math.round(h / 24), "day");
+    };
+  }, [lang]);
+  const sources = useMemo(() => [...new Set(items.map((a) => a.source).filter(Boolean))].slice(0, 6), [items]);
+  const shown = sourceFilter ? items.filter((a) => a.source === sourceFilter) : items;
+  const n = article.summary.length;
+  const band = n <= IDEAL ? "ok" : n <= LIMIT ? "dense" : "long";
+  const ratioDef = RATIOS.find((r) => r.id === ratio) || RATIOS[0];
+  const sizeText = saved?.bytes ? `, ${saved.bytes > 1e6 ? (saved.bytes / 1e6).toFixed(1) + " MB" : Math.round(saved.bytes / 1e3) + " KB"}` : "";
 
-                {style !== "quote" && article.image.startsWith("http") && (
-                  <Section title={t("photoFit")} defaultOpen={false}>
-                    <div className="grid3">
-                      <div className="field">
-                        <label>{t("photoFitLabel")}</label>
-                        <Select value={photoFit} onChange={(v) => { setPhotoFit(v); setZoom(1); }} options={[
-                          { value: "cover", label: t("photoFitCover") },
-                          { value: "whole", label: t("photoFitWhole") },
-                        ]} />
-                      </div>
-                      <div className="field">
-                        <label>{t("photoFill")}</label>
-                        <Select value={photoFill} onChange={setPhotoFill} disabled={photoFit !== "whole"} options={[
-                          { value: "blur", label: t("photoFillBlur") },
-                          { value: "solid", label: t("photoFillSolid") },
-                        ]} />
-                      </div>
-                      <div className="field">
-                        <label>{t("photoZoom")}</label>
-                        <Stepper value={Math.round(zoom * 100)} onChange={(v) => setZoom(v / 100)}
-                          min={100} max={400} step={5} suffix="%" />
-                      </div>
-                    </div>
-                  </Section>
-                )}
-
-                <Section title={t("groupType")} defaultOpen={false}>
-                  <div className="grid4">
-                    <div className="field">
-                      <label>{t("fontTitle")}</label>
-                      <Stepper value={titleStep} onChange={setTitleStep} min={-FONT_STEPS} max={FONT_STEPS} />
-                    </div>
-                    <div className="field">
-                      <label>{t("fontParagraph")}</label>
-                      <Stepper value={paragraphStep} onChange={setParagraphStep} min={-FONT_STEPS} max={FONT_STEPS} />
-                    </div>
-                    <div className="field">
-                      <label>{t("headerSpace")}</label>
-                      <Stepper value={header} onChange={setHeader} min={0} max={HEADER_MAX} step={10} suffix="px" />
-                    </div>
-                    <div className="field">
-                      <label>{t("cardDown")}</label>
-                      <Stepper value={cardTop} onChange={setCardTop} min={0} max={CARD_TOP_MAX} step={10} suffix="px" />
-                    </div>
-                    <div className="field field-check">
-                      <button className="ghost"
-                        onClick={() => { setTitleStep(0); setParagraphStep(0); setHeader(0); setCardTop(0); setZoom(1); }}
-                        disabled={titleStep === 0 && paragraphStep === 0 && header === 0 && cardTop === 0 && zoom === 1}>
-                        {t("fontReset")}
-                      </button>
-                    </div>
-                  </div>
-                </Section>
-
-                <div className="save-row">
-                  <button onClick={() => buildCard(false)}
-                    disabled={!ready || previewBusy || buildBusy || !config?.has_browser}>
-                    {buildBusy ? t("rendering") : t("buildCard")}
-                  </button>
-                  {result && !result.preview && (
-                    <div className="dl-row">
-                      <a className="dl" href={result.zip}><Download className="ico" aria-hidden="true" /> {t("downloadZip")}</a>
-                      <a className="dl" href={result.file} download="card.png"><Download className="ico" aria-hidden="true" /> {t("downloadImage")}</a>
-                    </div>
-                  )}
-                </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* --- KANAN: kabar terbaru dari SEMUA feed, terus terlihat --- */}
-        <div className="screen-col">
-          <div className="panel feed-panel">
-            <div className="group-title with-action" role="heading" aria-level={3}>
-              <span>{t("groupSource")}</span>
-              <button className="ghost tiny icon-only" disabled={listBusy}
-                title={t("reloadFeeds")} aria-label={t("reloadFeeds")}
-                onClick={() => { setLimit(PAGE); setMore(true); loadList("all", query, PAGE); }}>
-                <RotateCw className="ico" aria-hidden="true" />
-              </button>
-            </div>
-
-            {/* Tempel tautan tetap ada — untuk artikel yang TIDAK ada di feed. */}
-            <div className="path-row">
-              <input
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && fetchLink()}
-                placeholder={t("articleLinkPlaceholder")}
-              />
-              <button onClick={fetchLink} disabled={fetching || !link.trim()}>
-                {fetching ? t("fetching") : t("fetch")}
-              </button>
-            </div>
-
-            <div className="search">
-              <input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && runSearch()}
-                placeholder={t("searchPlaceholder")}
-                aria-label={t("search")}
-              />
-              {/* Satu tombol yang berganti peran, bukan baris kedua yang muncul
-                  saat sedang mencari: baris itu mendorong seluruh daftar berita
-                  turun tepat ketika hasilnya datang. */}
-              {query ? (
-                <button className="ghost" title={t("searchResultsFor") + " " + query}
-                  onClick={() => { setQuery(""); setTyped(""); }}>
-                  {t("backToSources")}
-                </button>
-              ) : (
-                <button className="ghost" onClick={runSearch} disabled={!typed.trim() || listBusy}>
-                  {listBusy && query ? t("searching") : t("search")}
-                </button>
-              )}
-            </div>
-
-            {/* Daftar TIDAK PERNAH diganti teks "memuat" selama masih ada isi.
-                Dulu iya, dan itu mematahkan gulir tak terbatas: menggulir ke
-                dasar menaikkan `limit`, seluruh daftar lenyap sekejap, posisi
-                gulir kembali ke atas, lalu daftar baru muncul. Sekarang kabar
-                "memuat" hanya baris kecil di dasar daftar yang sudah ada. */}
-            {listBusy && items.length === 0 ? (
-              <NewsSkeleton />
-            ) : (
-              <div className="news-list" onScroll={onListScroll}>
-                {items.map((a) => (
-                  <div key={a.url}
-                    className={"news-item" + (article.url === a.url ? " active" : "")}
-                    role="button" tabIndex={0}
-                    onClick={() => openItem(a)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openItem(a); }
-                    }}>
-                    {a.image && <img src={a.image} alt="" loading="lazy" />}
-                    <div className="news-text">
-                      <div className="news-title">{a.title}</div>
-                      <div className="news-foot">
-                        <span className="meta">{a.source} · {a.date || a.domain}</span>
-                        <button
-                          className={"copy-btn" + (copied === a.url ? " ok" : "")}
-                          title={t("copyLinkTitle")} aria-label={t("copyLinkTitle")}
-                          disabled={copyBusy === a.url}
-                          onClick={(e) => { e.stopPropagation(); copyLink(a.url); }}>
-                          {copyBusy === a.url ? t("copyOpening")
-                            : copied === a.url ? t("copied")
-                            : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-                {listBusy && items.length > 0 && <div className="meta feed-more">{t("loadingNews")}</div>}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Layar penuh: gambarnya sendiri yang mengisi layar, latarnya gelap pekat
-          supaya warna kartu terbaca apa adanya — bukan dibandingkan dengan
-          panel di sekelilingnya. */}
-      {zoom0 && result && (
-        <div className="lightbox" onClick={() => setZoom0(false)} role="dialog" aria-modal="true">
-          {/* eslint-disable-next-line @next/next/no-img-element */
-          }<img src={result.file} alt="" />
-          <button className="lightbox-x" aria-label={t("close")} onClick={() => setZoom0(false)}>
-            <X className="ico" aria-hidden="true" />
-          </button>
+  const settings = (
+    <Popover width={360} align="right" buttonClass="ghost" ariaLabel={t("ncSettings")}
+      label={<><Settings className="ico" aria-hidden="true" /> {t("ncSettings")}</>}>
+      {() => (
+        <div className="nc-settings">
+          <p className="meta">{t("ncSettingsHint")}</p>
+          <EnginePicker engines={engines} engine={engine} setEngine={setEngine} model={model} setModel={setModel} busy={!!writing} />
         </div>
       )}
+    </Popover>
+  );
+
+  const headerProps = screen === "pick"
+    ? { title: t("tabNews"), subtitle: t("ncSub"), actions: (
+        <>
+          <button type="button" className="ghost" onClick={() => router.push("/history")}><LayoutGrid className="ico" aria-hidden="true" /> {t("ncMyCards")}</button>
+          {settings}
+        </>) }
+    : screen === "compose"
+    ? { title: article.title || t("tabNews"), subtitle: [article.source || article.domain, article.date].filter(Boolean).join(" · "), actions: (
+        <>
+          <button type="button" className="ghost" onClick={() => setScreen("pick")}><ChevronLeft className="ico" aria-hidden="true" /> {t("ncChangeArticle")}</button>
+          {settings}
+          <button type="button" className="primary big" onClick={save} disabled={saving || !article.title || !config?.has_browser}>
+            {saving ? t("rendering") : t("ncSaveContinue")} <ChevronRight className="ico" aria-hidden="true" />
+          </button>
+        </>) }
+    : { title: t("tabNews"), subtitle: t("ncReady"), actions: (
+        <>
+          <button type="button" className="ghost" onClick={() => setScreen("compose")}>{t("ncEditCard")}</button>
+          <button type="button" className="primary big" onClick={newCard}><Plus className="ico" aria-hidden="true" /> {t("ncNewCard")}</button>
+        </>) };
+
+  return (
+    <div className="screen scroll clips-v2 news-v2">
+      <PageHeader title={headerProps.title} subtitle={headerProps.subtitle}>{headerProps.actions}</PageHeader>
+      <Alerts items={[
+        error && { kind: "error" as const, text: error },
+        config && !config.has_browser && { kind: "warn" as const, key: "no-browser", text: `${t("browserMissing")} CLIPPER_CHROME ${t("browserMissingTail")}` },
+      ]} />
+
+      {screen === "pick" && (
+        <div className="nc-pick">
+          <div>
+            <h2 className="nc-h">{t("ncPickTitle")}</h2>
+            <p className="nc-lead">{t("ncPickLead")}</p>
+          </div>
+
+          <section className="card nc-search">
+            <div className="nc-field grow">
+              <label htmlFor="nc-q">{t("ncSearchLabel")}</label>
+              <input id="nc-q" type="search" value={typed} onChange={(e) => setTyped(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") runSearch(); }} placeholder={t("searchPlaceholder")} />
+            </div>
+            <button type="button" className="dark" onClick={runSearch} disabled={listBusy}>{t("ncSearchBtn")}</button>
+            <span className="nc-or">{t("ncOr")}</span>
+            <div className="nc-field">
+              <label htmlFor="nc-link">{t("ncPasteLabel")}</label>
+              <input id="nc-link" type="url" value={link} placeholder="https://…" onChange={(e) => setLink(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") fetchLink(); }} />
+            </div>
+            <button type="button" className="ghost" onClick={fetchLink} disabled={!link.trim() || fetching}>{fetching ? t("fetching") : t("ncFetchBtn")}</button>
+            {linkError && (
+              <div className="nc-link-error" role="alert">
+                <p>{linkError}</p>
+                <button type="button" className="ghost" onClick={() => { useArticle({ ...EMPTY, url: link.trim() }); setScreen("compose"); }}>{t("ncFillManually")}</button>
+              </div>
+            )}
+          </section>
+
+          <div className="nc-chips" role="group" aria-label={t("ncSources")}>
+            <span className="meta">{t("ncSources")}</span>
+            {["", ...sources].map((s) => (
+              <button key={s || "all"} type="button" className={"chip-btn" + (sourceFilter === s ? " on" : "")}
+                aria-pressed={sourceFilter === s} onClick={() => setSourceFilter(s)}>{s || t("ncAll")}</button>
+            ))}
+            <span className="grow" />
+            <span className="meta">{t("ncCount", { n: shown.length })}</span>
+          </div>
+
+          {listBusy && items.length === 0 ? (
+            <div className="nc-grid">{Array.from({ length: 6 }, (_, i) => <div key={i} className="nc-article skel" aria-hidden="true"><div className="nc-thumb" /><div className="nc-body"><span /><span /></div></div>)}</div>
+          ) : shown.length === 0 ? (
+            <section className="card"><EmptyState icon={Newspaper} title={t("ncNoResults", { q: query || "…" })} description={t("ncNoResultsHint")} /></section>
+          ) : (
+            <div className="nc-grid">
+              {shown.map((a) => {
+                const on = picked === a.url;
+                return (
+                  <article key={a.url} className={"nc-article" + (on ? " on" : "")}>
+                    <div className="nc-thumb">{a.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={a.image} alt="" loading="lazy" />}</div>
+                    <div className="nc-body">
+                      <div className="nc-meta">
+                        {a.source && <span className="nc-badge">{a.source}</span>}
+                        <span className="meta">{ago(a.published) || a.date}</span>
+                      </div>
+                      <h3>{a.title}</h3>
+                      <button type="button" className={on ? "primary" : "ghost"} onClick={() => pickItem(a)} disabled={on && fetching}>
+                        {on ? (fetching ? t("ncReading") : t("ncContinue")) : t("ncPickArticle")}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+          {more && items.length > 0 && !sourceFilter && (
+            <button type="button" className="ghost nc-more" onClick={() => setLimit((v) => v + PAGE)} disabled={listBusy}>{listBusy ? t("loadingNews") : t("ncMore")}</button>
+          )}
+          <p className="meta nc-foot">{t("ncCredit")}</p>
+        </div>
+      )}
+
+      {screen === "compose" && (
+        <div className="nc-compose">
+          <div className="nc-preview-col">
+            <Segmented label={t("ratio")} value={ratio} onChange={setRatio}
+              options={RATIOS.map((r) => ({ value: r.id, name: t(r.key) }))} />
+            <div className="nc-card" style={{ aspectRatio: ratio.replace(":", " / ") }}>
+              {preview ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={preview} alt="" /> : <span className="meta">{t("ncPreviewWait")}</span>}
+              {previewBusy && <span className="nc-busy">{t("rendering")}</span>}
+              {band === "long" && <span className="nc-warn">{t("ncTooLongOnCard")}</span>}
+            </div>
+            <p className="meta">{t("ncActualSize", { w: ratioDef.w, h: ratioDef.h })}</p>
+          </div>
+
+          <div className="nc-panels">
+            <section className="card">
+              <div className="card-head">
+                <h2>{t("ncCardText")}</h2>
+                <button type="button" className="ai-btn" onClick={() => write("summary")} disabled={!!writing || !article.url}>
+                  <Sparkles className="ico" aria-hidden="true" /> {writing === "summary" ? t("analyzing") : t("ncSummarise")}
+                </button>
+              </div>
+              <label className="step-label" htmlFor="nc-sum">{t("ncSummaryLabel")}</label>
+              <textarea id="nc-sum" rows={3} value={article.summary} onChange={(e) => { setArticle((a) => ({ ...a, summary: e.target.value })); setChecks((c) => ({ ...c, summary: [] })); }} />
+              <div className="nc-count">
+                <span className={"count-" + band}>{t(band === "ok" ? "ncCharsOk" : band === "dense" ? "ncCharsDense" : "ncCharsLong", { n })}</span>
+                <span className="meta">{t("ncSafeLimit")}</span>
+              </div>
+              <Checks list={checks.summary} />
+              {writeError && <p className="nc-note-err">{writeError}</p>}
+            </section>
+
+            <section className="card">
+              <h2>{t("ncPhoto")}</h2>
+              <p className="step-hint flush">{(article.images?.length ? t("ncPhotoHint") : t("ncPhotoNone"))}</p>
+              <div className="nc-photos">
+                {(article.images || []).map((src, i) => (
+                  <button key={src} type="button" className={"photo-btn" + (article.image === src ? " on" : "")}
+                    aria-pressed={article.image === src} aria-label={t("ncPhotoN", { n: i + 1 })}
+                    onClick={() => setArticle((a) => ({ ...a, image: src }))}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img alt="" src={src.startsWith("http") ? src : eng(`/api/image?path=${encodeURIComponent(src)}`)} />
+                  </button>
+                ))}
+                <label className="photo-btn upload">
+                  <input type="file" accept="image/png,image/jpeg,image/webp" hidden disabled={uploading}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }} />
+                  <ImagePlus className="ico" aria-hidden="true" />
+                  <span>{uploading ? "…" : t("ncUpload")}</span>
+                </label>
+              </div>
+            </section>
+
+            <section className="card">
+              <h2>{t("ncLook")}</h2>
+              <div className="theme-grid" role="group" aria-label={t("ncLook")}>
+                {THEMES.map((x) => (
+                  <button key={x.id} type="button" className={"theme-tile" + (theme === x.id ? " on" : "")}
+                    aria-pressed={theme === x.id} onClick={() => setTheme(x.id)}>
+                    <span className="theme-swatch" style={{ background: x.swatch }} />
+                    <span>{t(x.key)}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="step-label nc-gap">{t("ncAlign")}</p>
+              <div className="nc-align">
+                <Segmented label={t("ncAlign")} value={align} onChange={setAlign}
+                  options={[{ value: "left", name: t("ncAlignLeft") }, { value: "center", name: t("ncAlignCenter") }]} />
+              </div>
+            </section>
+
+            <section className="card">
+              <div className="card-head">
+                <h2>{t("ncCaptionTitle")}</h2>
+                <button type="button" className="ai-btn" onClick={() => write("caption")} disabled={!!writing || !article.url}>
+                  <Sparkles className="ico" aria-hidden="true" /> {writing === "caption" ? t("analyzing") : t("ncWriteForMe")}
+                </button>
+              </div>
+              <label className="step-label" htmlFor="nc-cap">{t("ncCaptionLabel")}</label>
+              <textarea id="nc-cap" rows={3} value={caption} onChange={(e) => { setCaption(e.target.value); setChecks((c) => ({ ...c, caption: [] })); }} />
+              <Checks list={checks.caption} />
+              <label className="step-label nc-gap" htmlFor="nc-tags">{t("ncHashtags")}</label>
+              <input id="nc-tags" value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#..." />
+              <p className="note">{t("ncCreditNote", { source: article.source || article.domain || "…" })}</p>
+            </section>
+
+            <details className="card adv">
+              <summary>{t("ncAdvanced")}</summary>
+              <p className="meta adv-hint">{t("ncAdvancedHint")}</p>
+              <div className="grid3">
+                <div className="field"><label>{t("articleTitle")}</label><input value={article.title} onChange={(e) => setArticle((a) => ({ ...a, title: e.target.value }))} /></div>
+                <div className="field"><label>{t("sourceBadge")}</label><input value={article.source} onChange={(e) => setArticle((a) => ({ ...a, source: e.target.value }))} /></div>
+                <div className="field"><label>{t("date")}</label><input value={article.date} onChange={(e) => setArticle((a) => ({ ...a, date: e.target.value }))} /></div>
+              </div>
+              <div className="field"><label>{t("imageURL")}</label><input value={article.image} onChange={(e) => setArticle((a) => ({ ...a, image: e.target.value }))} /></div>
+              <div className="grid4">
+                <div className="field"><label>{t("fontTitle")}</label><Stepper value={titleStep} onChange={setTitleStep} min={-FONT_STEPS} max={FONT_STEPS} /></div>
+                <div className="field"><label>{t("fontParagraph")}</label><Stepper value={paragraphStep} onChange={setParagraphStep} min={-FONT_STEPS} max={FONT_STEPS} /></div>
+                <div className="field"><label>{t("headerSpace")}</label><Stepper value={header} onChange={setHeader} min={0} max={HEADER_MAX} step={10} suffix="px" /></div>
+                <div className="field"><label>{t("cardDown")}</label><Stepper value={cardTop} onChange={setCardTop} min={0} max={CARD_TOP_MAX} step={10} suffix="px" /></div>
+              </div>
+              <div className="grid3">
+                <div className="field"><label>{t("photoFitLabel")}</label>
+                  <Select value={photoFit} onChange={(v) => { setPhotoFit(v); setZoom(1); }} options={[
+                    { value: "cover", label: t("photoFitCover") }, { value: "whole", label: t("photoFitWhole") }]} /></div>
+                <div className="field"><label>{t("photoFill")}</label>
+                  <Select value={photoFill} onChange={setPhotoFill} disabled={photoFit !== "whole"} options={[
+                    { value: "blur", label: t("photoFillBlur") }, { value: "solid", label: t("photoFillSolid") }]} /></div>
+                <div className="field"><label>{t("photoZoom")}</label>
+                  <Stepper value={Math.round(zoom * 100)} onChange={(v) => setZoom(v / 100)} min={100} max={400} step={5} suffix="%" /></div>
+              </div>
+              <button type="button" className="ghost" onClick={() => { setTitleStep(0); setParagraphStep(0); setHeader(0); setCardTop(0); setZoom(1); }}
+                disabled={titleStep === 0 && paragraphStep === 0 && header === 0 && cardTop === 0 && zoom === 1}>{t("fontReset")}</button>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {screen === "done" && (
+        <div className="nc-done">
+          <section className="nc-final">
+            <div className="nc-final-card" style={{ aspectRatio: ratio.replace(":", " / ") }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {saved && <img src={saved.file} alt="" />}
+            </div>
+            <div className="nc-final-side">
+              {renderError ? (
+                <div className="banner warn" role="alert">
+                  <p>{t("ncRenderFailed", { error: renderError })}</p>
+                  <button type="button" className="primary" onClick={save} disabled={saving}>{t("ncRetryRender")}</button>
+                </div>
+              ) : saved && (
+                <div className="banner good" role="status">
+                  <span className="banner-ico" aria-hidden="true"><Download className="ico" /></span>
+                  <p><b>{t("ncSaved")}</b> {t("ncSavedMeta", { w: saved.width, h: saved.height, size: sizeText })}</p>
+                </div>
+              )}
+              {saved && (
+                <div className="nc-actions">
+                  <a className="btn-dark" href={saved.file} download={`card-${ratio.replace(":", "x")}.png`}><Download className="ico" aria-hidden="true" /> {t("ncDownloadPng")}</a>
+                  <button type="button" className="ghost" onClick={copyCaption}><Copy className="ico" aria-hidden="true" /> {copied ? t("ncCopied") : t("ncCopyCaption")}</button>
+                  <button type="button" className="ghost" onClick={renderAlt}>{t(otherRatio === "4:5" ? "ncDownload45" : "ncDownload916")}</button>
+                </div>
+              )}
+              <section className="card">
+                <h2>{t("ncCaptionPreview")}</h2>
+                <p className="nc-caption">{fullCaption}</p>
+                <p className="meta">{t("ncCaptionPreviewNote")}</p>
+              </section>
+            </div>
+          </section>
+
+          <section>
+            <div className="result-bar">
+              <h2>{t("ncGalleryTitle")}</h2>
+              {cards && cards.length > 0 && <span className="meta">{t("ncGalleryCount", { n: cards.length })}</span>}
+            </div>
+            {cards && cards.length === 0 ? (
+              <section className="card"><EmptyState icon={Newspaper} title={t("ncGalleryEmpty")} description={t("ncGalleryEmptyHint")}
+                action={<button type="button" className="primary" onClick={newCard}>{t("ncFirstCard")}</button>} /></section>
+            ) : (
+              <div className="nc-gallery">
+                {(cards || []).map((c) => (
+                  <article key={c.id} className="nc-mini">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={eng(c.file)} alt="" loading="lazy" />
+                    <div className="nc-mini-body">
+                      <span className="meta">{[c.source, ago(c.made)].filter(Boolean).join(" · ")}</span>
+                      <a className="btn-ghost" href={eng(c.file)} download={`${c.id}.png`}>{t("downloadClip")}</a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Hasil pagar fakta untuk teks tulisan AI: yang tidak ditemukan di artikel.
+function Checks({ list }: { list: Violation[] }) {
+  const { t } = useI18n();
+  if (!list.length) return null;
+  return (
+    <div className="nc-checks" role="status">
+      <b>{t("ncAiCheck")}</b>
+      <ul>{list.map((v, i) => <li key={i}><code>{v.text}</code> {v.detail}</li>)}</ul>
     </div>
   );
 }

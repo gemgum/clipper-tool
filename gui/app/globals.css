@@ -2737,3 +2737,125 @@ details.tech .log-panel { margin-top: 14px; border: 0; padding: 0; background: n
 .g-meta { margin: 0; font-size: 12.5px; color: var(--text-2); }
 .g-actions { display: flex; gap: 8px; }
 .g-actions button.icon-only { width: 38px; min-height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+
+/* ================= Halaman News cards — DESIGN-NEWSCARD.md =================
+   Satu keluarga dengan Video clips: .screen.scroll, kartu, chip, segmented
+   dipakai ulang; yang di bawah ini hanya yang khas kartu berita. */
+.news-v2 .card h2 { font-size: 17px; }
+button.dark { background: var(--text); color: var(--panel); }
+button.dark:hover:not(:disabled) { opacity: 0.9; }
+a.btn-dark {
+  display: inline-flex; align-items: center; gap: 9px; min-height: 48px; padding: 0 22px;
+  background: var(--text); color: var(--panel); border-radius: var(--r-sm); font-size: 15px; font-weight: 600; text-decoration: none;
+}
+.grow { flex: 1; }
+
+/* Layar 1: satu kolom terpusat, maks 1180 px. */
+.nc-pick { max-width: 1180px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+.nc-h { margin: 0 0 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+.nc-lead { margin: 0; font-size: 15px; color: var(--text-2); }
+.nc-search { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; padding: 22px 24px !important; }
+.nc-search .nc-field { flex: 1 1 280px; min-width: 0; }
+.nc-search .nc-field.grow { flex: 999 1 380px; }
+.nc-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.nc-search input { height: 48px; font-size: 15px; }
+.nc-search button { min-height: 48px; padding: 0 22px; font-size: 15px; }
+.nc-or { height: 48px; display: flex; align-items: center; font-size: 14px; color: var(--text-2); }
+.nc-link-error { flex: 1 0 100%; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--bad-text); }
+.nc-link-error p { margin: 0; flex: 1 1 300px; font-size: 14px; }
+.nc-chips { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button.chip-btn {
+  min-height: 36px; padding: 0 14px; border-radius: var(--r-full); font-size: 13.5px; font-weight: 500;
+  background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
+}
+button.chip-btn.on { background: var(--text); color: var(--panel); border-color: var(--text); font-weight: 600; }
+.nc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.nc-article { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
+.nc-article.on { border: 2px solid var(--accent); box-shadow: 0 0 0 3px rgb(47 91 234 / 12%); }
+.nc-thumb { height: 150px; background: var(--sunken); }
+.nc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nc-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.nc-body h3 {
+  margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; flex: 1;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nc-body button { min-height: 40px; width: 100%; }
+.nc-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.nc-badge { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 3px 8px; border-radius: 5px; }
+.nc-article.skel .nc-thumb { background: var(--border); }
+.nc-article.skel .nc-body span { height: 12px; border-radius: 6px; background: var(--border); }
+.nc-article.skel .nc-body span + span { width: 60%; }
+.nc-more { align-self: center; min-height: 44px; padding: 0 24px; }
+.nc-foot { text-align: center; margin: 0; }
+
+/* Layar 2: pratinjau kiri (maks 432 px), panel kanan. */
+.nc-compose { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; padding: 28px 32px 0; }
+.nc-preview-col {
+  flex: 1 1 380px; min-width: 320px; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  position: sticky; top: 104px;
+}
+.nc-preview-col .segmented { width: 100%; max-width: 432px; }
+.nc-card {
+  position: relative; width: 100%; max-width: 432px; max-height: calc(100dvh - 260px);
+  border-radius: 16px; overflow: hidden; background: var(--sunken);
+  box-shadow: 0 10px 30px rgb(21 24 29 / 14%); display: flex; align-items: center; justify-content: center;
+}
+.nc-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.nc-busy, .nc-warn { position: absolute; left: 10px; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; }
+.nc-busy { top: 10px; background: rgb(0 0 0 / 65%); color: #fff; }
+.nc-warn { bottom: 10px; background: var(--bad-text); color: #fff; }
+.nc-panels { flex: 999 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.nc-panels .card { padding: 22px; }
+.nc-panels textarea { width: 100%; font-size: 15px; line-height: 1.5; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--panel); color: var(--text); font-family: inherit; resize: vertical; }
+.nc-panels input { font-size: 15px; }
+button.ai-btn {
+  display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px;
+  background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line);
+  border-radius: 9px; font-size: 13.5px; font-weight: 600;
+}
+.nc-count { display: flex; gap: 12px; align-items: center; margin-top: 8px; font-size: 13px; font-weight: 600; }
+.nc-count .meta { margin-left: auto; font-weight: 400; }
+.count-ok { color: var(--good-text); }
+.count-dense { color: var(--warn-text); }
+.count-long { color: var(--bad-text); }
+.nc-checks { margin-top: 12px; padding: 12px 14px; border-radius: var(--r-sm); background: var(--warn-soft); color: var(--warn-text); font-size: 13px; }
+.nc-checks ul { margin: 6px 0 0; padding-left: 18px; }
+.nc-checks code { font-family: var(--font-mono); }
+.nc-note-err { margin: 10px 0 0; font-size: 13px; color: var(--bad-text); }
+.step-hint.flush { margin: 6px 0 14px; }
+.nc-gap { margin-top: 18px !important; }
+.nc-photos { display: flex; gap: 12px; flex-wrap: wrap; }
+.photo-btn {
+  width: 88px; height: 88px; padding: 0; min-height: 0; border-radius: var(--r-sm); overflow: hidden;
+  border: 1px solid #c9cfd8; background: var(--panel2); cursor: pointer;
+}
+.photo-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-btn.on { border: 2px solid var(--accent); box-shadow: 0 0 0 3px rgb(47 91 234 / 12%); }
+.photo-btn.upload { border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--text-2); font-size: 12px; font-weight: 600; }
+.theme-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+button.theme-tile {
+  padding: 10px; border-radius: 12px; background: var(--panel); color: var(--text); text-align: center; min-height: 0;
+  border: 1px solid var(--border-strong); font-size: 13.5px; font-weight: 600; display: flex; flex-direction: column; gap: 9px;
+}
+button.theme-tile.on { border: 2px solid var(--accent); padding: 9px; box-shadow: 0 0 0 3px rgb(47 91 234 / 12%); }
+.theme-swatch { display: block; height: 54px; border-radius: 7px; border: 1px solid var(--border-strong); }
+.nc-align { max-width: 260px; }
+.news-v2 .adv .grid3, .news-v2 .adv .grid4 { margin-top: 12px; }
+.news-v2 .adv > .ghost { margin-top: 14px; }
+.nc-settings { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* Layar 3. */
+.nc-done { padding: 32px; display: flex; flex-direction: column; gap: 32px; }
+.nc-final { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+.nc-final-card { width: 300px; flex: none; border-radius: 16px; overflow: hidden; background: var(--sunken); box-shadow: 0 10px 30px rgb(21 24 29 / 14%); }
+.nc-final-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.nc-final-side { flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.nc-final-side .banner { margin: 0; }
+.nc-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.nc-actions button { min-height: 48px; padding: 0 20px; font-size: 15px; display: inline-flex; align-items: center; gap: 9px; }
+.nc-caption { margin: 12px 0; padding: 16px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 14.5px; line-height: 1.6; white-space: pre-line; }
+.nc-gallery { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 18px; }
+.nc-mini { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.nc-mini img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; display: block; background: var(--sunken); }
+.nc-mini-body { padding: 11px 12px; display: flex; flex-direction: column; gap: 7px; }
+.nc-mini-body .btn-ghost { min-height: 34px; font-size: 13px; }

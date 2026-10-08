@@ -70,8 +70,11 @@ cd desktop && npm run dev        # jendela aplikasi (Tauri) — butuh Rust
 Tab kartu berita butuh Chrome/Chromium (Edge bawaan Windows juga bisa). Engine
 mencarinya sendiri; timpa dengan `CLIPPER_CHROME=/path/ke/chrome`.
 
-Di tab itu LLM hanya **memilih nomor paragraf**, tidak pernah menulis: isi kartu
-& caption selalu verbatim dari artikel. Lihat `notes/13-kartu-berita.md`.
+Di tab itu LLM **boleh menulis** ringkasan kartu dan caption (keputusan pemilik
+9 Oktober 2026, `DESIGN-NEWSCARD.md`), TAPI setiap tulisannya diperiksa pagar
+fakta `writer.CheckText`: angka, kutipan, dan nama yang tidak ada di artikel
+ditandai di bawah isiannya. Sebelumnya LLM hanya memilih nomor paragraf —
+riwayatnya di `notes/13-kartu-berita.md`.
 
 ## Alur pipeline (engine/internal/pipeline)
 
@@ -301,12 +304,14 @@ Sekarang di sini, dan berlaku untuk SETIAP perubahan tampilan.
 
 ### 1. Jendela tidak boleh bergulir. Titik.
 
-> **Pengecualian: halaman Video clips (`/`)** — keputusan pemilik 9 Oktober
-> 2026, `DESIGN.md` ("Video Clips"). Halaman itu tiga layar (Atur klip →
-> Sedang diproses → Hasil klip) di dalam `.screen.scroll` yang BOLEH bergulir
+> **Pengecualian: halaman Video clips (`/`) dan News cards (`/news`)** —
+> keputusan pemilik 9 Oktober 2026, `DESIGN.md` ("Video Clips") dan
+> `DESIGN-NEWSCARD.md`. Keduanya tiga layar (klip: Atur klip → Sedang
+> diproses → Hasil; kartu: Pilih artikel → Susun kartu → Simpan & bagikan)
+> di dalam `.screen.scroll` yang BOLEH bergulir
 > ke bawah; kepala halaman dan pratinjau menempel (`position: sticky`). Rail
 > kiri tetap. Halaman lain tetap tunduk pada aturan di bawah ini, dan
-> `measure-ui` mencatat halaman klip sebagai `-`.
+> `measure-ui` mencatat kedua halaman itu sebagai `-`.
 
 Yang boleh bergulir hanya **kotak yang memang daftar**: kotak log, daftar
 berita, daftar paragraf. Selain itu — kolom setelan, panel, halaman — harus
