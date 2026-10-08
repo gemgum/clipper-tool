@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Film, Folder, X } from "lucide-react";
 
-import { eng } from "../engine";
+import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
 import WatermarkPanel from "../watermark-panel";
@@ -52,6 +52,11 @@ export default function WatermarkPage() {
   const { t } = useI18n();
 
   const [videos, setVideos] = useState<string[]>([]);
+  // Mode web (notes/42): video DIUNGGAH lewat input berkas ini, dan kabar
+  // unggahannya tampil di bawah tombolnya.
+  const web = useWeb();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [upNote, setUpNote] = useState("");
   const [paste, setPaste] = useState("");
   const [picking, setPicking] = useState<"" | "file" | "folder" | "out" | "banner">("");
   const [outDir, setOutDir] = useState("");
@@ -145,6 +150,12 @@ export default function WatermarkPage() {
         setJob(j);
         if (j.log) setLogs(j.log);
         if (j.error) setError(j.error);
+        // Mode web: engine menghapus video unggahan begitu job sukses, jadi
+        // daftarnya ikut dibersihkan — menjalankannya lagi butuh unggah ulang.
+        if (j.status === "done") {
+          const done = (j.result?.files ?? []).map((f) => f.video);
+          isWeb().then((w) => w && setVideos((v) => v.filter((x) => !done.includes(x))));
+        }
         return cur || j.id;
       });
     });
@@ -181,8 +192,17 @@ export default function WatermarkPage() {
 
   // Berkas yang dilepas TIDAK diunggah: engine jalan di mesin yang sama, jadi
   // ia ditanya di mana berkasnya (notes/24).
-  const dropFiles = useCallback(async (files: FileList) => {
+  const dropFiles = useCallback(async (files: FileList | File[]) => {
+    // Mode web: engine di server, mencarinya di sana pasti gagal — unggah.
+    const web = await isWeb();
     for (const f of Array.from(files)) {
+      if (web) {
+        try {
+          add([await upload(f, (x) => setUpNote(`${f.name} — ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
+        } catch (e) { setError(`${f.name}: ${String(e)}`); }
+        setUpNote("");
+        continue;
+      }
       try {
         const r = await fetch(eng("/api/locate"), {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -321,7 +341,7 @@ export default function WatermarkPage() {
                   <div className="group">
                     <div className="group-title">{t("wmResults")}</div>
                     <div className="basket watermark-results">
-                      {files.map((f) => (
+                      {files.map((f, i) => (
                         <div key={f.video} className="basket-item">
                           <span className="basket-text">
                             <span className="news-title" title={f.output || f.video}>{f.name}</span>
@@ -329,6 +349,9 @@ export default function WatermarkPage() {
                               {f.error ? f.error : t("wmSaved", { name: baseName(f.output || "") })}
                             </span>
                           </span>
+                          {web && f.output && (
+                            <a className="dl" href={eng(`/api/watermark/${jobId}/file?i=${i}`)} download>{t("download")}</a>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -371,24 +394,46 @@ export default function WatermarkPage() {
                 </div>
               )}
 
-              <div className="path-row">
-                <button className="ghost" onClick={() => setPicking("file")}>
-                  <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
-                </button>
-                <button className="ghost" onClick={() => setPicking("folder")}>
-                  <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
-                </button>
-              </div>
+              {/* Mode web: satu tombol unggah (boleh banyak berkas sekaligus)
+                  menggantikan pilih video, pilih folder, dan tempel path —
+                  ketiganya menunjuk berkas di SERVER, bukan di komputer ini. */}
+              {web ? (
+                <div className="path-row">
+                  <input ref={fileInput} type="file" accept="video/*" multiple hidden
+                    onChange={(e) => {
+                      const fs = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      if (fs.length) dropFiles(fs);
+                    }} />
+                  <button className="ghost" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
+                    <Film className="ico" aria-hidden="true" /> {t("webUploadVideos")}
+                  </button>
+                  {upNote && <span className="meta">{upNote}</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="path-row">
+                    <button className="ghost" onClick={() => setPicking("file")}>
+                      <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
+                    </button>
+                    <button className="ghost" onClick={() => setPicking("folder")}>
+                      <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
+                    </button>
+                  </div>
 
-              <div className="path-row">
-                <input value={paste} onChange={(e) => setPaste(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
-                  placeholder={t("capPastePlaceholder")} />
-                <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
-                  {t("capAdd")}
-                </button>
-              </div>
+                  <div className="path-row">
+                    <input value={paste} onChange={(e) => setPaste(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
+                      placeholder={t("capPastePlaceholder")} />
+                    <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
+                      {t("capAdd")}
+                    </button>
+                  </div>
+                </>
+              )}
 
+              {/* Mode web: hasil tinggal di server dan diunduh dari daftar hasil. */}
+              {!web && (
               <div className="field">
                 <label>{t("outputDir")}</label>
                 <div className="path-row">
@@ -397,6 +442,7 @@ export default function WatermarkPage() {
                   <button className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
                 </div>
               </div>
+              )}
 
               {/* Satu kalimat, dan ia memang perlu ada: video yang bukan 9:16
                   ditolak per berkas, dan mengetahuinya SEBELUM menunggu satu

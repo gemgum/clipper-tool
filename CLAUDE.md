@@ -271,6 +271,11 @@ jari isi video + model + bahasa).
 Ditegaskan ulang 6 Agustus 2026 setelah sempat saya longgarkan. **Web bukan
 sasaran, bukan sasaran cadangan, dan bukan "nanti mungkin".**
 
+> **Pengecualian: branch `webview` SAJA** (diputuskan pemilik 8 Oktober 2026).
+> Di branch ini ada `clipper serve -web` untuk tim kecil dengan satu kata sandi
+> bersama di VPS — lihat `notes/42-versi-web.md`. Jangan digabung ke `main`
+> tanpa keputusan pemilik; di `main` aturan di bawah tetap berlaku utuh.
+
 Yang boleh: **membuka GUI lewat browser sebagai ALAT UKUR** — itu yang
 memungkinkan `scripts/measure-ui.mjs` memotret dan mengukur tinggi kolom lewat
 Chrome headless. Itu perkakas pengembangan, bukan bentuk produk.

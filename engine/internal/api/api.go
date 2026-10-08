@@ -51,6 +51,9 @@ type Server struct {
 	// hosts = nama host tambahan yang boleh dipakai menghubungi engine, di luar
 	// keluarga loopback yang selalu diterima (lihat guard.go).
 	hosts []string
+	// web + password = mode web (branch webview, lihat web.go).
+	web      bool
+	password string
 }
 
 func NewServer(mgr *job.Manager, l config.Layout) *Server {
@@ -88,10 +91,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/models", s.listModels)
 	// Halaman Requirements: status komponen + pemasangannya.
 	mux.HandleFunc("GET /api/requirements", s.requirements)
-	mux.HandleFunc("POST /api/requirements/install", s.installComponent)
+	mux.HandleFunc("POST /api/requirements/install", s.webOff(s.installComponent))
 	mux.HandleFunc("GET /api/requirements/events", s.installEvents)
-	mux.HandleFunc("POST /api/requirements/remove", s.removeComponent)
-	mux.HandleFunc("POST /api/requirements/path", s.setComponentPath)
+	mux.HandleFunc("POST /api/requirements/remove", s.webOff(s.removeComponent))
+	mux.HandleFunc("POST /api/requirements/path", s.webOff(s.setComponentPath))
 	// Mesin LLM: satu daftar untuk seluruh aplikasi (notes/39).
 	mux.HandleFunc("GET /api/engines", s.listEngines)
 	mux.HandleFunc("POST /api/engines", s.saveEngine)
@@ -99,7 +102,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/engines/{id}/models", s.engineModels)
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("POST /api/settings", s.postSettings)
-	mux.HandleFunc("POST /api/settings/folders", s.postFolders)
+	mux.HandleFunc("POST /api/settings/folders", s.webOff(s.postFolders))
 	mux.HandleFunc("GET /api/ollama/status", s.ollamaStatus)
 	mux.HandleFunc("POST /api/ollama/pull", s.ollamaPull)
 	mux.HandleFunc("POST /api/ollama/ping", s.ollamaPing)
@@ -112,8 +115,8 @@ func (s *Server) Handler() http.Handler {
 	// Dua ini yang membuat unggahan tidak perlu: berkasnya sudah ada di mesin
 	// yang sama, engine tinggal diberi tahu di mana.
 	mux.HandleFunc("GET /api/image", s.image)
-	mux.HandleFunc("GET /api/browse", s.browse)
-	mux.HandleFunc("POST /api/locate", s.locate)
+	mux.HandleFunc("GET /api/browse", s.webOff(s.browse))
+	mux.HandleFunc("POST /api/locate", s.webOff(s.locate))
 	mux.HandleFunc("POST /api/jobs", s.createJob)
 	mux.HandleFunc("GET /api/jobs", s.listJobs)
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
@@ -124,7 +127,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs/{id}/clips/{clip}/file", s.clipFile)
 	// Menunjukkan berkas di pengelola berkas sistem — menggantikan tautan unduh
 	// (lihat reveal.go).
-	mux.HandleFunc("POST /api/jobs/{id}/clips/{clip}/reveal", s.revealClip)
+	mux.HandleFunc("POST /api/jobs/{id}/clips/{clip}/reveal", s.webOff(s.revealClip))
 	mux.HandleFunc("DELETE /api/jobs/{id}/clips/{clip}", s.deleteClip)
 	// Kartu berita (tab kedua di GUI).
 	mux.HandleFunc("GET /api/news/feeds", s.newsFeeds)
@@ -159,7 +162,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/watermark", s.listWatermarks)
 	mux.HandleFunc("GET /api/watermark/events", s.watermarkEvents)
 	mux.HandleFunc("GET /api/watermark/{id}", s.getWatermark)
+	mux.HandleFunc("GET /api/watermark/{id}/file", s.watermarkFile)
 	mux.HandleFunc("POST /api/watermark/{id}/cancel", s.cancelWatermark)
+	if s.web {
+		mux.HandleFunc("POST /api/login", s.login)
+		mux.HandleFunc("GET /login", loginPage)
+	}
 	// GUI statis di akar. Didaftarkan terakhir: pola "/" menangkap semua yang
 	// tidak cocok dengan rute di atasnya.
 	if ui := webUI(s.layout.GUIDir); ui != nil {
@@ -170,7 +178,7 @@ func (s *Server) Handler() http.Handler {
 	// Urutannya dari yang paling murah & paling luas ke yang paling sempit:
 	// penjaga menolak bentuk permintaan yang mustahil datang dari GUI ini, CORS
 	// menolak halaman dari luar mesin, kunci menolak sisanya.
-	return s.withGuard(withCORS(s.withToken(mux)))
+	return s.withGuard(withCORS(s.withToken(mux), s.hosts...))
 }
 
 // --- kartu berita ---
@@ -584,8 +592,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "bukan multipart: "+err.Error())
 		return
 	}
-	uploadDir := filepath.Join(s.paths.DataDir, "uploads")
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
+	if err := os.MkdirAll(s.uploadDir(), 0o755); err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
@@ -605,7 +612,15 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		if name == "" || name == "." {
 			name = "upload.bin"
 		}
-		dst := filepath.Join(uploadDir, name)
+		// Satu folder per unggahan: nama aslinya tetap (nama klip diturunkan
+		// darinya), dan dua orang yang mengunggah "rekaman.mp4" tidak saling
+		// menimpa.
+		dir, err := os.MkdirTemp(s.uploadDir(), "")
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		dst := filepath.Join(dir, name)
 		f, err := os.Create(dst)
 		if err != nil {
 			writeErr(w, 500, err.Error())
@@ -631,7 +646,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 var Version = "dev"
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]string{"status": "ok", "version": Version})
+	writeJSON(w, 200, map[string]any{"status": "ok", "version": Version, "web": s.web})
 }
 
 func (s *Server) config(w http.ResponseWriter, r *http.Request) {
@@ -850,6 +865,9 @@ func (s *Server) ollamaPull(w http.ResponseWriter, r *http.Request) {
 
 // writeEnvKey menambah/mengganti satu KEY=value di berkas .env.
 func writeEnvKey(path, key, val string) error {
+	// Baris baru dibuang: nilai berisi "\n" menyusupkan KEY=value kedua ke .env,
+	// mis. CLIPPER_TOOLS_DIR yang menentukan program mana yang dijalankan.
+	val = strings.NewReplacer("\r", "", "\n", "").Replace(val)
 	var lines []string
 	found := false
 	if raw, err := os.ReadFile(path); err == nil {
@@ -1153,7 +1171,8 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	// Folder klip pilihan pengguna dipakai bila job ini tidak menyebut folder
 	// sendiri. Pilihan per-job tetap menang: setelan hanyalah nilai bawaan,
 	// bukan pagar.
-	if opts.OutputDir == "" {
+	// Di mode web folder keluaran bukan pilihan klien: path itu di SERVER.
+	if opts.OutputDir == "" || s.web {
 		opts.OutputDir = s.layout.ClipsDir
 	}
 	// Daftar istilah dibersihkan di sini, bukan di klien, supaya GUI dan CLI

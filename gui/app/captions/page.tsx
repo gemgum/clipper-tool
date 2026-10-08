@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, Copy, Folder, Film } from "lucide-react";
-import { eng } from "../engine";
+import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
 import EnginePicker, { useEngines } from "../engine-picker";
@@ -65,6 +65,11 @@ export default function CaptionsPage() {
 
   // --- daftar video ---
   const [videos, setVideos] = useState<string[]>([]);
+  // Mode web (notes/42): video DIUNGGAH lewat input berkas ini, dan kabar
+  // unggahannya tampil di bawah tombolnya.
+  const web = useWeb();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [upNote, setUpNote] = useState("");
   const [paste, setPaste] = useState("");
   const [picking, setPicking] = useState<"" | "file" | "folder" | "out">("");
   // Folder tujuan. KOSONG = di sebelah tiap videonya, dan itu bawaannya: di
@@ -130,6 +135,12 @@ export default function CaptionsPage() {
         setJob(j);
         if (j.log) setLogs(j.log);
         if (j.error) setError(j.error);
+        // Mode web: engine menghapus video unggahan begitu job sukses, jadi
+        // daftarnya ikut dibersihkan — menjalankannya lagi butuh unggah ulang.
+        if (j.status === "done") {
+          const done = (j.result?.files ?? []).map((f) => f.video);
+          isWeb().then((w) => w && setVideos((v) => v.filter((x) => !done.includes(x))));
+        }
         return cur || j.id;
       });
     });
@@ -168,8 +179,17 @@ export default function CaptionsPage() {
 
   // Berkas yang dilepas TIDAK diunggah: engine jalan di mesin yang sama, jadi
   // ia ditanya di mana berkasnya (notes/24). Beberapa sekaligus boleh.
-  const dropFiles = useCallback(async (files: FileList) => {
+  const dropFiles = useCallback(async (files: FileList | File[]) => {
+    // Mode web: engine di server, mencarinya di sana pasti gagal — unggah.
+    const web = await isWeb();
     for (const f of Array.from(files)) {
+      if (web) {
+        try {
+          add([await upload(f, (x) => setUpNote(`${f.name} — ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
+        } catch (e) { setError(`${f.name}: ${String(e)}`); }
+        setUpNote("");
+        continue;
+      }
       try {
         const r = await fetch(eng("/api/locate"), {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -247,7 +267,7 @@ export default function CaptionsPage() {
               <p className="stage">{busy ? t("capRunning") : t("capEmpty")}</p>
             ) : (
               <div className="post-view">
-                {files.map((f) => (
+                {files.map((f, idx) => (
                   <div key={f.video} className="cap-file">
                     <div className="cap-file-head">
                       <strong>{f.name}</strong>
@@ -261,6 +281,9 @@ export default function CaptionsPage() {
                               f.txt ? t("capSaved", { name: baseName(f.txt) }) : "",
                             ].filter(Boolean).join(" · ")}
                       </span>
+                      {web && f.txt && job && (
+                        <a className="dl" href={eng(`/api/captions/${job.id}/file?i=${idx}`)} download>.txt</a>
+                      )}
                     </div>
                     {(f.variants ?? []).map((v, i) => (
                       <div key={i} className="cap-variant">
@@ -321,23 +344,43 @@ export default function CaptionsPage() {
                 </div>
               )}
 
-              <div className="path-row">
-                <button className="ghost" onClick={() => setPicking("file")}>
-                  <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
-                </button>
-                <button className="ghost" onClick={() => setPicking("folder")}>
-                  <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
-                </button>
-              </div>
+              {/* Mode web: satu tombol unggah (boleh banyak berkas sekaligus)
+                  menggantikan pilih video, pilih folder, dan tempel path —
+                  ketiganya menunjuk berkas di SERVER, bukan di komputer ini. */}
+              {web ? (
+                <div className="path-row">
+                  <input ref={fileInput} type="file" accept="video/*" multiple hidden
+                    onChange={(e) => {
+                      const fs = Array.from(e.target.files ?? []);
+                      e.target.value = "";
+                      if (fs.length) dropFiles(fs);
+                    }} />
+                  <button className="ghost" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
+                    <Film className="ico" aria-hidden="true" /> {t("webUploadVideos")}
+                  </button>
+                  {upNote && <span className="meta">{upNote}</span>}
+                </div>
+              ) : (
+                <>
+                  <div className="path-row">
+                    <button className="ghost" onClick={() => setPicking("file")}>
+                      <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
+                    </button>
+                    <button className="ghost" onClick={() => setPicking("folder")}>
+                      <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
+                    </button>
+                  </div>
 
-              <div className="path-row">
-                <input value={paste} onChange={(e) => setPaste(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
-                  placeholder={t("capPastePlaceholder")} />
-                <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
-                  {t("capAdd")}
-                </button>
-              </div>
+                  <div className="path-row">
+                    <input value={paste} onChange={(e) => setPaste(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
+                      placeholder={t("capPastePlaceholder")} />
+                    <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
+                      {t("capAdd")}
+                    </button>
+                  </div>
+                </>
+              )}
 
               {/* Folder tujuan duduk DI SINI, di panel yang merentang — bukan
                   di panel setelan yang tingginya pas. Satu baris tambahan di
@@ -347,6 +390,8 @@ export default function CaptionsPage() {
                   tentang gunanya — pertanyaan pertama yang muncul begitu
                   halamannya dipakai. Panel ini yang merentang, jadi labelnya
                   tidak mengambil tinggi dari panel mana pun. */}
+              {/* Mode web: hasil tinggal di server dan diunduh dari daftar hasil. */}
+              {!web && (
               <div className="field">
                 <label>{t("outputDir")}</label>
                 <div className="path-row">
@@ -355,6 +400,7 @@ export default function CaptionsPage() {
                   <button className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
                 </div>
               </div>
+              )}
 
               <div className="field">
                 <label title={t("capTermsTip")}>{t("terms")}</label>

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -271,5 +272,75 @@ func TestBudgetGrowsUntilTheModelAnswers(t *testing.T) {
 	lain.Complete(context.Background(), "s", "u", nil, 2048)
 	if len(asked) == 0 || asked[0] != 2048 {
 		t.Fatalf("model lain mulai dari %v, mau 2048", asked)
+	}
+}
+
+// Balasan stream (text/event-stream) dirakit jadi satu isi utuh — inilah yang
+// membuat gateway di belakang Cloudflare tidak memutus model lambat dengan 524.
+// Galat yang datang DI TENGAH stream tetap sampai ke pemanggil.
+func TestStreamedReplyIsAssembled(t *testing.T) {
+	var gotBody map[string]any
+	reply := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &gotBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Write([]byte(reply))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "glm")
+	c.Kind = KindOpenAI
+
+	reply = ": keep-alive\n\n" +
+		`data: {"choices":[{"delta":{"role":"assistant"}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"content":"{\"segments\""}}]}` + "\n\n" +
+		`data: {"choices":[{"delta":{"content":":[]}"},"finish_reason":"stop"}]}` + "\n\n" +
+		"data: [DONE]\n\n"
+	out, err := c.Complete(context.Background(), "sys", "user", nil, 512)
+	if err != nil || out != `{"segments":[]}` {
+		t.Fatalf("isi = %q, galat = %v", out, err)
+	}
+	if gotBody["stream"] != true {
+		t.Fatalf("stream tidak diminta: %v", gotBody["stream"])
+	}
+
+	reply = `data: {"choices":[{"delta":{"content":"{"}}]}` + "\n\n" +
+		`data: {"error":{"message":"upstream overloaded"}}` + "\n\n"
+	if _, err := c.Complete(context.Background(), "sys", "user", nil, 512); err == nil ||
+		!strings.Contains(err.Error(), "upstream overloaded") {
+		t.Fatalf("galat di tengah stream hilang: %v", err)
+	}
+
+	// Stream yang putus tanpa [DONE] dan tanpa finish_reason = galat, bukan
+	// JSON terpotong yang dikembalikan sebagai jawaban.
+	reply = `data: {"choices":[{"delta":{"content":"{\"picks\":[{\"title\":\"#politik"},"finish_reason":""}]}` + "\n\n"
+	if _, err := c.Complete(context.Background(), "sys", "user", nil, 512); err == nil ||
+		!strings.Contains(err.Error(), "ended before") {
+		t.Fatalf("stream putus dikira selesai: %v", err)
+	}
+}
+
+// Balasan pilihan yang terpotong (model mengulang frasa di "title") diminta
+// ulang ke mesin yang sama, bukan langsung menggagalkan job.
+func TestPickRetriesUnreadableReply(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		content := `{"picks":[{"index":0,"score":80,"title":"Judul (80 seconds) (80 seconds)`
+		if calls > 1 {
+			content = `{"picks":[{"index":0,"score":80,"title":"Judul"}]}`
+		}
+		b, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
+			"message": map[string]any{"content": content}, "finish_reason": "stop"}}})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(b)
+	}))
+	defer srv.Close()
+	c := New(srv.URL, "glm")
+	c.Kind = KindOpenAI
+
+	picks, err := c.PickMoments(context.Background(), nil, 0, 1, "id")
+	if err != nil || len(picks) != 1 || picks[0].Title != "Judul" || calls != 2 {
+		t.Fatalf("picks=%v err=%v calls=%d", picks, err, calls)
 	}
 }

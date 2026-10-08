@@ -35,6 +35,13 @@ const en = {
 
   // --- source panel ---
   uploadingPct: "Uploading… {pct}%",
+  webUploadTitle: "Upload a file",
+  webUploadHint: "The file is uploaded to the server and used from there.",
+  webNoFolder: "Results stay on the server — download them from the results list.",
+  download: "Download",
+  webUploadVideos: "Upload videos…",
+  webSourceRemoved: "The uploaded video was removed from the server — upload it again to run another job.",
+  downloadClean: "Without subtitles",
   pickerFileTitle: "Choose a video on this computer",
   pickerProgramTitle: "Point Clipper at {name}",
   pickerProgramHint: "Choose the program file. Nothing is copied.",
@@ -525,6 +532,13 @@ const id: Record<MessageKey, string> = {
   engineUnreachable: "Tidak bisa menghubungi engine di {url}. Kalau aplikasi dijalankan dari terminal, lihat jendela itu — pesannya ada di sana.",
 
   uploadingPct: "Mengunggah… {pct}%",
+  webUploadTitle: "Unggah berkas",
+  webUploadHint: "Berkas diunggah ke server dan dipakai dari sana.",
+  webNoFolder: "Hasil tersimpan di server — unduh dari daftar hasil.",
+  download: "Unduh",
+  webUploadVideos: "Unggah video…",
+  webSourceRemoved: "Video unggahan sudah dihapus dari server — unggah lagi untuk menjalankan job lain.",
+  downloadClean: "Tanpa subtitle",
   pickerFileTitle: "Pilih video di komputer ini",
   pickerProgramTitle: "Tunjukkan letak {name}",
   pickerProgramHint: "Pilih berkas programnya. Tidak ada yang disalin.",

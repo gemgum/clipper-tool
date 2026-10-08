@@ -22,7 +22,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
 import Alerts from "./alerts";
-import { eng, engineURL } from "./engine";
+import { eng, engineURL, isWeb } from "./engine";
 import Picker from "./picker";
 import { useKeep, useRestore } from "./persist";
 
@@ -349,6 +349,8 @@ export default function Home() {
   // engine ditanya dulu: kalau ia menemukannya, path itu langsung dipakai dan
   // tidak ada satu byte pun yang disalin. Unggahan hanya cadangan.
   const useFile = useCallback(async (file: File) => {
+    // Mode web: berkasnya di komputer pengguna, bukan di server — langsung unggah.
+    if (await isWeb()) { uploadFile(file); return; }
     addLog(t("logLocating", { name: file.name }));
     try {
       const res = await fetch(eng(`/api/locate`), {
@@ -440,6 +442,8 @@ export default function Home() {
     });
     events.addEventListener("done", () => {
       setStatus("done"); setProgress(1); setBusy(false); addLog(t("logFinished")); events.close();
+      // Mode web: engine sudah menghapus video unggahannya (notes/42).
+      isWeb().then((w) => { if (w) { setPath(""); addLog(t("webSourceRemoved")); } });
     });
     events.addEventListener("error", (e: MessageEvent) => {
       let msg = "error";

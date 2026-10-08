@@ -13,7 +13,7 @@ import { Folder, Film, File } from "lucide-react";
 
 import { useCallback, useEffect, useState } from "react";
 import { useI18n } from "./i18n";
-import { eng } from "./engine";
+import { eng, upload, useWeb } from "./engine";
 
 type Entry = {
   name: string;
@@ -40,14 +40,7 @@ function humanSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-export default function Picker({
-  mode,
-  start,
-  onPick,
-  onClose,
-  title,
-  hint,
-}: {
+type PickerProps = {
   mode: "file" | "folder";
   start?: string;
   onPick: (path: string) => void;
@@ -55,7 +48,58 @@ export default function Picker({
   /** Judul & keterangan khusus; tanpa ini dipakai kalimat untuk memilih video. */
   title?: string;
   hint?: string;
-}) {
+};
+
+// Satu titik pilih untuk semua halaman: di mode web (notes/42) folder server
+// tidak boleh dijelajah, jadi berkas DIUNGGAH dan path hasil unggahan itulah
+// yang diserahkan ke onPick — pemanggilnya tidak perlu tahu bedanya.
+export default function Picker(props: PickerProps) {
+  const web = useWeb();
+  if (web === null) return null;
+  return web ? <UploadPicker {...props} /> : <BrowsePicker {...props} />;
+}
+
+function UploadPicker({ mode, onPick, onClose, title }: PickerProps) {
+  const { t } = useI18n();
+  const [pct, setPct] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const send = async (f: File) => {
+    setError(""); setPct(0);
+    try { onPick(await upload(f, setPct)); }
+    catch (e: any) { setError(e.message); setPct(null); }
+  };
+
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <div className="modal" onClick={(ev) => ev.stopPropagation()}>
+        <div className="modal-head">
+          <strong>{mode === "folder" ? t("pickerFolderTitle") : title || t("webUploadTitle")}</strong>
+          <button className="ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="picker-list">
+          {mode === "folder" ? (
+            <div className="meta">{t("webNoFolder")}</div>
+          ) : (
+            <>
+              <input type="file" disabled={pct !== null}
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) send(f); }} />
+              {pct !== null && <div className="meta">{t("uploadingPct", { pct: Math.round(pct * 100) })}</div>}
+              {error && <div className="err">{error}</div>}
+            </>
+          )}
+        </div>
+        <div className="modal-foot">
+          <span className="meta">{mode === "folder" ? "" : t("webUploadHint")}</span>
+          <span style={{ flex: 1 }} />
+          <button className="ghost" onClick={onClose}>{t("pickerCancel")}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BrowsePicker({ mode, start, onPick, onClose, title, hint }: PickerProps) {
   const { t } = useI18n();
   const [dir, setDir] = useState(start || "");
   const [listing, setListing] = useState<Listing | null>(null);

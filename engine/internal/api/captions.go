@@ -138,6 +138,9 @@ func (s *Server) createCaption(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 		s.captions.finish(job.ID, ctx, res, err)
+		if err == nil && ctx.Err() == nil {
+			dropUploads(req.Videos...)
+		}
 	}()
 
 	writeJSON(w, 202, map[string]any{"id": job.ID, "engine": engineName, "videos": len(req.Videos), "started": true})

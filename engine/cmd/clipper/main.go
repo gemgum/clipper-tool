@@ -180,6 +180,11 @@ Usage:
   -token       auto|on|off — require a session key on every request. "auto"
                turns it on for an installed app and off in a source checkout,
                where the GUI dev server has no way to receive the key.
+  -web         web version for a small team behind an HTTPS proxy (notes/42):
+               sign-in with the shared password in CLIPPER_PASSWORD, files
+               are uploaded, and nothing outside the upload folder is reachable.
+  -host        the public host name(s) the proxy serves, comma-separated
+               (required with -web), e.g. clip.example.com
 `)
 }
 
@@ -551,7 +556,14 @@ func cmdServe(layout config.Layout, args []string) {
 	// induk proses engine, jadi pipa stdout satu-satunya jalur yang pasti sudah
 	// siap dan tidak bisa tertukar dengan engine lain yang kebetulan jalan.
 	shell := fs.Bool("shell", false, "")
+	web := fs.Bool("web", false, "")
+	hosts := fs.String("host", "", "")
 	_ = fs.Parse(args)
+	password := os.Getenv("CLIPPER_PASSWORD")
+	if *web && (password == "" || *hosts == "") {
+		fmt.Fprintln(os.Stderr, "-web needs CLIPPER_PASSWORD (in the environment or .env) and -host <public name>")
+		os.Exit(1)
+	}
 
 	opts := config.DefaultOptions()
 	if err := layout.Ensure(); err != nil {
@@ -566,7 +578,8 @@ func cmdServe(layout config.Layout, args []string) {
 	listenAddr := *addr
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8787"
-		if !layout.Dev {
+		// Mode web: port tetap, sebab reverse proxy harus tahu ke mana meneruskan.
+		if !layout.Dev && !*web {
 			listenAddr = "127.0.0.1:0"
 		}
 	}
@@ -587,7 +600,12 @@ func cmdServe(layout config.Layout, args []string) {
 	}
 
 	token := ""
-	if *tokenMode == "on" || (*tokenMode == "auto" && !layout.Dev) {
+	if *web {
+		for _, h := range strings.Split(*hosts, ",") {
+			srv.AllowHost(strings.TrimSpace(h))
+		}
+		srv.SetWeb(password)
+	} else if *tokenMode == "on" || (*tokenMode == "auto" && !layout.Dev) {
 		token = api.NewToken()
 		srv.SetToken(token)
 	}
@@ -610,7 +628,13 @@ func cmdServe(layout config.Layout, args []string) {
 	fmt.Printf("  data    : %s%s\n", paths.DataDir, devNote(layout))
 	fmt.Printf("  API key : %s\n", maskKey(paths.APIKey))
 	fmt.Printf("  gui     : %s\n", api.GUIStatus(layout.GUIDir))
-	fmt.Printf("  key     : %s\n", keyNote(token))
+	if *web {
+		// Kuncinya TIDAK dicetak: stdout berakhir di journald, dan kunci di
+		// sana sama saja dengan kata sandinya.
+		fmt.Printf("  key     : web — team password, sign in at https://%s/login\n", strings.Split(*hosts, ",")[0])
+	} else {
+		fmt.Printf("  key     : %s\n", keyNote(token))
+	}
 	fmt.Printf("  address : %s\n", handshake)
 	// Satu alamat yang tinggal dibuka — inilah yang dipakai jendela aplikasi,
 	// dan yang bisa ditempel sendiri ke browser saat mengembangkan.

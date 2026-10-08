@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -132,6 +133,12 @@ func (s *Server) withToken(next http.Handler) http.Handler {
 		// "?token=" masih dibaca: alamat yang dibuka shell ditukar jadi cookie,
 		// dan sesudah itu tidak ada lagi kunci yang lewat bilah alamat.
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
+			// Mode web: tanpa cookie yang benar, satu-satunya halaman yang
+			// terbuka adalah /login.
+			if s.web && r.URL.Path != "/login" && !sameToken(requestToken(r), s.token) {
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
 			if q := r.URL.Query().Get("token"); sameToken(q, s.token) {
 				http.SetCookie(w, &http.Cookie{
 					Name:     CookieName,
@@ -144,11 +151,15 @@ func (s *Server) withToken(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if openPaths[r.URL.Path] || r.Method == http.MethodOptions {
+		if openPaths[r.URL.Path] || (s.web && r.URL.Path == "/api/login") || r.Method == http.MethodOptions {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if !sameToken(requestToken(r), s.token) {
+			if s.web {
+				writeErr(w, 401, "you are signed out — reload the page to sign in again")
+				return
+			}
 			writeErr(w, 401, "missing or wrong session key — open the app window again")
 			return
 		}
@@ -170,7 +181,9 @@ func sameToken(got, want string) bool {
 // 127.0.0.1; yang menghentikannya adalah browser menolak MEMBACA jawabannya
 // tanpa izin CORS. Jadi izin itu hanya diberikan kepada halaman lokal —
 // GUI Next.js di :3000 saat pengembangan, dan jendela aplikasi nanti.
-func localOrigin(origin string) bool {
+//
+// extra = nama host publik mode web (-host); asal dari sana juga diterima.
+func localOrigin(origin string, extra ...string) bool {
 	if origin == "" || origin == "null" {
 		return true // permintaan bukan-browser, atau halaman dari berkas
 	}
@@ -181,6 +194,9 @@ func localOrigin(origin string) bool {
 	switch u.Scheme {
 	case "http", "https":
 		host := u.Hostname()
+		if slices.Contains(extra, strings.ToLower(host)) {
+			return true
+		}
 		// Jendela Tauri di Windows memakai asal http://tauri.localhost, jadi
 		// seluruh keluarga *.localhost ikut diterima — nama itu memang dijamin
 		// menunjuk ke mesin sendiri.
@@ -200,10 +216,10 @@ func localOrigin(origin string) bool {
 var shellSchemes = map[string]bool{"tauri": true, "app": true, "file": true}
 
 // withCORS memberi izin baca hanya kepada halaman lokal.
-func withCORS(next http.Handler) http.Handler {
+func withCORS(next http.Handler, hosts ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if !localOrigin(origin) {
+		if !localOrigin(origin, hosts...) {
 			writeErr(w, 403, "this engine only serves apps running on this computer")
 			return
 		}

@@ -531,15 +531,28 @@ type PullProgress struct {
 // model tidak lagi memegang timestamp, jadi rentang terbalik atau durasi 8 detik
 // tidak mungkin lagi terjadi. Bentuk balasannya tetap dijamin JSON Schema.
 func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]llm.Pick, error) {
-	content, err := c.Complete(ctx, llm.PickSystemPrompt(maxClips, contentLang),
-		llm.PickUserPrompt(cands, offset), llm.PickSchema(maxClips), 2048)
-	if err != nil {
-		return nil, err
+	var content string
+	var readErr error
+	for attempt := 1; attempt <= pickAttempts; attempt++ {
+		var err error
+		content, err = c.Complete(ctx, llm.PickSystemPrompt(maxClips, contentLang),
+			llm.PickUserPrompt(cands, offset), llm.PickSchema(maxClips), 2048)
+		if err != nil {
+			return nil, err
+		}
+		var wrap llm.PickResponse
+		if readErr = json.Unmarshal([]byte(content), &wrap); readErr == nil {
+			return wrap.Picks, nil
+		}
 	}
-	var wrap llm.PickResponse
-	if err := json.Unmarshal([]byte(content), &wrap); err != nil {
-		return nil, fmt.Errorf("local model %s returned JSON that could not be read: %w — reply: %s",
-			c.Model, err, trunc(content, 300))
-	}
-	return wrap.Picks, nil
+	return nil, fmt.Errorf("local model %s returned JSON that could not be read (%d attempts): %w — reply: %s",
+		c.Model, pickAttempts, readErr, trunc(content, 300))
 }
+
+// pickAttempts: berapa kali satu bagian diminta ulang bila balasannya bukan
+// JSON utuh. Model bisa terjebak mengulang frasa di dalam "title" ("(80
+// seconds) (80 seconds) …") sampai balasannya terpotong, dan gateway yang
+// mengabaikan maxLength skema tidak menghentikannya. Pada temperatur 0.4
+// percobaan berikutnya hampir selalu lain. Mesin yang sama, permintaan yang
+// sama — bukan cadangan ke mesin lain (notes/12).
+const pickAttempts = 3

@@ -1,6 +1,7 @@
 package ollama
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -52,19 +53,32 @@ type openAIReq struct {
 	Temperature    float64        `json:"temperature"`
 	MaxTokens      int            `json:"max_tokens,omitempty"`
 	ResponseFormat map[string]any `json:"response_format,omitempty"`
+	// Stream SELALU true. Bukan demi menampilkan teks sedikit-sedikit: gateway
+	// di belakang Cloudflare memutus permintaan yang tidak mengirim satu byte
+	// pun dalam 100 detik (status 524), dan model bernalar yang menjawab satu
+	// potongan koreksi butuh lebih lama dari itu. Dengan stream, byte mengalir
+	// sejak token pertama. Server yang mengabaikannya tetap membalas JSON utuh,
+	// dan readReply membaca keduanya.
+	Stream bool `json:"stream"`
 }
 
 type openAIResp struct {
-	Choices []struct {
-		Message struct {
-			Content string `json:"content"`
-		} `json:"message"`
-		// FinishReason membedakan "modelnya memang tidak menjawab" dari
-		// "jatahnya habis" — dan tanpa itu keduanya sampai ke pemanggil sebagai
-		// balasan kosong yang sama.
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Error any `json:"error"`
+	Choices []openAIChoice `json:"choices"`
+	Error   any            `json:"error"`
+}
+
+type openAIChoice struct {
+	Message struct {
+		Content string `json:"content"`
+	} `json:"message"`
+	// Delta = potongan isi pada balasan stream; dikumpulkan ke Message.
+	Delta struct {
+		Content string `json:"content"`
+	} `json:"delta"`
+	// FinishReason membedakan "modelnya memang tidak menjawab" dari
+	// "jatahnya habis" — dan tanpa itu keduanya sampai ke pemanggil sebagai
+	// balasan kosong yang sama.
+	FinishReason string `json:"finish_reason"`
 }
 
 // completeOpenAI mengirim satu pasang prompt ke server bergaya OpenAI.
@@ -175,6 +189,7 @@ func (c *Client) postChat(ctx context.Context, system, user string, schema any, 
 		},
 		Temperature: c.temperature(),
 		MaxTokens:   numPredict,
+		Stream:      true,
 	}
 	if schema != nil {
 		// json_object tidak dipakai sebagai cadangan otomatis: sebagian server
@@ -205,14 +220,12 @@ func (c *Client) postChat(ctx context.Context, system, user string, schema any, 
 		return "", dialError(c.URL, c.Model, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-
-	var parsed openAIResp
-	if err := json.Unmarshal(raw, &parsed); err != nil {
+	parsed, raw, err := readReply(resp)
+	if err != nil {
 		// Alamat LENGKAP, bukan cuma base-nya: alamat yang salah isi (mis.
 		// endpoint gaya Anthropic milik DeepSeek) membalas 404 berbadan kosong,
 		// dan tanpa jalur penuh pesan itu tidak menunjukkan apa pun.
-		return "", fmt.Errorf("the reply from %s could not be read (status %d): %s", url, resp.StatusCode, trunc(string(raw), 200))
+		return "", fmt.Errorf("the reply from %s could not be read (status %d): %v — %s", url, resp.StatusCode, err, trunc(string(raw), 200))
 	}
 	if parsed.Error != nil {
 		return "", fmt.Errorf("%s refused the request: %s", url, trunc(errorMessage(parsed.Error), 200))
@@ -395,4 +408,61 @@ func formatParams(b float64) string {
 		return fmt.Sprintf("%.0fM", b*1000)
 	}
 	return strings.TrimSuffix(fmt.Sprintf("%.1f", b), ".0") + "B"
+}
+
+// readReply membaca balasan chat, entah stream (text/event-stream) entah JSON
+// utuh, ke bentuk yang sama. raw dikembalikan untuk pesan galat.
+//
+// Bukan cadangan kebijakan (notes/12): server yang sama, permintaan yang sama —
+// hanya bentuk kirimnya yang berbeda, dan galat 4xx/5xx selalu JSON biasa.
+func readReply(resp *http.Response) (openAIResp, []byte, error) {
+	var parsed openAIResp
+	if !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		raw, _ := io.ReadAll(resp.Body)
+		return parsed, raw, json.Unmarshal(raw, &parsed)
+	}
+	var content strings.Builder
+	var finish string
+	var last []byte
+	done := false
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 64<<10), 4<<20)
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data:")
+		data = strings.TrimSpace(data)
+		if !ok || data == "" {
+			continue // baris kosong, komentar ": keep-alive", event:
+		}
+		if data == "[DONE]" {
+			done = true
+			break
+		}
+		last = []byte(data)
+		var ev openAIResp
+		if err := json.Unmarshal(last, &ev); err != nil {
+			return parsed, last, err
+		}
+		if ev.Error != nil {
+			parsed.Error = ev.Error
+			return parsed, last, nil
+		}
+		for _, ch := range ev.Choices {
+			content.WriteString(ch.Delta.Content)
+			if ch.FinishReason != "" {
+				finish = ch.FinishReason
+			}
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return parsed, last, fmt.Errorf("the reply stream broke off: %w", err)
+	}
+	if !done && finish == "" {
+		// Sambungan ditutup di tengah jalan TANPA galat baca (proxy/gateway
+		// memutus). Dulu potongannya dikembalikan sebagai jawaban sah, dan
+		// pemanggil baru gagal kemudian dengan "unexpected end of JSON input".
+		return parsed, last, fmt.Errorf("the reply stream ended before the model finished (%d characters received)", content.Len())
+	}
+	parsed.Choices = []openAIChoice{{FinishReason: finish}}
+	parsed.Choices[0].Message.Content = content.String()
+	return parsed, last, nil
 }

@@ -11,6 +11,8 @@
 //   kunci   dibuat baru setiap engine dijalankan, dan sampai ke halaman lewat
 //           "?token=…" pada alamat yang dibuka jendela aplikasi.
 
+import { useEffect, useState } from "react";
+
 const DEV_ENGINE = "http://127.0.0.1:8787";
 
 // Port server pengembangan Next. Halaman yang disajikan dari sini BUKAN berasal
@@ -84,4 +86,45 @@ export function eng(path: string): string {
 /** ENGINE = alamat engine yang sedang dipakai. Untuk ditampilkan, bukan disusun. */
 export function engineURL(): string {
   return engineBase();
+}
+
+// Mode web (branch webview, notes/42): engine di server, jadi berkas DIUNGGAH
+// dan hasil DIUNDUH — pemilih folder & "buka folder" tidak bermakna di sana.
+// Engine yang menentukan, lewat /api/health; satu build GUI untuk kedua mode.
+let webPromise: Promise<boolean> | null = null;
+
+/** isWeb melaporkan apakah engine berjalan dalam mode web. */
+export function isWeb(): Promise<boolean> {
+  webPromise ??= fetch(eng("/api/health"))
+    .then((r) => r.json())
+    .then((d) => d.web === true)
+    .catch(() => false);
+  return webPromise;
+}
+
+/** useWeb = isWeb sebagai hook; null selama jawabannya belum datang. */
+export function useWeb(): boolean | null {
+  const [web, setWeb] = useState<boolean | null>(null);
+  useEffect(() => { isWeb().then(setWeb); }, []);
+  return web;
+}
+
+/** upload mengirim satu berkas ke engine dan mengembalikan path-nya di server. */
+export function upload(file: File, onProgress?: (fraction: number) => void): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", eng("/api/upload"));
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.path) resolve(data.path);
+        else reject(new Error(data.error || "upload failed"));
+      } catch { reject(new Error("upload failed")); }
+    };
+    xhr.onerror = () => reject(new Error("upload failed: network error"));
+    xhr.send(form);
+  });
 }

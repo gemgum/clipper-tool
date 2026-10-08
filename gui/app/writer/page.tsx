@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X, Copy, RotateCw, Check, Link2 } from "lucide-react";
-import { eng } from "../engine";
+import { eng, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import { useCopyLink } from "../copy-link";
 import Alerts from "../alerts";
@@ -47,6 +47,7 @@ type PostJob = {
 
 export default function WriterPage() {
   const { t, lang } = useI18n();
+  const web = useWeb();
 
   // --- keranjang sumber ---
   const [basket, setBasket] = useState<Article[]>([]);
@@ -295,7 +296,11 @@ export default function WriterPage() {
                   </div>
                 )}
                 <div className="meta post-foot">
-                  {t("writerWords", { n: draft.words })} · {t("writerFolder", { dir: job!.result!.post.dir })}
+                  {t("writerWords", { n: draft.words })} ·{" "}
+                  {/* Mode web: foldernya di server — yang berguna adalah berkasnya. */}
+                  {web ? (
+                    <a className="dl" href={eng(`/api/posts/${job!.id}/file?name=article`)} download>{t("download")} .md</a>
+                  ) : t("writerFolder", { dir: job!.result!.post.dir })}
                 </div>
               </div>
             )}

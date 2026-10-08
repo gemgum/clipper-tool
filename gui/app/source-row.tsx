@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "./i18n";
+import { useWeb } from "./engine";
 
 // Dari mana videonya dan ke mana hasilnya — satu baris di kepala panel
 // pratinjau, sebab keduanya menentukan APA yang muncul di sana.
@@ -28,6 +29,9 @@ export default function SourceRow({
 }) {
   const { t } = useI18n();
   const [dragOver, setDragOver] = useState(false);
+  // Mode web: path yang terlihat adalah hasil unggahan, dan folder keluaran
+  // tidak ada artinya — hasilnya diunduh dari kartu klip (notes/42).
+  const web = useWeb();
 
   return (
     <div className={`source-row ${dragOver ? "over" : ""}`}
@@ -37,10 +41,12 @@ export default function SourceRow({
       <div className="field">
         <label>{t("videoPath")}</label>
         <div className="path-row">
-          <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/home/user/video.mp4" />
+          <input value={path} onChange={(e) => setPath(e.target.value)} readOnly={!!web}
+            placeholder={web ? t("webUploadTitle") : "/home/user/video.mp4"} />
           <button className="ghost" onClick={() => onPick("video")}>{t("pickerGo")}…</button>
         </div>
       </div>
+      {!web && (
       <div className="field">
         <label>{t("outputDir")}</label>
         <div className="path-row">
@@ -48,6 +54,7 @@ export default function SourceRow({
           <button className="ghost" onClick={() => onPick("out")}>{t("pickerGo")}…</button>
         </div>
       </div>
+      )}
       {/* Bilah unggah hanya ada saat benar-benar mengunggah — dan itu jalur
           cadangan yang jarang terpakai, sebab berkas lokal dibaca di tempat. */}
       {uploading && (

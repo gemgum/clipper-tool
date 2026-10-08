@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../i18n";
-import { eng, engineURL } from "../engine";
+import { eng, engineURL, useWeb } from "../engine";
 import Picker from "../picker";
 import Alerts from "../alerts";
 import EngineSettings from "./engines";
@@ -63,6 +63,9 @@ type Install = {
 
 export default function RequirementsPage() {
   const { t } = useI18n();
+  // Mode web: komponen & folder server diurus admin lewat setup.sh, bukan dari
+  // browser — tombolnya disembunyikan, statusnya tetap terlihat (notes/42).
+  const web = useWeb();
   const [req, setReq] = useState<Requirements | null>(null);
   const [error, setError] = useState("");
   const [installs, setInstalls] = useState<Record<string, Install>>({});
@@ -294,7 +297,7 @@ export default function RequirementsPage() {
                       </div>
                     )}
                   </div>
-                  <div className="req-actions">
+                  {!web && <div className="req-actions">
                     {!c.installed && c.installable && (
                       <button disabled={live} onClick={() => install(c)}>
                         {live ? t("reqInstalling") : t("reqInstall")}
@@ -320,7 +323,7 @@ export default function RequirementsPage() {
                         {t("reqRemove")}
                       </button>
                     )}
-                  </div>
+                  </div>}
                 </div>
               );
             })}
@@ -352,7 +355,7 @@ export default function RequirementsPage() {
                 <div className="req-path" title={used || ""}>{used || "—"}</div>
                 {!custom && <div className="meta">{t("reqFolderDefault")}</div>}
               </div>
-              <div className="req-actions">
+              {!web && <div className="req-actions">
                 <button className="ghost" onClick={() => setPickingFolder(key)}>
                   {t("reqFolderChange")}
                 </button>
@@ -361,7 +364,7 @@ export default function RequirementsPage() {
                     {t("reqFolderReset")}
                   </button>
                 )}
-              </div>
+              </div>}
             </div>
           ))}
 

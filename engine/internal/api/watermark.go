@@ -3,8 +3,11 @@ package api
 import (
 	"context"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 
 	"github.com/gemgum/clipper/engine/internal/config"
 	"github.com/gemgum/clipper/engine/internal/watermark"
@@ -110,6 +113,9 @@ func (s *Server) createWatermark(w http.ResponseWriter, r *http.Request) {
 			})
 		})
 		s.watermarks.finish(job.ID, ctx, res, err)
+		if err == nil && ctx.Err() == nil {
+			dropUploads(req.Videos...)
+		}
 	}()
 
 	writeJSON(w, 202, map[string]any{"id": job.ID, "videos": len(req.Videos), "started": true})
@@ -138,4 +144,25 @@ func (s *Server) cancelWatermark(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) watermarkEvents(w http.ResponseWriter, r *http.Request) {
 	s.watermarks.stream(w, r, "watermark")
+}
+
+// watermarkFile menyajikan satu video hasil, ?i= menunjuk urutannya di job.
+//
+// Di desktop hasilnya cukup ditulis di sebelah videonya; di mode web berkas itu
+// ada di server, jadi inilah satu-satunya jalan untuk mengambilnya.
+func (s *Server) watermarkFile(w http.ResponseWriter, r *http.Request) {
+	j, ok := s.watermarks.get(r.PathValue("id"))
+	if !ok || j.Result == nil {
+		writeErr(w, 404, "no such watermark job, or it has not finished yet")
+		return
+	}
+	i, err := strconv.Atoi(r.URL.Query().Get("i"))
+	if err != nil || i < 0 || i >= len(j.Result.Files) || j.Result.Files[i].Output == "" {
+		writeErr(w, 404, "no output for that video")
+		return
+	}
+	out := j.Result.Files[i].Output
+	w.Header().Set("Content-Disposition",
+		mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(out)}))
+	http.ServeFile(w, r, out)
 }

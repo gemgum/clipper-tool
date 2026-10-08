@@ -146,6 +146,12 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request) {
 // apa adanya — tetapi kutipnya tetap dibuang, sebab Explorer yang sama juga
 // memasangnya di sana.
 func hostPath(p string) string {
+	// Di mode web hanya folder unggahan yang boleh ditunjuk (web.go).
+	return insideWebRoot(localPath(p))
+}
+
+// localPath = terjemahan hostPath, tanpa pagar mode web.
+func localPath(p string) string {
 	p = unquote(strings.TrimSpace(p))
 	if runtime.GOOS != "linux" || p == "" {
 		return p

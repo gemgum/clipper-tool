@@ -1,8 +1,8 @@
 "use client";
 
-import { FolderOpen } from "lucide-react";
+import { Download, FolderOpen } from "lucide-react";
 import { useState } from "react";
-import { eng } from "./engine";
+import { eng, useWeb } from "./engine";
 import { useI18n } from "./i18n";
 
 // Satu kartu klip. Dipakai halaman Clips (hasil job terakhir) DAN halaman
@@ -25,6 +25,7 @@ export const formatTime = (s: number) => {
 export default function ClipCard({ c }: { c: Clip }) {
   const { t } = useI18n();
   const [failed, setFailed] = useState("");
+  const web = useWeb();
   const file = (variant?: string) =>
     eng(`/api/jobs/${c.job_id}/clips/${c.id}/file${variant ? `?variant=${variant}` : ""}`);
 
@@ -55,9 +56,20 @@ export default function ClipCard({ c }: { c: Clip }) {
         </div>
         {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="dl" onClick={openFolder} title={t("revealTip")}>
-            <FolderOpen className="ico" aria-hidden="true" /> {t("reveal")}
-          </button>
+          {/* Mode web: berkasnya di server, jadi diunduh — tidak ada folder
+              yang bisa dibuka di mesin pengguna (notes/42). */}
+          {web ? (
+            <>
+              <a className="dl" href={file()} download><Download className="ico" aria-hidden="true" /> {t("download")}</a>
+              {c.video_path_raw && <a className="dl" href={file("clean")} download>{t("downloadClean")}</a>}
+              {c.subtitle_srt && <a className="dl" href={file("srt")} download>.srt</a>}
+              {c.transcript_txt && <a className="dl" href={file("txt")} download>.txt</a>}
+            </>
+          ) : (
+            <button className="dl" onClick={openFolder} title={t("revealTip")}>
+              <FolderOpen className="ico" aria-hidden="true" /> {t("reveal")}
+            </button>
+          )}
           {failed && <span className="err">{failed}</span>}
         </div>
       </div>

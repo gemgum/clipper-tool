@@ -56,6 +56,9 @@ type Manager struct {
 	seq    int
 	queue  chan *Job
 	apiKey string // API key Claude yang diset dari GUI (menimpa env bila ada)
+	// OnDone dipanggil dengan video sumber setiap job yang SELESAI sukses. Mode
+	// web memakainya untuk menghapus unggahan (api/web.go); di desktop nil.
+	OnDone func(input string)
 }
 
 // SetLayout memperbarui peta folder setelah pengguna mengubah setelannya.
@@ -244,6 +247,10 @@ func (m *Manager) run(j *Job) {
 	// tidak akan pernah dilanjutkan, jadi menyimpan keadaan tengahnya cuma
 	// menaruh baris "0%" abadi di riwayat.
 	m.Persist(j.ID)
+	if status == StatusDone && m.OnDone != nil {
+		m.OnDone(j.Input)
+		m.logf(j.ID, "uploaded source removed from the server")
+	}
 }
 
 // Get mengembalikan job.
