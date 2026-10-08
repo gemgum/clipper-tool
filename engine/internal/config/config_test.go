@@ -2,6 +2,18 @@ package config
 
 import "testing"
 
+func TestTranscriberValidation(t *testing.T) {
+	o := DefaultOptions()
+	if err := o.Validate(); err != nil || o.Transcriber != TranscriberWhisper {
+		t.Fatalf("bawaan = %q, %v", o.Transcriber, err)
+	}
+	o = DefaultOptions()
+	o.Transcriber = "deepgram"
+	if err := o.Validate(); err == nil {
+		t.Fatal("mesin transkripsi tak dikenal diterima")
+	}
+}
+
 func TestReframeCheck(t *testing.T) {
 	if err := ReframeCenter.Check(); err != nil {
 		t.Errorf("center seharusnya tersedia: %v", err)

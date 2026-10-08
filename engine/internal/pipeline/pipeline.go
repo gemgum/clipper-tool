@@ -70,7 +70,7 @@ func emit(fn ProgressFunc, p Progress) {
 // Run menjalankan seluruh pipeline untuk satu video. workDir menampung file
 // sementara & output klip.
 func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string, onProgress ProgressFunc) ([]types.Clip, error) {
-	if err := p.wh.Available(); err != nil {
+	if err := p.transcriberReady(); err != nil {
 		return nil, err
 	}
 	if err := os.MkdirAll(workDir, 0o755); err != nil {
@@ -109,9 +109,9 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		rec.add("Extract audio", got.ExtractDur, "ffmpeg")
 	}
 	if cacheHit {
-		rec.add("Transcribe", 0, "whisper "+p.Opts.WhisperModel+" (from cache)")
+		rec.add("Transcribe", 0, p.TranscriberName()+" (from cache)")
 	} else {
-		rec.add("Transcribe", got.WhisperDur, "whisper "+p.Opts.WhisperModel)
+		rec.add("Transcribe", got.WhisperDur, p.TranscriberName())
 	}
 
 	var rms audio.FeaturesResult

@@ -7,8 +7,40 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/gemgum/clipper/engine/internal/config"
+	"github.com/gemgum/clipper/engine/internal/transcribe"
 	"github.com/gemgum/clipper/engine/internal/types"
 )
+
+// aiStudio = transkripsi lewat AI Studio dipilih untuk job ini (notes/43).
+func (p *Pipeline) aiStudio() bool { return p.Opts.Transcriber == config.TranscriberAIStudio }
+
+// transcriberReady memeriksa mesin transkripsi yang dipilih SEBELUM apa pun
+// dikerjakan: kunci yang kosong ketahuan sebelum audio diekstrak.
+func (p *Pipeline) transcriberReady() error {
+	if p.aiStudio() {
+		return transcribe.AIStudioFromEnv().Available()
+	}
+	return p.wh.Available()
+}
+
+// TranscriberName menyebut mesin transkripsi untuk ringkasan job.
+func (p *Pipeline) TranscriberName() string {
+	if p.aiStudio() {
+		return "AI Studio (" + transcribe.AIStudioFromEnv().Model + ")"
+	}
+	return "whisper " + p.Opts.WhisperModel
+}
+
+// transcriberCacheModel = bagian "model" di kunci cache transkrip. Whisper
+// tetap memakai nama modelnya saja, jadi cache whisper yang sudah ada tetap
+// terpakai; AI Studio diberi awalan supaya keduanya tidak pernah bertabrakan.
+func (p *Pipeline) transcriberCacheModel() string {
+	if p.aiStudio() {
+		return "aistudio:" + transcribe.AIStudioFromEnv().Model
+	}
+	return p.Opts.WhisperModel
+}
 
 // TranscriptResult adalah hasil tahap transkripsi beserta angka waktunya.
 //
@@ -40,11 +72,11 @@ type TranscriptResult struct {
 // cache — dibutuhkan mesin skor heuristik yang membaca energi audionya.
 func (p *Pipeline) Transcript(ctx context.Context, input, tmpDir string, maxSec float64, wantAudio bool, onProgress ProgressFunc) (TranscriptResult, error) {
 	var res TranscriptResult
-	if err := p.wh.Available(); err != nil {
+	if err := p.transcriberReady(); err != nil {
 		return res, err
 	}
 
-	if key, err := transcriptCacheKey(input, p.Opts.WhisperModel, p.Opts.Language, maxSec); err == nil {
+	if key, err := transcriptCacheKey(input, p.transcriberCacheModel(), p.Opts.Language, maxSec); err == nil {
 		res.CacheKey = key
 		if cached, ok := loadTranscriptCache(transcriptCachePath(p.Paths.DataDir, key)); ok {
 			res.Transcript, res.FromCache = cached, true
@@ -72,17 +104,30 @@ func (p *Pipeline) Transcript(ctx context.Context, input, tmpDir string, maxSec 
 	}
 
 	if !res.FromCache {
-		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transcribing (whisper.cpp)"})
+		emit(onProgress, Progress{Stage: "transcribing", Value: 0.2, Message: "Transcribing (" + p.TranscriberName() + ")"})
 		t0 := time.Now()
-		outBase := filepath.Join(tmpDir, "transcript")
-		got, err := p.wh.Transcribe(ctx, wav, outBase, p.Opts.Language, runtime.NumCPU(), func(f float64) {
+		progress := func(f float64) {
 			// Petakan 0..1 transkripsi ke pita 0.20..0.48 dari total.
 			emit(onProgress, Progress{
 				Stage:   "transcribing",
 				Value:   0.20 + 0.28*f,
 				Message: fmt.Sprintf("Transcribing %.0f%%", f*100),
 			})
-		})
+		}
+		var got types.Transcript
+		var err error
+		if p.aiStudio() {
+			as := transcribe.AIStudioFromEnv()
+			as.Encode = func(ctx context.Context, start, dur float64, out string) error {
+				return p.ff.EncodeAudioChunk(ctx, wav, start, dur, out)
+			}
+			var sec float64
+			if sec, err = p.ff.Duration(ctx, wav); err == nil {
+				got, err = as.Transcribe(ctx, sec, p.Opts.Language, tmpDir, progress)
+			}
+		} else {
+			got, err = p.wh.Transcribe(ctx, wav, filepath.Join(tmpDir, "transcript"), p.Opts.Language, runtime.NumCPU(), progress)
+		}
 		if err != nil {
 			return res, err
 		}

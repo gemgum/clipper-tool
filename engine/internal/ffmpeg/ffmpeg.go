@@ -145,6 +145,21 @@ func (c *Client) ExtractAudioWAV(ctx context.Context, input, outWAV string, maxS
 	return c.run(ctx, "extract audio", args)
 }
 
+// EncodeAudioChunk menulis potongan [start, start+dur) dari audio sumber
+// sebagai Opus mono 24 kbps dalam OGG — kecil, supaya bisa dikirim inline ke
+// AI Studio (notes/43). 10 menit ≈ 1,8 MB.
+func (c *Client) EncodeAudioChunk(ctx context.Context, input string, start, dur float64, out string) error {
+	return c.run(ctx, "encode audio chunk", []string{
+		"-y",
+		"-ss", fmt.Sprintf("%.3f", start),
+		"-t", fmt.Sprintf("%.3f", dur),
+		"-i", CLIPath(input),
+		"-vn", "-ac", "1", "-ar", "16000",
+		"-c:a", "libopus", "-b:a", "24k",
+		CLIPath(out),
+	})
+}
+
 // EncodeOpts parameter encoding & subtitle.
 type EncodeOpts struct {
 	CRF        string

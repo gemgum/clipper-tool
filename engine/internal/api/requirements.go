@@ -8,6 +8,7 @@ import (
 
 	"github.com/gemgum/clipper/engine/internal/score/ollama"
 	"github.com/gemgum/clipper/engine/internal/setup"
+	"github.com/gemgum/clipper/engine/internal/transcribe"
 )
 
 // Halaman Requirements: status komponen + pemasangannya.
@@ -43,6 +44,7 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		detail = "Running, but no model is installed yet: pull one below."
 	}
 
+	as := transcribe.AIStudioFromEnv()
 	comps := setup.Status(s.layout)
 	// Server LLM bukan berkas yang engine pasang, jadi ia tidak punya path. Yang
 	// setara — dan yang justru dicari orang saat susunannya Windows+WSL — adalah
@@ -68,6 +70,12 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		"tools_dir":  s.layout.ToolsDir,
 		"dev":        s.layout.Dev,
 		"ollama":     oll,
+		// Transkripsi AI Studio (notes/43): cukup tahu kuncinya ada atau tidak,
+		// dan model mana yang akan dipakai. Kuncinya sendiri tidak pernah dikirim.
+		"ai_studio": map[string]any{
+			"key_set": as.Key != "",
+			"model":   as.Model,
+		},
 	})
 }
 

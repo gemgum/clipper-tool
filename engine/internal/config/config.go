@@ -164,10 +164,19 @@ func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 	}
 }
 
+// Mesin transkripsi yang bisa dipilih per job.
+const (
+	TranscriberWhisper  = "whisper"
+	TranscriberAIStudio = "aistudio"
+)
+
 // Options untuk satu job clipping.
 type Options struct {
-	Language       string   `json:"language"`
-	WhisperModel   string   `json:"whisper_model"`
+	Language     string `json:"language"`
+	WhisperModel string `json:"whisper_model"`
+	// Transcriber = mesin transkripsi: "whisper" (lokal, bawaan) atau
+	// "aistudio" (Google AI Studio, kunci AI_STUDIO_KEY; notes/43).
+	Transcriber    string   `json:"transcriber"`
 	Resolution     string   `json:"resolution"` // 720p | 1080p | 1440p
 	Quality        string   `json:"quality"`    // draft | hd | max
 	FPS            int      `json:"fps"`        // 0 = ikut sumber
@@ -269,6 +278,13 @@ func (o *Options) Validate() error {
 	}
 	if o.WhisperModel == "" {
 		o.WhisperModel = d.WhisperModel
+	}
+	switch o.Transcriber {
+	case "":
+		o.Transcriber = TranscriberWhisper
+	case TranscriberWhisper, TranscriberAIStudio:
+	default:
+		return fmt.Errorf("unknown transcriber %q: choose %q or %q", o.Transcriber, TranscriberWhisper, TranscriberAIStudio)
 	}
 	if o.Resolution == "" {
 		o.Resolution = d.Resolution

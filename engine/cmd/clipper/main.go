@@ -125,6 +125,8 @@ Usage:
 
 'run' flags:
   -model       whisper model: tiny|base|small|medium|large-v3 (default small)
+  -transcriber whisper|aistudio: who transcribes. aistudio = Google AI Studio
+               (Gemini), key in AI_STUDIO_KEY, model in AI_STUDIO_MODEL
   -reframe     how the video is fitted into the 9:16 frame (default center):
                  center      Center of the Picture — crop to fill
                  fit         Whole Picture — the entire video, nothing cropped
@@ -196,6 +198,7 @@ func cmdRun(layout config.Layout, args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	opts := config.DefaultOptions()
 	model := fs.String("model", opts.WhisperModel, "")
+	transcriber := fs.String("transcriber", config.TranscriberWhisper, "")
 	reframe := fs.String("reframe", string(opts.Reframe), "")
 	background := fs.String("background", opts.Background, "")
 	zoom := fs.Int("zoom", opts.Zoom, "")
@@ -236,6 +239,7 @@ func cmdRun(layout config.Layout, args []string) {
 	}
 
 	opts.WhisperModel = *model
+	opts.Transcriber = *transcriber
 	opts.Reframe = config.Reframe(*reframe)
 	opts.Background = *background
 	opts.Zoom = *zoom
