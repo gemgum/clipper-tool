@@ -653,7 +653,7 @@ export default function Home() {
     </>
   ) : screen === "run" ? (
     <>
-      <button type="button" className="ghost" onClick={() => router.push("/history")} disabled={failedStage >= 0}>{t("runInBackground")}</button>
+      <button type="button" className="ghost" onClick={() => router.push("/history?f=clips")} disabled={failedStage >= 0}>{t("runInBackground")}</button>
       <button type="button" className="danger" onClick={cancel} disabled={!busy || !jobId}>{t("cancelRun")}</button>
     </>
   ) : (

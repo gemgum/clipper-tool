@@ -123,3 +123,27 @@ func seqOf(id string) int {
 	}
 	return n
 }
+
+// Delete membuang satu job dari riwayat (memori + berkasnya). Job yang masih
+// berjalan ditolak: hentikan dulu. Folder klipnya TIDAK disentuh — itu milik
+// pengguna; klip satu per satu dihapus lewat DELETE .../clips/{clip}.
+func (m *Manager) Delete(id string) error {
+	j, ok := m.Get(id)
+	if !ok {
+		return os.ErrNotExist
+	}
+	j.mu.Lock()
+	busy := j.Status == StatusQueued || j.Status == StatusRunning
+	j.mu.Unlock()
+	if busy {
+		return fmt.Errorf("this job is still running: cancel it first")
+	}
+	m.mu.Lock()
+	delete(m.jobs, id)
+	m.mu.Unlock()
+	_ = os.Remove(m.logPath(id))
+	if err := os.Remove(filepath.Join(m.jobsDir(), id+".json")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}

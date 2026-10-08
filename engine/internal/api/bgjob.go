@@ -187,6 +187,41 @@ func (p *bgStore[T]) stop(id string) bool {
 	return true
 }
 
+// remove membuang job yang sudah berhenti dari riwayat (memori + berkasnya).
+// Hasil kerjanya (berkas .txt, video, artikel) tidak disentuh.
+func (p *bgStore[T]) remove(id string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	j, ok := p.jobs[id]
+	if !ok {
+		return os.ErrNotExist
+	}
+	if j.Status == "running" {
+		return fmt.Errorf("this job is still running: cancel it first")
+	}
+	delete(p.jobs, id)
+	if p.dir != "" {
+		if err := os.Remove(filepath.Join(p.dir, id+".json")); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+// deleteHandler = DELETE /api/<jenis>/{id} untuk store ini.
+func (p *bgStore[T]) deleteHandler(w http.ResponseWriter, r *http.Request) {
+	if err := p.remove(r.PathValue("id")); err != nil {
+		if os.IsNotExist(err) {
+			writeErr(w, 404, "job not found")
+			return
+		}
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"deleted": true})
+}
+
 func (p *bgStore[T]) get(id string) (bgJob[T], bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

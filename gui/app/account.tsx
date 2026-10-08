@@ -1,8 +1,8 @@
 "use client";
 
-import { CircleUser } from "lucide-react";
+import { User } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useI18n } from "./i18n";
+import { LANGUAGES, useI18n } from "./i18n";
 import Popover from "./popover";
 
 const KEY = "clipper.code";
@@ -15,7 +15,7 @@ const KEY = "clipper.code";
 // palsu. Yang dikerjakan sekarang adalah tempat memasukkannya; pemeriksaannya
 // menyusul di engine bersama keputusan bagaimana kodenya diterbitkan.
 export default function AccountButton() {
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
   const [code, setCode] = useState("");
   const [saved, setSaved] = useState("");
 
@@ -34,14 +34,25 @@ export default function AccountButton() {
   };
 
   return (
-    <Popover width={280} buttonClass="rail-tool" side="beside" ariaLabel={t("accountTitle")} label={
+    <Popover width={280} buttonClass="rail-account-btn" side="beside" ariaLabel={t("navAccount")} label={
       <>
-        <CircleUser className="ico" aria-hidden="true" />
-        {saved && <span className="dot-ok" aria-hidden="true" />}
+        {/* Avatar = huruf pertama kode akses, kalau belum ada: ikon kosong. */}
+        <span className="rail-avatar" aria-hidden="true">{saved ? saved[0].toUpperCase() : <User className="ico" />}</span>
+        <span className="rail-label">{t("navAccount")}</span>
       </>
     }>
       {(close) => (
         <div className="pop-form">
+          {/* Bahasa = preferensi pribadi, sederajat dengan akun & tema
+              (DESIGN-Navigasi §4), jadi pindah ke sini dari panel gerigi. */}
+          <div className="settings-head">{t("settingsLanguage")}</div>
+          <div className="lang-switch">
+            {LANGUAGES.map((l) => (
+              <button key={l} type="button" className={l === lang ? "active" : ""} aria-pressed={l === lang} onClick={() => setLang(l)}>
+                {l === "en" ? "English" : "Indonesia"}
+              </button>
+            ))}
+          </div>
           <div className="settings-title">{t("accountTitle")}</div>
           <p className="meta">{t("accountHint")}</p>
           <input

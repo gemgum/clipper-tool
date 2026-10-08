@@ -1,30 +1,31 @@
 "use client";
 
-import RailStatus from "./rail-status";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Scissors, Newspaper, PenLine, Captions, Stamp, History } from "lucide-react";
+import { Scissors, Newspaper, PenLine, Captions, Stamp, History, Settings } from "lucide-react";
 import { useI18n, type MessageKey } from "./i18n";
-import SettingsMenu from "./settings-menu";
 import ThemeToggle from "./theme-toggle";
 import AccountButton from "./account";
+import { RailJob, RailAI, useRunning } from "./rail-status";
 
-// Navigasi rail kiri + bilah atas.
+// Navigasi kiri — DESIGN-Navigasi (bagian kedua DEsign-clipper-lanjutan.md).
 //
-// Bentuknya mengikuti aplikasi desktop, bukan situs: pekerjaan utama ada di
-// rail kiri (potong video, kartu berita), sedangkan yang mengatur APLIKASINYA
-// — komponen, folder, bahasa — menepi ke kanan atas. Pembedaannya bukan selera:
-// yang di kiri dibuka berkali-kali sehari, yang di kanan dibuka sekali lalu
-// dilupakan, dan menaruh keduanya berdampingan membuat keduanya terlihat
-// sama penting.
+// Dua kelompok: BUAT (alat) dan KELOLA (hasil + setelan). Satu pola lebar per
+// lebar jendela, tidak ada di antaranya: ≥1100px sidebar berlabel 220px
+// (varian B), di bawahnya rail ikon 72px dengan tooltip (varian A). Bentuknya
+// diatur CSS saja — komponen ini merender keduanya sama.
 
-const RAIL: { href: string; label: MessageKey; Icon: typeof Scissors }[] = [
-  { href: "/", label: "tabClips", Icon: Scissors },
-  { href: "/news", label: "tabNews", Icon: Newspaper },
-  { href: "/writer", label: "tabWriter", Icon: PenLine },
-  { href: "/captions", label: "tabCaptions", Icon: Captions },
-  { href: "/watermark", label: "tabWatermark", Icon: Stamp },
-  { href: "/history", label: "tabHistory", Icon: History },
+type Item = { href: string; label: MessageKey; Icon: typeof Scissors };
+const CREATE: Item[] = [
+  { href: "/", label: "navClips", Icon: Scissors },
+  { href: "/news", label: "navNews", Icon: Newspaper },
+  { href: "/writer", label: "navWriter", Icon: PenLine },
+  { href: "/captions", label: "navCaptions", Icon: Captions },
+  { href: "/watermark", label: "navWatermark", Icon: Stamp },
+];
+const MANAGE: Item[] = [
+  { href: "/history", label: "navHistory", Icon: History },
+  { href: "/requirements", label: "navSettings", Icon: Settings },
 ];
 
 // Ekspor statis Next menghasilkan /news/index.html, jadi alamat yang terbaca
@@ -37,36 +38,43 @@ const samePath = (a: string, b: string) =>
 export default function Nav() {
   const path = usePathname();
   const { t } = useI18n();
+  const running = useRunning();
+
+  const item = ({ href, label, Icon }: Item) => {
+    const on = samePath(path, href);
+    const badge = href === "/history" && running.length > 0 ? running.length : 0;
+    return (
+      <Link key={href} href={href} className={"rail-item" + (on ? " active" : "")}
+        aria-current={on ? "page" : undefined} aria-label={t(label)} data-tip={t(label)}>
+        <span className="rail-ico-wrap">
+          <Icon className="rail-ico" aria-hidden="true" />
+          {badge > 0 && <span className="rail-badge" aria-hidden="true">{badge}</span>}
+        </span>
+        <span className="rail-label">{t(label)}</span>
+        {badge > 0 && <span className="rail-count" aria-hidden="true">{badge}</span>}
+      </Link>
+    );
+  };
 
   return (
-    <>
-      <nav className="rail" aria-label="Clipper">
-        <span className="rail-brand">Clipper</span>
-        {RAIL.map(({ href, label, Icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={"rail-item" + (samePath(path, href) ? " active" : "")}
-            aria-current={samePath(path, href) ? "page" : undefined}
-          >
-            <Icon className="rail-ico" aria-hidden="true" />
-            <span>{t(label)}</span>
-          </Link>
-        ))}
+    <nav className="rail" aria-label={t("navMain")}>
+      <Link href="/" className="rail-brand" aria-label="Clipper">
+        <span className="rail-logo" aria-hidden="true">C</span>
+        <span className="rail-label">Clipper</span>
+      </Link>
+      <div className="rail-group">{t("navCreate")}</div>
+      {CREATE.map(item)}
+      <div className="rail-group">{t("navManage")}</div>
+      {MANAGE.map(item)}
 
-        {/* Akun, tema, dan setelan MENEPI KE DASAR rail, bukan bilah atas
-            sendiri. Bilah itu berisi tiga ikon dan tidak pernah lebih — satu
-            baris penuh selebar jendela untuk tiga ikon adalah tinggi yang
-            diambil dari isi halaman, tiap halaman, selamanya.
-            Ketiganya tetap terpisah dari navigasi di atasnya oleh jarak, jadi
-            "tempat kerja" dan "atur aplikasinya" masih terbaca berbeda. */}
-        <RailStatus />
-        <div className="rail-tools">
+      <div className="rail-foot">
+        <RailJob running={running} />
+        <RailAI />
+        <div className="rail-account">
           <AccountButton />
           <ThemeToggle />
-          <SettingsMenu />
         </div>
-      </nav>
-    </>
+      </div>
+    </nav>
   );
 }

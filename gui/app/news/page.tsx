@@ -77,7 +77,8 @@ export default function News() {
   const [limit, setLimit] = useState(PAGE);
   const [more, setMore] = useState(true);
   const [items, setItems] = useState<Article[]>([]);
-  const [listBusy, setListBusy] = useState(false);
+  // true: daftar pertama langsung dimuat; tanpa ini sempat tampil "Nothing found" sebelum kerangka.
+  const [listBusy, setListBusy] = useState(true);
   const [sourceFilter, setSourceFilter] = useState("");
   const [picked, setPicked] = useState("");      // url artikel yang sedang dipilih
   const [fetching, setFetching] = useState(false);
@@ -320,7 +321,7 @@ export default function News() {
   const headerProps = screen === "pick"
     ? { title: t("tabNews"), subtitle: t("ncSub"), actions: (
         <>
-          <button type="button" className="ghost" onClick={() => router.push("/history")}><LayoutGrid className="ico" aria-hidden="true" /> {t("ncMyCards")}</button>
+          <button type="button" className="ghost" onClick={() => router.push("/history?f=cards")}><LayoutGrid className="ico" aria-hidden="true" /> {t("ncMyCards")}</button>
         </>) }
     : screen === "compose"
     ? { title: article.title || t("tabNews"), subtitle: [article.source || article.domain, article.date].filter(Boolean).join(" · "), actions: (

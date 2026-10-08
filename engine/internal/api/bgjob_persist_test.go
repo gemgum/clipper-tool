@@ -33,3 +33,26 @@ func TestBGStorePersists(t *testing.T) {
 		t.Fatalf("id baru %s menimpa yang lama", j3.ID)
 	}
 }
+
+// Job yang berhenti bisa dihapus dan tidak muncul lagi setelah dibaca ulang;
+// yang masih berjalan ditolak.
+func TestBGStoreRemove(t *testing.T) {
+	dir := t.TempDir()
+	var a bgStore[string]
+	a.persistTo(dir)
+	done := a.create("cap", func() {})
+	a.finish(done.ID, context.Background(), "", errors.New("gagal"))
+	running := a.create("cap", func() {})
+
+	if err := a.remove(running.ID); err == nil {
+		t.Fatal("job yang berjalan ikut terhapus")
+	}
+	if err := a.remove(done.ID); err != nil {
+		t.Fatal(err)
+	}
+	var b bgStore[string]
+	b.persistTo(dir)
+	if _, ok := b.get(done.ID); ok {
+		t.Fatal("job yang dihapus muncul lagi dari disk")
+	}
+}

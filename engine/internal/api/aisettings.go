@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/gemgum/clipper/engine/internal/config"
+	"github.com/gemgum/clipper/engine/internal/transcribe"
 )
 
 // Mesin AI GLOBAL (DESIGN-Clipper-Lanjutan.md §1, keputusan pemilik 9 Oktober
@@ -73,7 +76,61 @@ func aiSettingsView() map[string]any {
 		g := effectiveAI("")
 		global = &g
 	}
-	return map[string]any{"global": global, "overrides": overrides, "effective": effective, "tools": aiTools}
+	tr := map[string]any{"engine": savedTranscriber(), "model": "", "key_set": true}
+	switch v := savedTranscriber(); v {
+	case config.TranscriberWhisper:
+	case config.TranscriberAIStudio:
+		as := transcribe.AIStudioFromEnv()
+		tr["model"], tr["key_set"] = as.Model, as.Key != ""
+	default:
+		d, _ := engineByID(v)
+		tr["model"] = strings.TrimSpace(os.Getenv(transcribeModelEnv))
+		tr["key_set"] = resolve(d).Ready
+	}
+	return map[string]any{"global": global, "overrides": overrides, "effective": effective, "tools": aiTools, "transcriber": tr}
+}
+
+// Mesin transkripsi bawaan job klip (notes/43): whisper lokal, AI Studio, atau
+// id mesin OpenAI-compatible dari Engines & Keys (endpoint /audio/transcriptions).
+// Job yang menyebut "transcriber" sendiri tetap menang.
+const (
+	transcriberEnv     = "CLIPPER_TRANSCRIBER"
+	transcribeModelEnv = "CLIPPER_TRANSCRIBE_MODEL"
+)
+
+func savedTranscriber() string {
+	v := strings.TrimSpace(os.Getenv(transcriberEnv))
+	if v == config.TranscriberAIStudio || audioEngine(v) {
+		return v
+	}
+	return config.TranscriberWhisper
+}
+
+// audioEngine: id mesin yang bisa dipakai untuk transkripsi — mesin
+// OpenAI-compatible. Gemini dilewati: transkripsinya lewat AI Studio (API
+// native), sebab jalur OpenAI-nya tidak punya endpoint audio.
+func audioEngine(id string) bool {
+	d, ok := engineByID(id)
+	return ok && d.Kind == kindOpenAI && d.ID != "gemini"
+}
+
+// fillTranscriber menerjemahkan pilihan transkripsi job (id mesin) menjadi
+// koordinat yang dibaca pipeline. whisper/aistudio dibiarkan apa adanya.
+func fillTranscriber(o *config.Options) {
+	id := o.Transcriber
+	if id == config.TranscriberAPI {
+		id = o.TranscribeEngine // job yang diulang: id-nya sudah tersimpan
+	}
+	if !audioEngine(id) {
+		return
+	}
+	d, _ := engineByID(id)
+	e := resolve(d)
+	o.Transcriber, o.TranscribeEngine = config.TranscriberAPI, id
+	o.TranscribeName, o.TranscribeBase, o.TranscribePath, o.TranscribeKeyEnv = d.Name, e.BaseURL, d.Path, d.EnvKey
+	if o.TranscribeModel == "" {
+		o.TranscribeModel = strings.TrimSpace(os.Getenv(transcribeModelEnv))
+	}
 }
 
 func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +147,21 @@ func (s *Server) saveAISettings(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
+		return
+	}
+	if req.Tool == "transcribe" {
+		if req.Engine != config.TranscriberWhisper && req.Engine != config.TranscriberAIStudio && !audioEngine(req.Engine) {
+			writeErr(w, 400, "unknown transcriber "+req.Engine+": choose whisper, aistudio, or an OpenAI-compatible engine")
+			return
+		}
+		s.setEnv(transcriberEnv, req.Engine)
+		switch {
+		case req.Engine == config.TranscriberAIStudio:
+			s.setEnv("AI_STUDIO_MODEL", strings.TrimSpace(req.Model))
+		case req.Engine != config.TranscriberWhisper:
+			s.setEnv(transcribeModelEnv, strings.TrimSpace(req.Model))
+		}
+		writeJSON(w, 200, aiSettingsView())
 		return
 	}
 	if req.Tool != "" && !contains(aiTools, req.Tool) {

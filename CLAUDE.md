@@ -353,8 +353,12 @@ Sebelum menyerahkan perubahan tampilan apa pun, periksa:
 Halaman lain mengikuti bentuknya; jangan menemukan tata letak baru tiap halaman.
 Bentuk bakunya:
 
-**Tidak ada bilah ikon di atas.** Akun, tema, dan setelan menepi ke DASAR rail
-kiri (`.rail-tools`), berukuran sama.
+**Tidak ada bilah ikon di atas.** Navigasi kiri mengikuti DESIGN-Navigasi
+(bagian kedua `DEsign-clipper-lanjutan.md`): kelompok BUAT + KELOLA (Settings
+kini item menu), kaki rail = kartu pekerjaan berjalan + tombol status mesin AI
++ baris akun (avatar, tema; bahasa di popup akun). ≥1100px sidebar 220px,
+di bawahnya rail ikon 72px — 900x600 hanya punya 505 px tinggi, jadi ukur ulang
+bila menambah item.
 
 **Satu `.page-header` per halaman** (keputusan pemilik 9 Oktober 2026,
 `DESIGN.md` §5.2): `<h1>` judul halaman, satu baris subjudul, status job, dan

@@ -3,8 +3,10 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gemgum/clipper/engine/internal/config"
@@ -15,11 +17,33 @@ import (
 // aiStudio = transkripsi lewat AI Studio dipilih untuk job ini (notes/43).
 func (p *Pipeline) aiStudio() bool { return p.Opts.Transcriber == config.TranscriberAIStudio }
 
+// openAIAudio = mesin transkripsi OpenAI-compatible job ini; nil bila bukan.
+func (p *Pipeline) openAIAudio() *transcribe.OpenAIAudio {
+	if p.Opts.Transcriber != config.TranscriberAPI {
+		return nil
+	}
+	return &transcribe.OpenAIAudio{
+		Name: p.Opts.TranscribeName, Base: p.Opts.TranscribeBase, Path: p.Opts.TranscribePath,
+		Key: strings.TrimSpace(os.Getenv(p.Opts.TranscribeKeyEnv)), Model: p.Opts.TranscribeModel,
+	}
+}
+
+// transcribeModel = model transkripsi "api" yang benar-benar dipakai.
+func (p *Pipeline) transcribeModel() string {
+	if p.Opts.TranscribeModel == "" {
+		return transcribe.OpenAIDefaultModel
+	}
+	return p.Opts.TranscribeModel
+}
+
 // transcriberReady memeriksa mesin transkripsi yang dipilih SEBELUM apa pun
 // dikerjakan: kunci yang kosong ketahuan sebelum audio diekstrak.
 func (p *Pipeline) transcriberReady() error {
 	if p.aiStudio() {
 		return transcribe.AIStudioFromEnv().Available()
+	}
+	if o := p.openAIAudio(); o != nil {
+		return o.Available()
 	}
 	return p.wh.Available()
 }
@@ -28,6 +52,9 @@ func (p *Pipeline) transcriberReady() error {
 func (p *Pipeline) TranscriberName() string {
 	if p.aiStudio() {
 		return "AI Studio (" + transcribe.AIStudioFromEnv().Model + ")"
+	}
+	if p.Opts.Transcriber == config.TranscriberAPI {
+		return p.Opts.TranscribeName + " (" + p.transcribeModel() + ")"
 	}
 	return "whisper " + p.Opts.WhisperModel
 }
@@ -38,6 +65,9 @@ func (p *Pipeline) TranscriberName() string {
 func (p *Pipeline) transcriberCacheModel() string {
 	if p.aiStudio() {
 		return "aistudio:" + transcribe.AIStudioFromEnv().Model
+	}
+	if p.Opts.Transcriber == config.TranscriberAPI {
+		return "api:" + p.Opts.TranscribeBase + ":" + p.transcribeModel()
 	}
 	return p.Opts.WhisperModel
 }
@@ -116,11 +146,18 @@ func (p *Pipeline) Transcript(ctx context.Context, input, tmpDir string, maxSec 
 		}
 		var got types.Transcript
 		var err error
-		if p.aiStudio() {
-			as := transcribe.AIStudioFromEnv()
-			as.Encode = func(ctx context.Context, start, dur float64, out string) error {
-				return p.ff.EncodeAudioChunk(ctx, wav, start, dur, out)
+		encode := func(ctx context.Context, start, dur float64, out string) error {
+			return p.ff.EncodeAudioChunk(ctx, wav, start, dur, out)
+		}
+		if o := p.openAIAudio(); o != nil {
+			o.Encode = encode
+			var sec float64
+			if sec, err = p.ff.Duration(ctx, wav); err == nil {
+				got, err = o.Transcribe(ctx, sec, p.Opts.Language, tmpDir, progress)
 			}
+		} else if p.aiStudio() {
+			as := transcribe.AIStudioFromEnv()
+			as.Encode = encode
 			var sec float64
 			if sec, err = p.ff.Duration(ctx, wav); err == nil {
 				got, err = as.Transcribe(ctx, sec, p.Opts.Language, tmpDir, progress)

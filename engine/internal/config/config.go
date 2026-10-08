@@ -168,6 +168,9 @@ func (s Subtitle) Pacing() (minDur float64, maxLines int) {
 const (
 	TranscriberWhisper  = "whisper"
 	TranscriberAIStudio = "aistudio"
+	// TranscriberAPI = mesin OpenAI-compatible dari Engines & Keys; alamat &
+	// kuncinya diisi server lewat Transcribe* di Options.
+	TranscriberAPI = "api"
 )
 
 // Options untuk satu job clipping.
@@ -177,6 +180,16 @@ type Options struct {
 	// Transcriber = mesin transkripsi: "whisper" (lokal, bawaan) atau
 	// "aistudio" (Google AI Studio, kunci AI_STUDIO_KEY; notes/43).
 	Transcriber    string   `json:"transcriber"`
+	// Koordinat mesin transkripsi "api", DIISI SERVER — alasannya sama dengan
+	// LLMKeyEnv di bawah: nama variabel kunci tidak boleh dipilih klien.
+	// TranscribeEngine = id mesinnya; ikut tersimpan supaya job yang diulang
+	// bisa mengisi ulang koordinat di bawah (job.Manager.Prepare).
+	TranscribeEngine string `json:"transcribe_engine,omitempty"`
+	TranscribeName   string `json:"-"`
+	TranscribeBase   string `json:"-"`
+	TranscribePath   string `json:"-"`
+	TranscribeKeyEnv string `json:"-"`
+	TranscribeModel  string `json:"transcribe_model"`
 	Resolution     string   `json:"resolution"` // 720p | 1080p | 1440p
 	Quality        string   `json:"quality"`    // draft | hd | max
 	FPS            int      `json:"fps"`        // 0 = ikut sumber
@@ -283,6 +296,10 @@ func (o *Options) Validate() error {
 	case "":
 		o.Transcriber = TranscriberWhisper
 	case TranscriberWhisper, TranscriberAIStudio:
+	case TranscriberAPI:
+		if o.TranscribeBase == "" {
+			return fmt.Errorf("the transcription engine is not set up: choose one under Settings → Exceptions → Video clips · Transcription")
+		}
 	default:
 		return fmt.Errorf("unknown transcriber %q: choose %q or %q", o.Transcriber, TranscriberWhisper, TranscriberAIStudio)
 	}

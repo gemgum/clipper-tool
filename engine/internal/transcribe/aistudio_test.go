@@ -84,7 +84,7 @@ func TestSpreadWordsProportional(t *testing.T) {
 
 func TestAIStudioMissingKey(t *testing.T) {
 	_, err := (&AIStudio{Model: "m"}).Transcribe(context.Background(), 10, "id", t.TempDir(), nil)
-	if err == nil || !strings.Contains(err.Error(), "AI_STUDIO_KEY") {
+	if err == nil || !strings.Contains(err.Error(), "Gemini key") {
 		t.Fatalf("galat = %v", err)
 	}
 }

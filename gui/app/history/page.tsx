@@ -66,6 +66,12 @@ export default function HistoryPage() {
     get("/api/watermark").then((d) => setWms(d.jobs || [])).catch(() => {});
   }, [t]);
   useEffect(load, [load]);
+  // ?f=cards dsb.: tombol "My cards" & "Run in background" membuka saringannya
+  // sendiri, bukan "All".
+  useEffect(() => {
+    const f = new URLSearchParams(window.location.search).get("f");
+    if (f && (["clips", "cards", "writer", "captions", "watermark", "failed"] as string[]).includes(f)) setFilter(f as Kind | "failed");
+  }, []);
   // Yang berjalan diperbarui tiap 4 detik selama masih ada.
   const anyRunning = (jobs || []).some((j) => j.status === "running" || j.status === "queued")
     || [...posts, ...caps, ...wms].some((j) => j.status === "running");
@@ -121,6 +127,24 @@ export default function HistoryPage() {
     } catch (err: any) { setError(err.message); }
   };
 
+  // Pesan galat dari balasan engine. Tidak selalu JSON: engine yang lebih lama
+  // dari GUI-nya membalas "404 page not found" untuk rute yang belum ia kenal.
+  const failText = async (res: Response) => {
+    const raw = await res.text().catch(() => "");
+    try { return JSON.parse(raw).error || t("historyDeleteFailed"); }
+    catch { return `${t("historyDeleteFailed")} (HTTP ${res.status}${raw ? ": " + raw.trim() : ""})`; }
+  };
+
+  // Hapus satu entri riwayat (yang sudah berhenti). Berkas hasilnya tidak ikut.
+  const removeEntry = async (e: Entry) => {
+    if (!confirm(t("hiConfirmDelete"))) return;
+    const url = e.kind === "clips" ? `/api/jobs/${e.job!.id}` : e.kind === "cards" ? `/api/cards/${e.card!.id}`
+      : e.kind === "writer" ? `/api/posts/${e.post!.id}` : e.kind === "captions" ? `/api/captions/${e.cap!.id}` : `/api/watermark/${e.wm!.id}`;
+    try { const res = await fetch(eng(url), { method: "DELETE" }); if (!res.ok) setError(await failText(res)); }
+    catch (err: any) { setError(err.message); }
+    load();
+  };
+
   const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const toggleAll = (keys: string[]) => setPicked((p) => {
     const n = new Set(p); const on = keys.every((k) => n.has(k));
@@ -136,7 +160,7 @@ export default function HistoryPage() {
     setBusy(true); setError("");
     for (const k of picked) {
       const url = k.startsWith("card/") ? `/api/cards/${k.slice(5)}` : `/api/jobs/${k.split("/")[0]}/clips/${k.split("/")[1]}`;
-      try { const res = await fetch(eng(url), { method: "DELETE" }); if (!res.ok) setError((await res.json()).error || t("historyDeleteFailed")); }
+      try { const res = await fetch(eng(url), { method: "DELETE" }); if (!res.ok) setError(await failText(res)); }
       catch (err: any) { setError(err.message); }
     }
     setPicked(new Set()); setBusy(false); load();
@@ -210,6 +234,7 @@ export default function HistoryPage() {
                     <p className="hi-title">{t(KIND_LABEL[e.kind])} · {when(e.created)}</p>
                     <p className="hi-why">{stage ? t("hiStoppedAt", { stage: t(stage).toLowerCase(), why }) : why}</p>
                   </div>
+                  <button type="button" className="ghost" onClick={() => removeEntry(e)} title={t("historyDelete")} aria-label={t("historyDelete")}><Trash2 className="ico" aria-hidden="true" /></button>
                   <Link className="btn-ghost" href="/requirements">{t("hiOpenSettings")}</Link>
                   {e.kind === "clips" && <button type="button" className="dark" onClick={() => retry(e)}>{t("hiRetry")}</button>}
                 </div>

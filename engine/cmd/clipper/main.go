@@ -564,10 +564,6 @@ func cmdServe(layout config.Layout, args []string) {
 	hosts := fs.String("host", "", "")
 	_ = fs.Parse(args)
 	password := os.Getenv("CLIPPER_PASSWORD")
-	if *web && (password == "" || *hosts == "") {
-		fmt.Fprintln(os.Stderr, "-web needs CLIPPER_PASSWORD (in the environment or .env) and -host <public name>")
-		os.Exit(1)
-	}
 
 	opts := config.DefaultOptions()
 	if err := layout.Ensure(); err != nil {
@@ -587,6 +583,15 @@ func cmdServe(layout config.Layout, args []string) {
 			listenAddr = "127.0.0.1:0"
 		}
 	}
+	// Tanpa sandi HANYA untuk mencoba versi web di laptop sendiri: alamat dengar
+	// loopback DAN semua -host nama lokal. Loopback saja tidak cukup — di VPS
+	// engine juga mendengarkan di 127.0.0.1, di belakang nginx yang
+	// meneruskan pengunjung publik ke sana. Sandi yang ada tidak pernah dibuang.
+	if *web && password == "" && !localOnly(listenAddr, *hosts) {
+		fmt.Fprintln(os.Stderr, "-web needs CLIPPER_PASSWORD (in the environment or .env) and -host <public name>; only a local-only engine (127.0.0.1 with -host localhost) may run without one")
+		os.Exit(1)
+	}
+
 	// Didengarkan lebih dulu, baru dilaporkan: dengan port 0, nomor portnya
 	// baru ada setelah sistem operasi memberikannya.
 	ln, err := net.Listen("tcp", listenAddr)
@@ -606,7 +611,9 @@ func cmdServe(layout config.Layout, args []string) {
 	token := ""
 	if *web {
 		for _, h := range strings.Split(*hosts, ",") {
-			srv.AllowHost(strings.TrimSpace(h))
+			if h = strings.TrimSpace(h); h != "" {
+				srv.AllowHost(h)
+			}
 		}
 		srv.SetWeb(password)
 	} else if *tokenMode == "on" || (*tokenMode == "auto" && !layout.Dev) {
@@ -632,7 +639,9 @@ func cmdServe(layout config.Layout, args []string) {
 	fmt.Printf("  data    : %s%s\n", paths.DataDir, devNote(layout))
 	fmt.Printf("  API key : %s\n", maskKey(paths.APIKey))
 	fmt.Printf("  gui     : %s\n", api.GUIStatus(layout.GUIDir))
-	if *web {
+	if *web && password == "" {
+		fmt.Printf("  key     : web, local only: no password (listening on %s)\n", listenAddr)
+	} else if *web {
 		// Kuncinya TIDAK dicetak: stdout berakhir di journald, dan kunci di
 		// sana sama saja dengan kata sandinya.
 		fmt.Printf("  key     : web: team password, sign in at https://%s/login\n", strings.Split(*hosts, ",")[0])
@@ -849,4 +858,31 @@ func cmdWatermark(layout config.Layout, args []string) {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(res)
+}
+
+// localOnly: engine hanya untuk mesin ini — alamat dengar loopback dan setiap
+// nama -host (bila ada) juga nama loopback.
+func localOnly(listenAddr, hosts string) bool {
+	if !loopback(listenAddr) {
+		return false
+	}
+	for _, h := range strings.Split(hosts, ",") {
+		if h = strings.TrimSpace(h); h != "" && !loopback(h) {
+			return false
+		}
+	}
+	return true
+}
+
+// loopback melaporkan apakah alamat dengar hanya bisa dicapai dari mesin ini.
+func loopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

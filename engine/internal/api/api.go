@@ -73,6 +73,9 @@ func NewServer(mgr *job.Manager, l config.Layout) *Server {
 	s.posts.persistTo(filepath.Join(runs, "post"))
 	s.captions.persistTo(filepath.Join(runs, "caption"))
 	s.watermarks.persistTo(filepath.Join(runs, "watermark"))
+	if mgr != nil {
+		mgr.Prepare = func(o *config.Options) { fillEngine(o); fillTranscriber(o) }
+	}
 	return s
 }
 
@@ -134,6 +137,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.jobEvents)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
+	mux.HandleFunc("DELETE /api/jobs/{id}", s.deleteJob)
 	mux.HandleFunc("POST /api/jobs/{id}/retry", s.retryJob)
 	mux.HandleFunc("POST /api/jobs/{id}/rerender", s.rerenderJob)
 	mux.HandleFunc("GET /api/jobs/{id}/log", s.jobLog)
@@ -166,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/posts/{id}", s.getPost)
 	mux.HandleFunc("GET /api/posts/{id}/file", s.postFile)
 	mux.HandleFunc("POST /api/posts/{id}/cancel", s.cancelPost)
+	mux.HandleFunc("DELETE /api/posts/{id}", s.posts.deleteHandler)
 	mux.HandleFunc("GET /api/posts/limits", s.postLimits)
 
 	mux.HandleFunc("POST /api/captions", s.createCaption)
@@ -174,6 +179,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/captions/{id}", s.getCaption)
 	mux.HandleFunc("GET /api/captions/{id}/file", s.captionFile)
 	mux.HandleFunc("POST /api/captions/{id}/cancel", s.cancelCaption)
+	mux.HandleFunc("DELETE /api/captions/{id}", s.captions.deleteHandler)
 
 	mux.HandleFunc("POST /api/watermark", s.createWatermark)
 	mux.HandleFunc("GET /api/watermark", s.listWatermarks)
@@ -181,6 +187,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/watermark/{id}", s.getWatermark)
 	mux.HandleFunc("GET /api/watermark/{id}/file", s.watermarkFile)
 	mux.HandleFunc("POST /api/watermark/{id}/cancel", s.cancelWatermark)
+	mux.HandleFunc("DELETE /api/watermark/{id}", s.watermarks.deleteHandler)
 	if s.web {
 		mux.HandleFunc("POST /api/login", s.login)
 		mux.HandleFunc("GET /login", loginPage)
@@ -1150,6 +1157,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	// benar-benar ada di body, jadi field yang tidak dikirim mempertahankan
 	// defaultnya alih-alih jatuh ke nilai nol Go.
 	req.Options = config.DefaultOptions()
+	req.Options.Transcriber = savedTranscriber()
 	if err := json.Unmarshal(body, &req); err != nil {
 		writeErr(w, 400, "invalid JSON body: "+err.Error())
 		return
@@ -1207,6 +1215,7 @@ func (s *Server) createJob(w http.ResponseWriter, r *http.Request) {
 	// jalur, dan NAMA variabel kuncinya — bukan kuncinya, dan bukan tabel
 	// penyedia kedua.
 	fillEngine(&opts)
+	fillTranscriber(&opts)
 	// Path banner menempuh pemeriksaan yang sama dengan path video: ia juga
 	// datang dari klien dan juga berakhir sebagai argumen ffmpeg.
 	if opts.Watermark.Image != "" {
@@ -1302,6 +1311,19 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "canceled"})
+}
+
+// deleteJob membuang satu job dari riwayat (lihat job.Manager.Delete).
+func (s *Server) deleteJob(w http.ResponseWriter, r *http.Request) {
+	if err := s.mgr.Delete(r.PathValue("id")); err != nil {
+		if os.IsNotExist(err) {
+			writeErr(w, 404, "job not found")
+			return
+		}
+		writeErr(w, 409, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"deleted": true})
 }
 
 // retryJob: "Coba lagi dari tahap ini" — job baru, setelan sama; tahap yang

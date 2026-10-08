@@ -37,4 +37,26 @@ dikerjakan Gemini lewat Google AI Studio. Dipilih per job, bukan cadangan.
   `httpx.Retry`.
 - Kunci cache transkrip memakai model `aistudio:<model>`; cache whisper lama
   tetap terpakai (kuncinya tidak berubah).
-- Halaman Requirements belum punya isian untuk `AI_STUDIO_KEY`; isi lewat `.env`.
+- Kunci: `AI_STUDIO_KEY`, bila kosong dipakai `GEMINI_API_KEY` (kunci mesin
+  Gemini di Engines & Keys — sumber kuncinya sama, aistudio.google.com).
+- Bawaan job klip dipilih di Settings → Exceptions → "Video clips ·
+  Transcription" (`CLIPPER_TRANSCRIBER` + `AI_STUDIO_MODEL` di `.env`, 9 Oktober
+  2026). Job yang mengirim `transcriber` sendiri tetap menang.
+
+## Mesin OpenAI-compatible (9 Oktober 2026)
+
+Selain whisper & AI Studio, transkripsi bisa memakai mesin OpenAI-compatible
+dari Engines & Keys (OpenAI, Custom, mesin tambahan pengguna) lewat
+`POST {base}/v1/audio/transcriptions` (`transcribe/openai.go`). Potongan audio
+sama dengan AI Studio (10 menit, Opus), diminta `response_format=verbose_json`.
+
+- Setelan: `CLIPPER_TRANSCRIBER=<id mesin>` + `CLIPPER_TRANSCRIBE_MODEL`
+  (kosong = `whisper-1`). Model chat (glm-*, gpt-*) TIDAK bisa — yang
+  dibutuhkan model ucapan-ke-teks.
+- Model yang membalas teks tanpa segmen ditolak dengan pesan: satu subtitle
+  sepanjang 10 menit lebih buruk daripada job yang berhenti.
+- Waktu per kata = perkiraan (spreadWords), sama seperti AI Studio.
+- Gemini tidak ditawarkan di sini: jalur OpenAI-nya tanpa endpoint audio; ia
+  lewat pilihan AI Studio.
+- Job menyimpan `transcribe_engine`; alamat & nama variabel kunci diisi ulang
+  server saat job dibuat atau diulang (`job.Manager.Prepare`).

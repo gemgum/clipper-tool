@@ -35,13 +35,17 @@ import (
 // di sebelas tempat; jadikan field Server bila suatu saat ada dua Server.
 var webRoot string
 
-// SetWeb menyalakan mode web.
+// SetWeb menyalakan mode web. Sandi kosong hanya boleh untuk engine di loopback.
 func (s *Server) SetWeb(password string) {
 	s.web = true
 	s.password = password
-	mac := hmac.New(sha256.New, []byte(password))
-	mac.Write([]byte("clipper-session"))
-	s.token = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	// Sandi kosong = mode web lokal (engine di loopback, lihat cmdServe):
+	// tanpa kunci, jadi withToken tidak memasang gerbang /login.
+	if password != "" {
+		mac := hmac.New(sha256.New, []byte(password))
+		mac.Write([]byte("clipper-session"))
+		s.token = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	}
 	webRoot = s.uploadDir()
 	if s.mgr != nil {
 		s.mgr.OnDone = func(input string) { dropUploads(input) }

@@ -57,13 +57,19 @@ func AIStudioFromEnv() *AIStudio {
 	if model == "" {
 		model = AIStudioDefaultModel
 	}
-	return &AIStudio{Key: strings.TrimSpace(os.Getenv("AI_STUDIO_KEY")), Model: model}
+	// Kunci AI Studio = kunci mesin Gemini di halaman Engines & Keys (halaman
+	// kuncinya sama: aistudio.google.com/apikey), jadi cukup diisi sekali di sana.
+	key := strings.TrimSpace(os.Getenv("AI_STUDIO_KEY"))
+	if key == "" {
+		key = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
+	}
+	return &AIStudio{Key: key, Model: model}
 }
 
 // Available memastikan kuncinya ada SEBELUM audio diekstrak.
 func (a *AIStudio) Available() error {
 	if a.Key == "" {
-		return fmt.Errorf("AI Studio has no API key yet: set AI_STUDIO_KEY in .env (or on the Requirements page)")
+		return fmt.Errorf("AI Studio has no API key yet: add a Gemini key on the Engines & Keys page")
 	}
 	return nil
 }
@@ -129,13 +135,28 @@ func (a *AIStudio) Transcribe(ctx context.Context, totalSec float64, language, t
 	if totalSec <= 0 {
 		return types.Transcript{}, fmt.Errorf("AI Studio transcription: the audio length is unknown")
 	}
+	return chunked(ctx, totalSec, tmpDir, a.Encode, onProgress, func(ctx context.Context, audio []byte) ([]segOut, error) {
+		segs, err := a.chunk(ctx, audio, language)
+		if err != nil {
+			return nil, fmt.Errorf("AI Studio (%s): %w", a.Model, err)
+		}
+		return segs, nil
+	}, language)
+}
+
+// chunked memotong audio per AIStudioChunkSec, mengodekan tiap potongan lewat
+// encode, mengirimnya lewat send, lalu menyusun segmennya ke waktu mutlak.
+// Dipakai bersama AI Studio dan mesin OpenAI-compatible (openai.go).
+func chunked(ctx context.Context, totalSec float64, tmpDir string,
+	encode func(ctx context.Context, start, dur float64, out string) error,
+	onProgress func(float64), send func(ctx context.Context, audio []byte) ([]segOut, error), language string) (types.Transcript, error) {
 	tr := types.Transcript{Language: language}
 	n := int(math.Ceil(totalSec / AIStudioChunkSec))
 	for i := 0; i < n; i++ {
 		start := float64(i) * AIStudioChunkSec
 		dur := math.Min(AIStudioChunkSec, totalSec-start)
-		out := filepath.Join(tmpDir, fmt.Sprintf("aistudio_%03d.ogg", i))
-		if err := a.Encode(ctx, start, dur, out); err != nil {
+		out := filepath.Join(tmpDir, fmt.Sprintf("chunk_%03d.ogg", i))
+		if err := encode(ctx, start, dur, out); err != nil {
 			return types.Transcript{}, err
 		}
 		audio, err := os.ReadFile(out)
@@ -143,9 +164,9 @@ func (a *AIStudio) Transcribe(ctx context.Context, totalSec float64, language, t
 		if err != nil {
 			return types.Transcript{}, err
 		}
-		segs, err := a.chunk(ctx, audio, language)
+		segs, err := send(ctx, audio)
 		if err != nil {
-			return types.Transcript{}, fmt.Errorf("AI Studio (%s), part %d of %d: %w", a.Model, i+1, n, err)
+			return types.Transcript{}, fmt.Errorf("part %d of %d: %w", i+1, n, err)
 		}
 		tr.Segments = append(tr.Segments, placeSegments(segs, start, dur)...)
 		if onProgress != nil {

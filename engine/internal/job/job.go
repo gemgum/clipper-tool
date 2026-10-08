@@ -64,6 +64,11 @@ type Manager struct {
 	// OnDone dipanggil dengan video sumber setiap job yang SELESAI sukses. Mode
 	// web memakainya untuk menghapus unggahan (api/web.go); di desktop nil.
 	OnDone func(input string)
+	// Prepare mengisi ulang koordinat mesin (alamat, nama variabel kunci) di
+	// setelan job yang diulang. Koordinat itu json:"-", jadi job dari riwayat
+	// di disk tidak membawanya; tanpa ini "Try again" setelah aplikasi dibuka
+	// ulang menjalankan job dengan alamat mesin kosong.
+	Prepare func(o *config.Options)
 }
 
 // SetLayout memperbarui peta folder setelah pengguna mengubah setelannya.
@@ -310,6 +315,9 @@ func (m *Manager) Retry(id string) (*Job, error) {
 	}
 	if _, err := os.Stat(input); err != nil {
 		return nil, ErrSourceGone
+	}
+	if m.Prepare != nil {
+		m.Prepare(&opts)
 	}
 	return m.Create(input, opts), nil
 }

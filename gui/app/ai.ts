@@ -15,6 +15,8 @@ export type AISettings = {
   overrides: Record<AITool, AIChoice | null>;
   effective: Record<AITool, AIChoice>;
   tools: AITool[];
+  // Mesin transkripsi job klip (notes/43). Kunci AI Studio = kunci Gemini.
+  transcriber: { engine: string; model: string; key_set: boolean }; // whisper | aistudio | id mesin
 };
 
 // Satu permintaan untuk seluruh halaman yang terbuka; disegarkan saat jendela
@@ -28,7 +30,7 @@ export function loadAISettings(fresh = false): Promise<AISettings> {
   return cache;
 }
 
-export async function saveAI(tool: AITool | "", engine: string, model: string): Promise<AISettings> {
+export async function saveAI(tool: AITool | "transcribe" | "", engine: string, model: string): Promise<AISettings> {
   const res = await fetch(eng("/api/settings/ai"), {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ tool, engine, model }),
