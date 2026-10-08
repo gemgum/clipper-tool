@@ -6,7 +6,7 @@ dikerjakan Gemini lewat Google AI Studio. Dipilih per job, bukan cadangan.
 ## Cara memakai
 
 - `.env`: `AI_STUDIO_KEY=<kunci>` (wajib), `AI_STUDIO_MODEL=` (opsional,
-  bawaan `gemini-2.5-flash`).
+  bawaan `gemini-3.5-flash`).
 - CLI: `clipper run video.mp4 -transcriber aistudio`.
 - API: `"transcriber": "aistudio"` di `options` job (`whisper` = bawaan).
 - `GET /api/requirements` membawa `ai_studio: {key_set, model}`; kuncinya

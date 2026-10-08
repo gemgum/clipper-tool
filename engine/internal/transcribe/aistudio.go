@@ -26,7 +26,11 @@ import (
 // bila gagal, job berhenti dengan pesan akar masalahnya (notes/12).
 
 // AIStudioDefaultModel dipakai bila AI_STUDIO_MODEL kosong.
-const AIStudioDefaultModel = "gemini-2.5-flash"
+// AIStudioDefaultModel: diuji 9 Oktober 2026 dengan audio sungguhan.
+// gemini-2.5-flash sudah ditolak (404, "no longer available to new users");
+// 3.6/3.7/3.8-flash & gemini-flash-latest membalas 503 "high demand" untuk
+// input audio walau teks biasa lolos. Timpa dengan AI_STUDIO_MODEL.
+const AIStudioDefaultModel = "gemini-3.5-flash"
 
 // AIStudioChunkSec: panjang satu potongan audio. 10 menit Opus 24 kbps ≈ 1,8 MB
 // — jauh di bawah batas 20 MB permintaan inline, dan balasan JSON-nya masih
