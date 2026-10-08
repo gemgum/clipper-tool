@@ -41,9 +41,12 @@ const DefaultMaxWords = 1200
 
 // Variant satu caption siap tempel.
 type Variant struct {
-	Hook string   `json:"hook"`
-	Body string   `json:"body"`
-	Tags []string `json:"tags,omitempty"`
+	// Style = gaya caption ini (DESIGN-Clipper-Lanjutan §5): "direct",
+	// "question", atau "short". Ditampilkan sebagai label di GUI.
+	Style string   `json:"style,omitempty"`
+	Hook  string   `json:"hook"`
+	Body  string   `json:"body"`
+	Tags  []string `json:"tags,omitempty"`
 	// Violations = pagar yang dilanggar caption ini. Tidak menggagalkan apa pun
 	// (kebijakan yang sama dengan pembuat berita, notes/38): keluarannya draf,
 	// dan yang dibutuhkan pemakainya adalah tahu MANA yang perlu dicek.
@@ -68,6 +71,10 @@ const systemPrompt = `You write captions for short vertical videos on social med
 You are given what is SAID in the video, as plain text.
 
 Write %[1]d captions. Not fewer — %[1]d, each taking a different angle on the video.
+Give them these styles in this order, repeating the cycle if more are asked:
+1. "direct": the hook states the strongest claim of the video plainly.
+2. "question": the hook is a question the video actually answers.
+3. "short": a short hook and a body of ONE short sentence.
 
 What a hook is: one line that makes a thumb stop. It is a claim, a question, a number,
 or a contradiction that is ACTUALLY IN the video. It is never a summary, and it never
@@ -88,6 +95,7 @@ Rules:
 - No call to action about liking, following, or watching to the end.
 
 Fields:
+- "style" — "direct", "question" or "short", as listed above.
 - "hook" — the first line. One sentence, at most 12 words.
 - "body" — one to three sentences saying what is actually in the video.
 - "tags" — 3 to 6 hashtags WITHOUT the # sign, one or two words each. Only names,
@@ -95,7 +103,7 @@ Fields:
 
 Reply with JSON ONLY, in exactly this shape:
 
-{"captions": [{"hook": "...", "body": "...", "tags": ["Jakarta", "banjir"]}]}`
+{"captions": [{"style": "direct", "hook": "...", "body": "...", "tags": ["Jakarta", "banjir"]}]}`
 
 // Schema = JSON Schema untuk parameter "format" Ollama (notes/35).
 //
@@ -116,8 +124,9 @@ func Schema(n int) map[string]any {
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"hook": map[string]any{"type": "string"},
-						"body": map[string]any{"type": "string"},
+						"style": map[string]any{"type": "string", "enum": Styles},
+						"hook":  map[string]any{"type": "string"},
+						"body":  map[string]any{"type": "string"},
 						"tags": map[string]any{
 							"type":  "array",
 							"items": map[string]any{"type": "string"},
@@ -171,18 +180,37 @@ func Generate(ctx context.Context, complete writer.Completer, transcript string,
 // parse membaca balasan dalam kedua bentuk yang muncul di lapangan: objek
 // {"captions": [...]} dari server yang memaksakan skema, dan larik telanjang
 // dari yang tidak (DeepSeek menolak response_format sama sekali).
+// Styles = urutan gaya yang diminta prompt.
+var Styles = []string{"direct", "question", "short"}
+
 func parse(s string) ([]Variant, error) {
 	var wrapped struct {
 		Captions []Variant `json:"captions"`
 	}
 	if err := json.Unmarshal([]byte(s), &wrapped); err == nil {
-		return wrapped.Captions, nil
+		return withStyles(wrapped.Captions), nil
 	}
 	var bare []Variant
 	if err := json.Unmarshal([]byte(s), &bare); err == nil {
-		return bare, nil
+		return withStyles(bare), nil
 	}
 	return nil, json.Unmarshal([]byte(s), &wrapped)
+}
+
+// withStyles mengisi gaya yang kosong atau tak dikenal dari urutannya: model
+// yang mengabaikan field itu (server tanpa skema) tetap menghasilkan label
+// yang konsisten dengan urutan yang diminta prompt.
+func withStyles(vs []Variant) []Variant {
+	for i := range vs {
+		ok := false
+		for _, st := range Styles {
+			ok = ok || vs[i].Style == st
+		}
+		if !ok {
+			vs[i].Style = Styles[i%len(Styles)]
+		}
+	}
+	return vs
 }
 
 // check menjalankan pagar deterministik atas tiap caption.

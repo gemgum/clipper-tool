@@ -3002,3 +3002,30 @@ a.src-chip:hover { background: var(--accent); color: var(--on-accent); }
 .wr-foot b { color: var(--text); }
 .wr-running { display: flex; flex-direction: column; gap: 10px; padding: 24px 0; }
 .wr-tech { padding: 20px 32px 0; }
+
+/* ================= Caption — DESIGN-Clipper-Lanjutan §5 ================= */
+.cap-body { display: flex; flex-wrap: wrap; gap: 28px; align-items: flex-start; padding: 26px 32px 0; }
+.cap-results { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.cap-results .banner { margin: 0; }
+.cap-side { flex: 0 1 380px; min-width: 320px; display: flex; flex-direction: column; gap: 18px; }
+.cap-side .card { padding: 22px; }
+.cap-card { padding: 22px !important; }
+.cap-card-head { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+.cap-card-head .meta { margin: 4px 0 0; }
+.cap-card-head button, .cap-card-head .btn-ghost { min-height: 36px; padding: 0 14px; font-size: 13.5px; flex: none; }
+.cap-thumb { width: 38px; height: 66px; border-radius: 6px; background: var(--sunken); display: flex; align-items: center; justify-content: center; color: var(--faint); flex: none; }
+.cap-transcript { margin: 0 0 14px; padding: 14px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+.cap-option { border: 1px solid var(--border); border-radius: 11px; padding: 14px 16px; margin-bottom: 10px; }
+.cap-option-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.cap-option-head button { min-height: 32px; padding: 0 13px; font-size: 13px; }
+.cap-option .cap-hook { margin: 0 0 4px; font-size: 14.5px; font-weight: 700; line-height: 1.5; }
+.cap-body-text { margin: 0 0 6px; font-size: 14.5px; line-height: 1.6; }
+.cap-videos { list-style: none; margin: 0; padding: 0; }
+.cap-videos li { display: flex; gap: 11px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; font-weight: 600; }
+.cap-videos li .grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cap-add-row { display: flex; gap: 8px; margin-top: 14px; }
+button.cap-add { flex: 1; min-height: 44px; border-style: dashed; }
+.cap-drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.cap-hint { margin: 8px 0 0; }
+.cap-side .stepper { max-width: 200px; }

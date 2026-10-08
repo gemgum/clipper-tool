@@ -220,3 +220,14 @@ func TestRunNeverOverwritesAFileThatIsNotOurs(t *testing.T) {
 		t.Errorf("berkas ucapan klip ikut berubah: %q (%v)", string(raw), err)
 	}
 }
+
+// Gaya kosong / tak dikenal diisi dari urutan; gaya yang sah dibiarkan.
+func TestWithStyles(t *testing.T) {
+	vs := withStyles([]Variant{{Style: "question"}, {}, {Style: "aneh"}, {}})
+	want := []string{"question", "question", "short", "direct"}
+	for i, v := range vs {
+		if v.Style != want[i] {
+			t.Errorf("varian %d gaya %q, mau %q", i, v.Style, want[i])
+		}
+	}
+}

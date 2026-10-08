@@ -108,8 +108,12 @@ type FileResult struct {
 	Name     string    `json:"name"`
 	TXT      string    `json:"txt,omitempty"`
 	Variants []Variant `json:"variants,omitempty"`
-	VideoSec float64   `json:"video_seconds,omitempty"`
-	UsedSec  float64   `json:"used_seconds,omitempty"`
+	// Transcript = ucapan yang dipakai menulis caption (sudah dikoreksi bila
+	// koreksi menyala), untuk tombol "Lihat transkrip" (DESIGN-Clipper-Lanjutan
+	// §5). Berkas .txt di sebelah video berisi CAPTION-nya, bukan ini.
+	Transcript string  `json:"transcript,omitempty"`
+	VideoSec   float64 `json:"video_seconds,omitempty"`
+	UsedSec    float64 `json:"used_seconds,omitempty"`
 	// Error = kegagalan video INI saja. Satu berkas rusak di tengah antrian 30
 	// berkas tidak boleh membuang 29 yang lain.
 	Error string `json:"error,omitempty"`
@@ -234,7 +238,8 @@ func one(ctx context.Context, video string, opts Options, deps Deps, used map[st
 
 	emit(onProgress, Progress{Stage: "writing", Value: 0.6,
 		Message: "Writing captions for " + f.Name + ": " + opts.EngineName})
-	variants, err := Generate(ctx, deps.Complete, speech.Text(), opts)
+	f.Transcript = speech.Text()
+	variants, err := Generate(ctx, deps.Complete, f.Transcript, opts)
 	if err != nil {
 		return f, err
 	}

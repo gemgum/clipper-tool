@@ -12,23 +12,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { X, Copy, Folder, Film, Captions } from "lucide-react";
+import { X, Copy, Folder, Film, Captions, Check, Plus } from "lucide-react";
+import { Segmented } from "../clip-steps";
 import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
-import EnginePicker, { useEngines } from "../engine-picker";
-import Select from "../select";
+import { useAI } from "../ai";
 import LogPanel from "../log-panel";
 import Picker from "../picker";
-import RunPanel from "../run-panel";
 import Stepper from "../stepper";
 
 type WhisperModel = { name: string; downloaded: boolean; size: string };
-type Variant = { hook: string; body: string; tags?: string[]; violations?: string[] };
+type Variant = { style?: string; hook: string; body: string; tags?: string[]; violations?: string[] };
 type FileResult = {
   video: string;
   name: string;
   txt?: string;
+  transcript?: string;
   variants?: Variant[];
   video_seconds?: number;
   used_seconds?: number;
@@ -92,9 +92,11 @@ export default function CaptionsPage() {
   const [terms, setTerms] = useState("");
 
   // --- mesin ---
-  const { engines } = useEngines();
-  const [engine, setEngine] = useState("ollama");
-  const [model, setModel] = useState("");
+  // Dari Pengaturan (global atau pengecualian alat "captions"), DESIGN-Clipper-
+  // Lanjutan §5: mesin AI & model Whisper tidak lagi dipilih di alat ini.
+  const ai = useAI("captions");
+  const engine = ai?.engine || "ollama";
+  const model = ai?.model || "";
 
   // --- job ---
   const [jobId, setJobId] = useState("");
@@ -255,207 +257,171 @@ export default function CaptionsPage() {
 
   const files = job?.result?.files ?? [];
 
+  // "Semua" = batas yang jauh melebihi durasi video mana pun (0 berarti
+  // bawaan 5 menit di engine).
+  const ALL_MIN = 24 * 60;
+  const styleLabel = (s?: string) => t(s === "question" ? "capStyleQuestion" : s === "short" ? "capStyleShort" : "capStyleDirect");
+  const capText = (v: Variant) => [v.hook, v.body, v.tags?.length ? v.tags.map((x) => "#" + x).join(" ") : ""].filter(Boolean).join("\n\n");
+  const doneFiles = files.filter((f) => !f.error && (f.variants ?? []).length);
+  const copyAll = async () => {
+    const text = doneFiles.map((f) => [f.name, ...(f.variants ?? []).map((v) => `[${styleLabel(v.style)}]\n${capText(v)}`)].join("\n\n")).join("\n\n---\n\n");
+    try { await navigator.clipboard.writeText(text); setCopied("all"); setTimeout(() => setCopied(""), 1500); } catch { setError(t("errCopy")); }
+  };
+  // Transkrip ikut di hasil tiap video (engine caption.FileResult.Transcript).
+  const [shownTxt, setShownTxt] = useState<Set<number>>(new Set());
+  const toggleTxt = (i: number) => setShownTxt((cur) => { const n = new Set(cur); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  const pct = Math.round((job?.progress ?? 0) * 100);
+
   return (
-    <div className="screen">
+    <div className="screen scroll clips-v2 captions-v2">
       <PageHeader title={t("tabCaptions")} subtitle={t("subCaptions")}>
-        <RunPanel
-          busy={busy} testing={false}
-          disabled={busy || videos.length === 0}
-          cancellable={busy && !!jobId}
-          onStart={start} onCancel={cancel}
-          progress={job?.progress ?? 0}
-        />
+        {doneFiles.length > 0 && !busy && (
+          <button type="button" className="ghost" onClick={copyAll}><Copy className="ico" aria-hidden="true" /> {copied === "all" ? t("copied") : t("capCopyAll")}</button>
+        )}
+        {busy ? (
+          <button type="button" className="danger" onClick={cancel}>{t("cancelRun")}</button>
+        ) : (
+          <button type="button" className="primary big" onClick={start} disabled={videos.length === 0}>
+            {files.length ? t("capRedo") : videos.length === 1 ? t("capStartOne") : t("capStart", { n: videos.length })}
+          </button>
+        )}
       </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
-      <div className="screen-body two">
-        {/* KIRI: yang dilihat. */}
-        <div className="screen-main">
-          <div className="panel post-panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("capTitle")}</div>
-
-            {!files.length ? (
-              busy ? <p className="stage">{t("capRunning")}</p>
-                : <EmptyState icon={Captions} title={t("capEmptyTitle")} description={t("capEmpty")} />
-            ) : (
-              <div className="post-view">
-                {files.map((f, idx) => (
-                  <div key={f.video} className="cap-file">
-                    <div className="cap-file-head">
-                      <strong>{f.name}</strong>
-                      <span className="meta" title={f.txt || f.video}>
-                        {f.error
-                          ? `${t("capFailed")}: ${f.error}`
-                          : [
-                              f.used_seconds && f.video_seconds
-                                ? t("capRead", { used: fmtDur(f.used_seconds), total: fmtDur(f.video_seconds) })
-                                : "",
-                              f.txt ? t("capSaved", { name: baseName(f.txt) }) : "",
-                            ].filter(Boolean).join(" · ")}
-                      </span>
-                      {web && f.txt && job && (
-                        <a className="dl" href={eng(`/api/captions/${job.id}/file?i=${idx}`)} download>.txt</a>
-                      )}
-                    </div>
-                    {(f.variants ?? []).map((v, i) => (
-                      <div key={i} className="cap-variant">
-                        <button className="ghost tiny cap-copy" onClick={() => copy(f.video + i, v)}>
-                          <Copy className="ico" aria-hidden="true" />
-                          {copied === f.video + i ? t("copied") : t("capCopy")}
-                        </button>
-                        <p className="cap-hook">{v.hook}</p>
-                        <p>{v.body}</p>
-                        {!!v.tags?.length && <p className="post-tags">{v.tags.map((x) => "#" + x).join(" ")}</p>}
-                        {/* Pagar isi. Tidak menghalangi apa pun — ia menandai
-                            baris mana yang perlu dicocokkan dengan videonya. */}
-                        {(v.violations ?? []).map((w, k) => (
-                          <p key={k} className="cap-warn">{t("capCheck")}: {w}</p>
-                        ))}
-                      </div>
-                    ))}
-                    {!f.error && !(f.variants ?? []).length && <p className="meta">{t("capNoSpeech")}</p>}
-                  </div>
-                ))}
+      <div className="cap-body">
+        <section className="cap-results">
+          {busy && (
+            <div className="card" aria-live="polite">
+              <p className="hi-title">{t("capRunning")}</p>
+              <div className="bar wr-gap"><div style={{ width: `${pct}%` }} /></div>
+              <p className="meta">{pct}%</p>
+            </div>
+          )}
+          {!busy && !files.length && (
+            <section className="card"><EmptyState icon={Captions} title={t("capEmptyTitle")} description={t("capEmpty")} /></section>
+          )}
+          {doneFiles.length > 0 && (
+            <div className="banner good" role="status">
+              <span className="banner-ico" aria-hidden="true"><Check className="ico" /></span>
+              <p><b>{doneFiles.length === 1 ? t("capDoneOne") : t("capDone", { n: doneFiles.length })}</b> {t("capDoneMore", { n: variants })}</p>
+            </div>
+          )}
+          {files.map((f, idx) => (
+            <article key={f.video} className="card cap-card">
+              <div className="cap-card-head">
+                <span className="cap-thumb" aria-hidden="true"><Film className="ico" /></span>
+                <div className="grow">
+                  <p className="hi-title">{f.name}</p>
+                  <p className="meta">{f.error ? `${t("capFailed")}: ${f.error}`
+                    : [f.video_seconds ? fmtDur(f.video_seconds) : "",
+                       f.used_seconds ? t("capListened", { used: fmtDur(f.used_seconds) }) : ""].filter(Boolean).join(" · ")}</p>
+                </div>
+                {!f.error && job && (
+                  <>
+                    <button type="button" className="ghost" onClick={() => toggleTxt(idx)}>{shownTxt.has(idx) ? t("capHideTranscript") : t("capShowTranscript")}</button>
+                    {web && f.txt && <a className="btn-ghost" href={eng(`/api/captions/${job.id}/file?i=${idx}`)} download>.txt</a>}
+                  </>
+                )}
               </div>
+              {shownTxt.has(idx) && <pre className="cap-transcript">{f.transcript || t("capNoTranscript")}</pre>}
+              {(f.variants ?? []).map((v, i) => (
+                <div key={i} className="cap-option">
+                  <div className="cap-option-head">
+                    <span className="hi-badge">{styleLabel(v.style)}</span>
+                    <span className="grow" />
+                    <span className="meta">{t("capChars", { n: capText(v).length })}</span>
+                    <button type="button" className="ghost" onClick={() => copy(f.video + i, v)}>{copied === f.video + i ? t("copied") : t("capCopy")}</button>
+                  </div>
+                  <p className="cap-hook">{v.hook}</p>
+                  {v.body && <p className="cap-body-text">{v.body}</p>}
+                  {!!v.tags?.length && <p className="meta">{v.tags.map((x) => "#" + x).join(" ")}</p>}
+                  {(v.violations ?? []).map((w, k) => <p key={k} className="cap-warn">{t("capCheck")}: {w}</p>)}
+                </div>
+              ))}
+              {!f.error && !(f.variants ?? []).length && <p className="meta">{t("capNoSpeech")}</p>}
+            </article>
+          ))}
+        </section>
+
+        <section className="cap-side">
+          <div className={"card cap-drop" + (dragOver ? " over" : "")}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files?.length) dropFiles(e.dataTransfer.files); }}>
+            <div className="card-head">
+              <h2>{t("capVideosTitle")}</h2>
+              <span className="meta">{videos.length === 1 ? t("capFilesOne") : t("capFiles", { n: videos.length })}</span>
+            </div>
+            <ul className="cap-videos">
+              {videos.map((v) => (
+                <li key={v}>
+                  <Film className="ico" aria-hidden="true" />
+                  <span className="grow" title={v}>{baseName(v)}</span>
+                  <button type="button" className="ghost tiny icon-only" aria-label={t("capRemove")} title={t("capRemove")} disabled={busy}
+                    onClick={() => setVideos((cur) => cur.filter((x) => x !== v))}><X className="ico" aria-hidden="true" /></button>
+                </li>
+              ))}
+            </ul>
+            {web ? (
+              <>
+                <input ref={fileInput} type="file" accept="video/*" multiple hidden
+                  onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ""; if (fs.length) dropFiles(fs); }} />
+                <button type="button" className="ghost cap-add" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
+                  <Plus className="ico" aria-hidden="true" /> {t("capAddVideo")}
+                </button>
+                {upNote && <p className="meta">{upNote}</p>}
+              </>
+            ) : (
+              <>
+                <div className="cap-add-row">
+                  <button type="button" className="ghost cap-add" onClick={() => setPicking("file")}><Plus className="ico" aria-hidden="true" /> {t("capAddVideo")}</button>
+                  <button type="button" className="ghost" onClick={() => setPicking("folder")}><Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}</button>
+                </div>
+                <div className="path-row wr-gap">
+                  <input value={paste} onChange={(e) => setPaste(e.target.value)} aria-label={t("capPastePlaceholder")}
+                    onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }} placeholder={t("capPastePlaceholder")} />
+                  <button type="button" className="ghost" disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>{t("capAdd")}</button>
+                </div>
+              </>
             )}
           </div>
 
+          <div className="card">
+            <h2>{t("capHowTitle")}</h2>
+            <p className="step-label wr-gap">{t("capListenLabel")}</p>
+            <Segmented label={t("capListenLabel")} value={minutes >= ALL_MIN ? ALL_MIN : minutes} onChange={setMinutes}
+              options={[{ value: 2, name: t("capMin2") }, { value: 5, name: t("capMin5") }, { value: ALL_MIN, name: t("capMinAll") }]} />
+            <p className="meta cap-hint">{t("capListenHint")}</p>
+            <p className="step-label wr-gap">{t("capVariantsLabel")}</p>
+            <Stepper value={variants} onChange={setVariants} min={1} max={5} />
+            <label className="step-label wr-gap" htmlFor="cap-terms">{t("terms")}</label>
+            <input id="cap-terms" value={terms} onChange={(e) => setTerms(e.target.value)} placeholder={t("termsPlaceholder")} disabled={busy} />
+            <p className="meta cap-hint">{t("capTermsHint")}</p>
+            {!web && (
+              <>
+                <label className="step-label wr-gap" htmlFor="cap-out">{t("outputDir")}</label>
+                <div className="path-row">
+                  <input id="cap-out" value={outDir} onChange={(e) => setOutDir(e.target.value)} placeholder={t("capOutPlaceholder")} disabled={busy} />
+                  <button type="button" className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
+                </div>
+              </>
+            )}
+          </div>
+
+          <details className="card adv">
+            <summary>{t("advancedTitle")}</summary>
+            <p className="meta adv-hint">{t("capAdvancedHint")}</p>
+            <p className="ai-line">{t("whisperModel")}: <b>{whisper || "–"}</b> <a href="/requirements">{t("aiChangeInSettings")}</a></p>
+            <p className="ai-line">{t("aiInUse")} <b>{engine}</b>{model && <code>{model}</code>} <a href="/requirements">{t("aiChangeInSettings")}</a></p>
+          </details>
+        </section>
+      </div>
+
+      <div className="wr-tech">
+        <details className="card tech">
+          <summary>{t("techNotes")}</summary>
           <LogPanel logs={logs} />
-        </div>
-
-        {/* KANAN: yang diisi & dijalankan. */}
-        <div className="screen-col">
-          <div className="panel feed-panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("capVideos", { n: videos.length })}</div>
-
-            {/* Seluruh panel jadi sasaran lepas — kotak seret-lepas tersendiri
-                cuma mengulang apa yang sudah bisa dilakukan tombol di bawahnya,
-                dan tingginya diambil dari isi halaman (notes/29). */}
-            <div className={"cap-drop" + (dragOver ? " over" : "")}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={(e) => {
-                e.preventDefault(); setDragOver(false);
-                if (e.dataTransfer.files?.length) dropFiles(e.dataTransfer.files);
-              }}>
-              {videos.length > 0 && (
-                <div className="basket cap-list">
-                  {videos.map((v) => (
-                    <div key={v} className="basket-item">
-                      <Film className="ico" aria-hidden="true" />
-                      <span className="basket-text">
-                        <span className="news-title" title={v}>{baseName(v)}</span>
-                      </span>
-                      <button className="ghost tiny icon-only" title={t("capRemove")} aria-label={t("capRemove")}
-                        disabled={busy}
-                        onClick={() => setVideos((cur) => cur.filter((x) => x !== v))}>
-                        <X className="ico" aria-hidden="true" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Mode web: satu tombol unggah (boleh banyak berkas sekaligus)
-                  menggantikan pilih video, pilih folder, dan tempel path —
-                  ketiganya menunjuk berkas di SERVER, bukan di komputer ini. */}
-              {web ? (
-                <div className="path-row">
-                  <input ref={fileInput} type="file" accept="video/*" multiple hidden
-                    onChange={(e) => {
-                      const fs = Array.from(e.target.files ?? []);
-                      e.target.value = "";
-                      if (fs.length) dropFiles(fs);
-                    }} />
-                  <button className="ghost" disabled={!!upNote} onClick={() => fileInput.current?.click()}>
-                    <Film className="ico" aria-hidden="true" /> {t("webUploadVideos")}
-                  </button>
-                  {upNote && <span className="meta">{upNote}</span>}
-                </div>
-              ) : (
-                <>
-                  <div className="path-row">
-                    <button className="ghost" onClick={() => setPicking("file")}>
-                      <Film className="ico" aria-hidden="true" /> {t("capPickVideo")}
-                    </button>
-                    <button className="ghost" onClick={() => setPicking("folder")}>
-                      <Folder className="ico" aria-hidden="true" /> {t("capPickFolder")}
-                    </button>
-                  </div>
-
-                  <div className="path-row">
-                    <input value={paste} onChange={(e) => setPaste(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { add(paste.split("\n")); setPaste(""); } }}
-                      placeholder={t("capPastePlaceholder")} />
-                    <button disabled={!paste.trim()} onClick={() => { add(paste.split("\n")); setPaste(""); }}>
-                      {t("capAdd")}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {/* Folder tujuan duduk DI SINI, di panel yang merentang — bukan
-                  di panel setelan yang tingginya pas. Satu baris tambahan di
-                  sana menaikkan kolom 53 px, dan kolomnya sudah mentok. */}
-              {/* Keduanya BERLABEL. Sempat tidak, demi menghemat tinggi, dan
-                  akibatnya dua kotak isian berdiri tanpa satu pun keterangan
-                  tentang gunanya — pertanyaan pertama yang muncul begitu
-                  halamannya dipakai. Panel ini yang merentang, jadi labelnya
-                  tidak mengambil tinggi dari panel mana pun. */}
-              {/* Mode web: hasil tinggal di server dan diunduh dari daftar hasil. */}
-              {!web && (
-              <div className="field">
-                <label>{t("outputDir")}</label>
-                <div className="path-row">
-                  <input value={outDir} onChange={(e) => setOutDir(e.target.value)}
-                    placeholder={t("capOutPlaceholder")} disabled={busy} />
-                  <button className="ghost" onClick={() => setPicking("out")}>{t("pickerGo")}…</button>
-                </div>
-              </div>
-              )}
-
-              <div className="field">
-                <label title={t("capTermsTip")}>{t("terms")}</label>
-                <input value={terms} onChange={(e) => setTerms(e.target.value)}
-                  placeholder={t("termsPlaceholder")} disabled={busy} title={t("capTermsTip")} />
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("capSettingsTitle")}</div>
-            {/* Ketiganya SEBARIS. Daftar istilah sempat dipindah ke baris
-                sendiri supaya keterangannya tidak terpotong, dan itu menambah
-                53 px pada kolom yang tepat pas — terukur, bukan dugaan.
-                Keterangan lengkapnya tetap terbaca lewat tooltip judulnya. */}
-            <div className="grid3">
-              <div className="field">
-                <label title={t("capMinutesTip")}>{t("capMinutes")}</label>
-                <Stepper value={minutes} onChange={setMinutes} min={1} max={60} suffix={t("capMinutesUnit")} />
-              </div>
-              <div className="field">
-                <label title={t("capVariantsTip")}>{t("capVariants")}</label>
-                <Stepper value={variants} onChange={setVariants} min={1} max={5} />
-              </div>
-              <div className="field">
-                <label title={t("capWhisperTip")}>{t("whisperModel")}</label>
-                <Select value={whisper} onChange={setWhisper} options={models.map((m) => ({
-                  value: m.name, label: m.name,
-                  note: m.downloaded ? m.size : t("modelNotDownloaded"),
-                }))} />
-              </div>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("writerEngineTitle")}</div>
-            <EnginePicker
-              engines={engines} engine={engine} setEngine={setEngine}
-              model={model} setModel={setModel} busy={busy}
-            />
-          </div>
-
-        </div>
+        </details>
       </div>
 
       {picking && (
