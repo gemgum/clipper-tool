@@ -40,7 +40,7 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 		}
 		detail = "Running. Models: " + strings.Join(names, ", ")
 	case oll.Running:
-		detail = "Running, but no model is installed yet — pull one below."
+		detail = "Running, but no model is installed yet: pull one below."
 	}
 
 	comps := setup.Status(s.layout)
@@ -53,7 +53,7 @@ func (s *Server) requirements(w http.ResponseWriter, r *http.Request) {
 	for i := range comps {
 		if oll.Running && comps[i].ID == "llm:"+llmID(oll.Server) {
 			comps[i].Installed = true
-			comps[i].Name = comps[i].Name + " — " + oll.Where
+			comps[i].Name = comps[i].Name + " · " + oll.Where
 			comps[i].Path = oll.URL
 			if detail != "" {
 				comps[i].Detail = detail
@@ -185,7 +185,7 @@ func (s *Server) missingRequirement() error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%s is not installed yet — open the Requirements page to install it",
+	return fmt.Errorf("%s is not installed yet: open the Requirements page to install it",
 		strings.Join(missing, " and "))
 }
 

@@ -42,11 +42,11 @@ func (s *Server) createWatermark(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Videos) == 0 {
-		writeErr(w, 400, "the 'videos' field is required — pick at least one video")
+		writeErr(w, 400, "the 'videos' field is required: pick at least one video")
 		return
 	}
 	if len(req.Videos) > maxWatermarkVideos {
-		writeErr(w, 400, fmt.Sprintf("%d videos in one go is more than the %d this page takes — run it in batches",
+		writeErr(w, 400, fmt.Sprintf("%d videos in one go is more than the %d this page takes: run it in batches",
 			len(req.Videos), maxWatermarkVideos))
 		return
 	}
@@ -75,7 +75,7 @@ func (s *Server) createWatermark(w http.ResponseWriter, r *http.Request) {
 	// ffmpeg saja yang dibutuhkan halaman ini — tidak ada transkripsi, jadi
 	// whisper & modelnya tidak boleh ikut menghalangi.
 	if s.paths.FFmpeg == "" {
-		writeErr(w, 424, "ffmpeg is not installed yet — open the Requirements page")
+		writeErr(w, 424, "ffmpeg is not installed yet: open the Requirements page")
 		return
 	}
 

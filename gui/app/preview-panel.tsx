@@ -13,6 +13,7 @@ import { headlineAnchor, headlineBox, wrapHeadline } from "./watermark-model";
 import type { Watermark } from "./watermark-model";
 import Select from "./select";
 import Warn from "./warn";
+import Popover from "./popover";
 
 // Ruang koordinat, titik tengah, dan mesin seret tinggal di ./drag — dipakai
 // bersama halaman watermark. Diekspor ulang dari sini supaya pemanggil lama
@@ -352,7 +353,33 @@ export default function PreviewPanel({
             bersama tanpa membuatnya bergulir. */}
         {!wmOpen && <>
         <div className="group">
-        <div className="group-title">{t("groupSubtitle")}</div>
+        {/* "Advanced" (DESIGN.md §6): sorot, kotak latar, dan kisi jarang
+            diubah, jadi tertutup secara bawaan. Popover, bukan accordion:
+            accordion yang dibuka menambah satu baris dan kolom ini tidak punya
+            sisa tinggi — terukur 76 px lebih di 1240x860 sebelum baris itu
+            dipindah ke sini. */}
+        <div className="group-title with-action">
+          <span>{t("groupSubtitle")}</span>
+          <Popover width={380} align="right" buttonClass="ghost tiny" label={t("advanced")}>
+            {() => (
+              <div className="grid3 pop-grid">
+                {/* Warna sorot hanya berarti pada gaya yang menyorot; alasannya
+                    tertulis di sebelahnya, bukan cuma diredupkan. */}
+                <div className="field"><label title={subMode === "normal" ? t("highlightWhy") : undefined}>{t("highlightColor")}</label>
+                  <Select value={subHighlight} onChange={setSubHighlight} disabled={subMode === "normal"} options={[
+                    { value: "yellow", label: t("colorYellow") }, { value: "white", label: t("colorWhite") },
+                    { value: "green", label: t("colorGreen") }, { value: "cyan", label: t("colorCyan") },
+                  ]} />
+                  {subMode === "normal" && <div className="meta">{t("highlightWhy")}</div>}</div>
+                <div className="field field-check">
+                  <label className="chk"><input type="checkbox" checked={subBox}
+                    onChange={(e) => setSubBox(e.target.checked)} /> {t("boxBackground")}</label>
+                </div>
+                <GridPicker grid={grid} setGrid={setGrid} always={alwaysGuides} setAlways={setAlwaysGuides} />
+              </div>
+            )}
+          </Popover>
+        </div>
         <div className="grid3">
           <div className="field"><label>{t("font")}
             {/* Font manual yang ditolak: lambang di label, bukan kalimat merah
@@ -405,27 +432,6 @@ export default function PreviewPanel({
           <div className="field"><label>{t("outline")}</label>
             <Stepper value={subOutline} onChange={setSubOutline} min={0} max={12} /></div>
 
-          {/* Warna sorot hanya berarti pada gaya yang menyorot. Kotaknya TETAP
-              dirender (dinonaktifkan) supaya kolom di bawahnya tidak melompat
-              tiap gaya diganti. */}
-          <div className="field"><label>{t("highlightColor")}</label>
-            <Select value={subHighlight} onChange={setSubHighlight} disabled={subMode === "normal"} options={[
-              { value: "yellow", label: t("colorYellow") }, { value: "white", label: t("colorWhite") },
-              { value: "green", label: t("colorGreen") }, { value: "cyan", label: t("colorCyan") },
-            ]} /></div>
-          {/* Centang duduk di dasar selnya supaya sejajar dengan kotak isian di
-              kiri-kanannya, bukan melayang di ketinggian labelnya. */}
-          <div className="field field-check">
-            <label className="chk"><input type="checkbox" checked={subBox}
-              onChange={(e) => setSubBox(e.target.checked)} /> {t("boxBackground")}</label>
-          </div>
-
-          {/* Kisi & garis tengah duduk DI SINI, bukan di bilah bawah gambar:
-              keduanya alat penempatan subtitle, jadi tempatnya bersama setelan
-              subtitle. Dan karena selnya selalu ada — tidak bergantung pada
-              apakah frame sudah dimuat — bilah di bawah gambar tidak lagi
-              tumbuh-susut, yang dulu menggeser seluruh kolom. */}
-          <GridPicker grid={grid} setGrid={setGrid} always={alwaysGuides} setAlways={setAlwaysGuides} />
         </div>
         </div>
 
@@ -503,7 +509,7 @@ export default function PreviewPanel({
             disabled={!previewOn}
             aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
             value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
-          <span className="meta">{previewOn ? `${previewTime.toFixed(1)}s` : "—"}</span>
+          <span className="meta">{previewOn ? `${previewTime.toFixed(1)}s` : "–"}</span>
         </div>
       </div>
     </div>

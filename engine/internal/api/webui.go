@@ -108,7 +108,7 @@ func AppURL(base, token string) string {
 // GUIStatus melaporkan letak berkas GUI untuk dicetak di banner.
 func GUIStatus(dir string) string {
 	if dir == "" {
-		return "(not built — run: cd gui && npm run build)"
+		return "(not built: run: cd gui && npm run build)"
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {

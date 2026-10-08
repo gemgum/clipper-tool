@@ -82,7 +82,7 @@ func loopErr(text string, n, total int) error {
 		text = string(r[:60]) + "…"
 	}
 	return fmt.Errorf(
-		"whisper got stuck repeating %q (%d of %d segments) — the transcript is "+
+		"whisper got stuck repeating %q (%d of %d segments): the transcript is "+
 			"unusable, so the job was stopped instead of producing clips from it. "+
 			"Try a smaller model (-model small) or re-run",
 		text, n, total)

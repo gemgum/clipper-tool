@@ -289,7 +289,7 @@ func cmdRun(layout config.Layout, args []string) {
 	}
 	paths := config.ResolvePaths(layout, opts)
 	if opts.Provider == "claude" && paths.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "warning: -provider claude but ANTHROPIC_API_KEY is empty — the job will stop when the engine is called")
+		fmt.Fprintln(os.Stderr, "warning: -provider claude but ANTHROPIC_API_KEY is empty: the job will stop when the engine is called")
 	}
 
 	dir := "cli_" + time.Now().Format("2006-01-02_15-04-05")
@@ -418,7 +418,7 @@ func cmdWrite(layout config.Layout, args []string) {
 
 	fmt.Fprintf(os.Stderr, "\nWritten to %s\n", res.Post.Dir)
 	if n := len(res.Draft.Violations); n > 0 {
-		fmt.Fprintf(os.Stderr, "%d unverified item(s) — listed at the top of artikel.md\n", n)
+		fmt.Fprintf(os.Stderr, "%d unverified item(s): listed at the top of artikel.md\n", n)
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
@@ -631,7 +631,7 @@ func cmdServe(layout config.Layout, args []string) {
 	if *web {
 		// Kuncinya TIDAK dicetak: stdout berakhir di journald, dan kunci di
 		// sana sama saja dengan kata sandinya.
-		fmt.Printf("  key     : web — team password, sign in at https://%s/login\n", strings.Split(*hosts, ",")[0])
+		fmt.Printf("  key     : web: team password, sign in at https://%s/login\n", strings.Split(*hosts, ",")[0])
 	} else {
 		fmt.Printf("  key     : %s\n", keyNote(token))
 	}
@@ -649,7 +649,7 @@ func cmdServe(layout config.Layout, args []string) {
 // keyNote menerangkan keadaan kunci sesi dalam satu baris.
 func keyNote(token string) string {
 	if token == "" {
-		return "(off — anything on this computer can talk to the engine)"
+		return "(off: anything on this computer can talk to the engine)"
 	}
 	return "on (a new key for every run, written to the address file)"
 }
@@ -747,7 +747,7 @@ func devNote(l config.Layout) string {
 
 func maskKey(k string) string {
 	if k == "" {
-		return "(empty — offline mode)"
+		return "(empty)"
 	}
 	if len(k) > 10 {
 		return k[:8] + "…"

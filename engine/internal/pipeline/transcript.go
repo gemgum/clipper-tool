@@ -62,7 +62,7 @@ func (p *Pipeline) Transcript(ctx context.Context, input, tmpDir string, maxSec 
 		// menyebut sebabnya, bukan nama berkas keluaran yang gagal dibuat.
 		if ok, err := p.ff.HasAudio(ctx, input); err == nil && !ok {
 			return res, fmt.Errorf(
-				"this video has no sound track, so there is nothing to transcribe — Clipper works from what is said. Pick a video that has audio")
+				"this video has no sound track, so there is nothing to transcribe: Clipper works from what is said. Pick a video that has audio")
 		}
 		if err := p.ff.ExtractAudioWAV(ctx, input, wav, maxSec); err != nil {
 			return res, err
@@ -95,7 +95,7 @@ func (p *Pipeline) Transcript(ctx context.Context, input, tmpDir string, maxSec 
 	}
 
 	if len(res.Transcript.Segments) == 0 {
-		return res, fmt.Errorf("the transcript is empty — check the audio/language")
+		return res, fmt.Errorf("the transcript is empty: check the audio/language")
 	}
 	// Dihentikan DI SINI: melewatkan ribuan segmen halusinasi ke tahap
 	// berikutnya makan waktu sangat lama dan hasilnya tetap sampah. Diperiksa

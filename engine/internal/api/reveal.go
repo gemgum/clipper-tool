@@ -90,7 +90,7 @@ func reveal(path string) error {
 	default:
 		// xdg-open tidak punya "sorot berkas ini", jadi yang dibuka foldernya.
 		if err := exec.Command("xdg-open", filepath.Dir(path)).Run(); err != nil {
-			return fmt.Errorf("could not open the folder — no file manager answered (%w)", err)
+			return fmt.Errorf("could not open the folder: no file manager answered (%w)", err)
 		}
 		return nil
 	}

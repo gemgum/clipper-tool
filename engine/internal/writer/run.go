@@ -114,11 +114,11 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 	}
 	rec.since("Gather sources", t0, plural(len(basket.Sources), "1 article", fmt.Sprintf("%d articles", len(basket.Sources))))
 	for _, s := range basket.Skipped {
-		emit(onProgress, Progress{Stage: "gathering", Value: 0.05, Message: "Skipped " + s.URL + " — " + s.Reason})
+		emit(onProgress, Progress{Stage: "gathering", Value: 0.05, Message: "Skipped " + s.URL + ": " + s.Reason})
 	}
 	for _, t := range basket.OffTopic {
 		emit(onProgress, Progress{Stage: "gathering", Value: 0.05,
-			Message: "Warning: this article shares no keywords with the others — " + t})
+			Message: "Warning: this article shares no keywords with the others: " + t})
 	}
 
 	// Tahap 1, satu panggilan per artikel.
@@ -127,7 +127,7 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 		emit(onProgress, Progress{
 			Stage:   "reading",
 			Value:   0.05 + 0.55*float64(i)/float64(len(basket.Sources)),
-			Message: fmt.Sprintf("Extracting facts %d/%d — %s (%s)", i+1, len(basket.Sources), content.Article.Source, deps.ReadEngine),
+			Message: fmt.Sprintf("Extracting facts %d/%d: %s (%s)", i+1, len(basket.Sources), content.Article.Source, deps.ReadEngine),
 		})
 		t := time.Now()
 		sheet, err := ExtractFacts(ctx, content, stage(deps.Read, FactsSchema()), deps.ReadEngine, opts.MaxWords)
@@ -141,7 +141,7 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 
 	// Tahap 2, satu panggilan.
 	write, writeName := deps.writer()
-	emit(onProgress, Progress{Stage: "writing", Value: 0.62, Message: "Writing the article — " + writeName})
+	emit(onProgress, Progress{Stage: "writing", Value: 0.62, Message: "Writing the article: " + writeName})
 	t := time.Now()
 	draft, err := Compose(ctx, sources, stage(write, ComposeSchema()), writeName)
 	if err != nil {
@@ -154,7 +154,7 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 	rec.since("Write article", t, note)
 	for _, v := range draft.Violations {
 		emit(onProgress, Progress{Stage: "writing", Value: 0.9,
-			Message: fmt.Sprintf("Unverified: %s %q — %s", v.Kind, v.Text, v.Detail)})
+			Message: fmt.Sprintf("Unverified: %s %q: %s", v.Kind, v.Text, v.Detail)})
 	}
 
 	// Tahap 3.

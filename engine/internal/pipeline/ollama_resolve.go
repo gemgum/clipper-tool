@@ -30,11 +30,11 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 			where = url
 		}
 		return nil, "", fmt.Errorf(
-			"no local LLM server answered. Tried %v — start Ollama (`ollama serve`), or any OpenAI-compatible server (llama.cpp, LocalAI, llamafile, vLLM, LiteLLM), or set OLLAMA_HOST if yours listens elsewhere (looked for %s)",
+			"no local LLM server answered. Tried %v. Start Ollama (`ollama serve`), or any OpenAI-compatible server (llama.cpp, LocalAI, llamafile, vLLM, LiteLLM), or set OLLAMA_HOST if yours listens elsewhere (looked for %s)",
 			ollama.Candidates(), where)
 	}
 	if len(st.Installed) == 0 {
-		return nil, "", fmt.Errorf("Ollama at %s has no models installed — run `ollama pull llama3.1`", st.URL)
+		return nil, "", fmt.Errorf("Ollama at %s has no models installed: run `ollama pull llama3.1`", st.URL)
 	}
 
 	// Nama dicocokkan tanpa tag: yang tersimpan di setelan bisa "llama3.1"
@@ -52,7 +52,7 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 			have = append(have, m.Name)
 		}
 		return nil, "", fmt.Errorf(
-			"model %q is not installed in Ollama at %s — installed: %v. Pick one of those in the GUI, or run `ollama pull %s`",
+			"model %q is not installed in Ollama at %s: installed: %v. Pick one of those in the GUI, or run `ollama pull %s`",
 			model, st.URL, have, model)
 	}
 
@@ -71,7 +71,7 @@ func resolveOllama(ctx context.Context, url, model string) (*ollama.Client, stri
 	if st.Kind == ollama.KindOpenAI {
 		label = "Local LLM server"
 	}
-	return c, fmt.Sprintf("%s (%s) at %s — %s", label, name, st.URL, ollama.Where(st.URL)), nil
+	return c, fmt.Sprintf("%s (%s) at %s: %s", label, name, st.URL, ollama.Where(st.URL)), nil
 }
 
 // cloudClient merakit klien untuk penyedia yang bicara /chat/completions.
@@ -87,14 +87,14 @@ func (p *Pipeline) cloudClient() (*ollama.Client, string, error) {
 		name = p.Opts.Provider
 	}
 	if p.Opts.LLMBase == "" {
-		return nil, "", fmt.Errorf("unknown score engine %q — pick one on the Requirements page, or choose ollama or heuristic", p.Opts.Provider)
+		return nil, "", fmt.Errorf("unknown score engine %q: pick one on the Requirements page, or choose ollama or heuristic", p.Opts.Provider)
 	}
 	key := ""
 	if p.Opts.LLMKeyEnv != "" {
 		key = os.Getenv(p.Opts.LLMKeyEnv)
 	}
 	if key == "" {
-		return nil, "", fmt.Errorf("%s has no API key yet — add it on the Requirements page", name)
+		return nil, "", fmt.Errorf("%s has no API key yet: add it on the Requirements page", name)
 	}
 	c := ollama.New(p.Opts.LLMBase, p.Opts.LLMModel)
 	c.Kind, c.Path, c.APIKey = ollama.KindOpenAI, p.Opts.LLMPath, key

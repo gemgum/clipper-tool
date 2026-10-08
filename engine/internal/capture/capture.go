@@ -169,7 +169,7 @@ func (o *Options) applyDefaults() {
 // bisa menulis ke path Linux.
 func (c *Client) Screenshot(ctx context.Context, url, outPNG string, o Options) error {
 	if c.Bin == "" {
-		return fmt.Errorf("browser not found — install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
+		return fmt.Errorf("browser not found: install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
 	}
 	o.applyDefaults()
 	if err := os.MkdirAll(filepath.Dir(outPNG), 0o755); err != nil {
@@ -235,7 +235,7 @@ func (c *Client) Screenshot(ctx context.Context, url, outPNG string, o Options) 
 		if ctx.Err() == context.DeadlineExceeded {
 			return fmt.Errorf("browser did not respond within 90 seconds while opening %s", url)
 		}
-		return fmt.Errorf("browser failed: %v — %s", err, summarizeStderr(stderr.String()))
+		return fmt.Errorf("browser failed: %v (%s)", err, summarizeStderr(stderr.String()))
 	}
 
 	// Chrome bisa keluar dengan status 0 tanpa menulis berkas (mis. URL ditolak).
@@ -246,7 +246,7 @@ func (c *Client) Screenshot(ctx context.Context, url, outPNG string, o Options) 
 		}
 	}
 	if fi, err := os.Stat(check); err != nil || fi.Size() == 0 {
-		return fmt.Errorf("browser produced no image for %s — %s", url, summarizeStderr(stderr.String()))
+		return fmt.Errorf("browser produced no image for %s: %s", url, summarizeStderr(stderr.String()))
 	}
 	return nil
 }
@@ -310,7 +310,7 @@ func windowsTempDir() (string, error) {
 // og: dan badan tulisannya — jadi satu panggilan cukup.
 func (c *Client) DumpDOM(ctx context.Context, url string, waitMS int) (string, error) {
 	if c.Bin == "" {
-		return "", fmt.Errorf("browser not found — install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
+		return "", fmt.Errorf("browser not found: install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
 	}
 	if waitMS <= 0 {
 		waitMS = 15000
@@ -359,11 +359,11 @@ func (c *Client) dumpOnce(ctx context.Context, url string, waitMS int) (string, 
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("browser did not respond within 90 seconds while opening %s", url)
 		}
-		return "", fmt.Errorf("browser could not open the page: %v — %s", err, summarizeStderr(stderr.String()))
+		return "", fmt.Errorf("browser could not open the page: %v (%s)", err, summarizeStderr(stderr.String()))
 	}
 	dom := out.String()
 	if len(dom) < 200 {
-		return "", fmt.Errorf("page %s returned no content — %s", url, summarizeStderr(stderr.String()))
+		return "", fmt.Errorf("page %s returned no content: %s", url, summarizeStderr(stderr.String()))
 	}
 	return dom, nil
 }

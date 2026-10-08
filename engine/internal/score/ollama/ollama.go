@@ -217,9 +217,9 @@ func (c *Client) Complete(ctx context.Context, system, user string, schema any, 
 // memori. Pengguna diarahkan memeriksa hal yang sudah benar.
 func dialError(url, model string, err error) error {
 	if isTimeout(err) {
-		return fmt.Errorf("Ollama at %s did not answer within %s. It is running, but the model %q is probably still being loaded into memory — that is normal on the first request after starting. Wait and try again, or pick a smaller model", url, chatTimeout, model)
+		return fmt.Errorf("Ollama at %s did not answer within %s. It is running, but the model %q is probably still being loaded into memory: that is normal on the first request after starting. Wait and try again, or pick a smaller model", url, chatTimeout, model)
 	}
-	return fmt.Errorf("Ollama is unreachable at %s — make sure it is installed and run `ollama serve`: %w", url, err)
+	return fmt.Errorf("Ollama is unreachable at %s: make sure it is installed and run `ollama serve`: %w", url, err)
 }
 
 func isTimeout(err error) bool {
@@ -247,11 +247,11 @@ func ollamaError(model, msg string) error {
 	low := strings.ToLower(msg)
 	switch {
 	case strings.Contains(low, "not found") || strings.Contains(low, "no such model"):
-		return fmt.Errorf("model %q is not installed in Ollama — click \"download model\" in the GUI or run `ollama pull %s`", model, model)
+		return fmt.Errorf("model %q is not installed in Ollama: click \"download model\" in the GUI or run `ollama pull %s`", model, model)
 	case strings.Contains(low, "format"):
-		return fmt.Errorf("Ollama rejected the JSON schema — update Ollama to a version that supports structured output (%s)", msg)
+		return fmt.Errorf("Ollama rejected the JSON schema: update Ollama to a version that supports structured output (%s)", msg)
 	case strings.Contains(low, "memory") || strings.Contains(low, "out of"):
-		return fmt.Errorf("not enough RAM/VRAM for model %q — use a smaller model (%s)", model, msg)
+		return fmt.Errorf("not enough RAM/VRAM for model %q: use a smaller model (%s)", model, msg)
 	}
 	return fmt.Errorf("Ollama failed to process the request: %s", msg)
 }
@@ -398,7 +398,7 @@ func judge(name string, bytes int64, paramSize string, ctxLen int, caps []string
 	// bukan model lokal. Dilaporkan dari lapangan: ia tampil "ready" lalu
 	// jobnya gagal di tengah jalan.
 	if strings.HasSuffix(name, "-cloud") || bytes == 0 {
-		return false, "runs on Ollama's servers, not on this computer — it needs an Ollama account, and Clipper is built around a local model"
+		return false, "runs on Ollama's servers, not on this computer: it needs an Ollama account, and Clipper is built around a local model"
 	}
 	if len(caps) > 0 && !slices.Contains(caps, "completion") {
 		return false, "this model does not generate text (e.g. an embedding model)"
@@ -408,10 +408,10 @@ func judge(name string, bytes int64, paramSize string, ctxLen int, caps []string
 	// correct.Correct), jadi model berkonteks 4096 tetap bisa dipakai — hanya
 	// lebih lambat. Yang benar-benar tidak masuk akal adalah di bawah minCtx.
 	if ctxLen > 0 && ctxLen < minCtx {
-		return false, fmt.Sprintf("maximum context is only %d tokens — too small even for one transcript segment", ctxLen)
+		return false, fmt.Sprintf("maximum context is only %d tokens: too small even for one transcript segment", ctxLen)
 	}
 	if ctxLen > 0 && ctxLen < numCtx {
-		return true, fmt.Sprintf("small context (%d tokens) — Clipper will send smaller pieces, which is slower", ctxLen)
+		return true, fmt.Sprintf("small context (%d tokens): Clipper will send smaller pieces, which is slower", ctxLen)
 	}
 	// Model KECIL (1B–4B) tidak lagi ditolak, hanya ditandai.
 	//
@@ -421,7 +421,7 @@ func judge(name string, bytes int64, paramSize string, ctxLen int, caps []string
 	// kini menyesuaikan diri dengan memecah potongan, dan mesin skor heuristik
 	// selalu tersedia sebagai gantinya.
 	if b := parseParams(paramSize); b > 0 && b < minParams {
-		return true, fmt.Sprintf("small model (%s) — fine for transcript correction, but it often returns empty fields when picking moments; the built-in heuristic is the safer choice there", paramSize)
+		return true, fmt.Sprintf("small model (%s): fine for transcript correction, but it often returns empty fields when picking moments; the built-in heuristic is the safer choice there", paramSize)
 	}
 	return true, ""
 }
@@ -545,7 +545,7 @@ func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offse
 			return wrap.Picks, nil
 		}
 	}
-	return nil, fmt.Errorf("local model %s returned JSON that could not be read (%d attempts): %w — reply: %s",
+	return nil, fmt.Errorf("local model %s returned JSON that could not be read (%d attempts): %w; reply: %s",
 		c.Model, pickAttempts, readErr, trunc(content, 300))
 }
 

@@ -148,7 +148,7 @@ func ListFeed(ctx context.Context, feedURL, name string, max int, lang string) (
 // pencarian, kosong berarti kata kuncinya tidak menemukan apa pun — dan
 // menyuruh orang "check the feed URL" padahal ia baru saja mengetik kata kunci
 // adalah petunjuk yang menyesatkan (dilaporkan 7 Agustus 2026).
-var errNoArticles = errors.New("the feed parsed but contains no articles — check the feed URL")
+var errNoArticles = errors.New("the feed parsed but contains no articles: check the feed URL")
 
 // parseFeed mengubah isi XML jadi daftar artikel. Dipisah dari ListFeed supaya
 // penguraiannya bisa diuji tanpa menyentuh jaringan.

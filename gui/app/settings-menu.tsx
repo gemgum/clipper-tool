@@ -101,7 +101,7 @@ export default function SettingsMenu() {
   const missing = groups.filter((g) => g.required && !g.ok).length;
 
   return (
-    <Popover width={300} buttonClass="rail-tool" side="beside" onOpenChange={setOpen} label={
+    <Popover width={300} buttonClass="rail-tool" side="beside" onOpenChange={setOpen} ariaLabel={t("settingsTitle")} label={
       <>
         <Settings className="ico" aria-hidden="true" />
         {/* Titik merah hanya muncul bila ada yang WAJIB dan belum ada — kalau

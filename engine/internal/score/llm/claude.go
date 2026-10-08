@@ -90,7 +90,7 @@ type MomentReasons struct {
 // perpindahan diam-diam ke mesin lain (lihat notes/12).
 func (c *Client) Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	if c.APIKey == "" {
-		return "", fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+		return "", fmt.Errorf("the Claude API key is empty: set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
 	}
 	if maxTokens <= 0 {
 		maxTokens = 4096
@@ -138,11 +138,11 @@ func claudeError(status int, msg string) error {
 	low := strings.ToLower(msg)
 	switch {
 	case strings.Contains(low, "x-api-key") || status == 401:
-		return fmt.Errorf("the Claude API key was rejected — update it in the AI engine panel (%s)", msg)
+		return fmt.Errorf("the Claude API key was rejected: update it in the AI engine panel (%s)", msg)
 	case status == 429:
-		return fmt.Errorf("Claude quota/rate limit exceeded — wait a moment and try again (%s)", msg)
+		return fmt.Errorf("Claude quota/rate limit exceeded: wait a moment and try again (%s)", msg)
 	case strings.Contains(low, "model"):
-		return fmt.Errorf("unknown Claude model — pick a different model in the GUI (%s)", msg)
+		return fmt.Errorf("unknown Claude model: pick a different model in the GUI (%s)", msg)
 	case status == 400 && strings.Contains(low, "credit"):
 		return fmt.Errorf("the Claude API balance is exhausted (%s)", msg)
 	}
@@ -171,7 +171,7 @@ func truncate(s string, n int) string {
 // batas waktu. Lihat pick.go untuk alasannya.
 func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]Pick, error) {
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("the Claude API key is empty — set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+		return nil, fmt.Errorf("the Claude API key is empty: set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
 	}
 	text, err := c.Complete(ctx, PickSystemPrompt(maxClips, contentLang), PickUserPrompt(cands, offset), 4096)
 	if err != nil {
@@ -179,7 +179,7 @@ func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offse
 	}
 	var wrap PickResponse
 	if err := json.Unmarshal([]byte(extractBlock(text, '{', '}')), &wrap); err != nil {
-		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w — reply: %s",
+		return nil, fmt.Errorf("Claude (%s) returned JSON that could not be read: %w; reply: %s",
 			c.Model, err, truncate(text, 300))
 	}
 	return wrap.Picks, nil

@@ -39,7 +39,7 @@ func Resolve(ctx context.Context, link string, browse Browser, cacheDir string) 
 		return original, nil
 	}
 	if browse == nil {
-		return "", fmt.Errorf("search-result links must be opened in a browser, but no browser is available — install Chrome/Chromium, or open the link yourself")
+		return "", fmt.Errorf("search-result links must be opened in a browser, but no browser is available: install Chrome/Chromium, or open the link yourself")
 	}
 	u, err := url.Parse(link)
 	if err != nil {
@@ -81,7 +81,7 @@ func Resolve(ctx context.Context, link string, browse Browser, cacheDir string) 
 		saveResolved(cacheDir, link, art.URL)
 		return art.URL, nil
 	}
-	return "", fmt.Errorf("could not reach the original article behind that search result (%v) — open the link in a browser and paste the address that appears", last)
+	return "", fmt.Errorf("could not reach the original article behind that search result (%v): open the link in a browser and paste the address that appears", last)
 }
 
 const (

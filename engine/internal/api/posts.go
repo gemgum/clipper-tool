@@ -44,7 +44,7 @@ func (s *Server) createPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.URLs) == 0 {
-		writeErr(w, 400, "the 'urls' field is required — add at least one source article")
+		writeErr(w, 400, "the 'urls' field is required: add at least one source article")
 		return
 	}
 
@@ -168,7 +168,7 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 	case "image":
 		path, mime = j.Result.Post.Image, ""
 	default:
-		writeErr(w, 400, "unknown file — use name=article, name=sources or name=image")
+		writeErr(w, 400, "unknown file: use name=article, name=sources or name=image")
 		return
 	}
 	if path == "" {

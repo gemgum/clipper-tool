@@ -64,6 +64,13 @@ function UploadPicker({ mode, onPick, onClose, title }: PickerProps) {
   const [pct, setPct] = useState<number | null>(null);
   const [error, setError] = useState("");
 
+  // Esc menutup, sama seperti pemilih berkas di bawah.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const send = async (f: File) => {
     setError(""); setPct(0);
     try { onPick(await upload(f, setPct)); }
@@ -75,7 +82,7 @@ function UploadPicker({ mode, onPick, onClose, title }: PickerProps) {
       <div className="modal" onClick={(ev) => ev.stopPropagation()}>
         <div className="modal-head">
           <strong>{mode === "folder" ? t("pickerFolderTitle") : title || t("webUploadTitle")}</strong>
-          <button className="ghost" onClick={onClose}>✕</button>
+          <button className="ghost" onClick={onClose} aria-label={t("close")} title={t("close")}>✕</button>
         </div>
         <div className="picker-list">
           {mode === "folder" ? (
@@ -145,7 +152,7 @@ function BrowsePicker({ mode, start, onPick, onClose, title, hint }: PickerProps
       <div className="modal" onClick={(ev) => ev.stopPropagation()}>
         <div className="modal-head">
           <strong>{title || (mode === "folder" ? t("pickerFolderTitle") : t("pickerFileTitle"))}</strong>
-          <button className="ghost" onClick={onClose}>
+          <button className="ghost" onClick={onClose} aria-label={t("close")} title={t("close")}>
             ✕
           </button>
         </div>

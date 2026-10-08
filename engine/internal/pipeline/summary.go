@@ -190,7 +190,7 @@ func (s Summary) Format() string {
 func realtimeNote(rt float64, cached bool) string {
 	s := fmt.Sprintf("%.2f× realtime", rt)
 	if cached {
-		return s + " (transcript reused — not comparable to a full run)"
+		return s + " (transcript reused: not comparable to a full run)"
 	}
 	if rt >= 1 {
 		return s + " (faster than the video)"

@@ -79,7 +79,7 @@ func (s *Server) bulkZip(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(files) == 0 {
-		writeErr(w, 404, "nothing to download — the files are gone")
+		writeErr(w, 404, "nothing to download: the files are gone")
 		return
 	}
 

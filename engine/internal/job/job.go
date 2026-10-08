@@ -184,7 +184,7 @@ func (m *Manager) run(j *Job) {
 	// Baris pertama log: apa yang dikerjakan dan dengan apa. Tanpa ini berkas
 	// lognya cuma daftar tahap tanpa satu pun keterangan tentang JOB MANA —
 	// dan justru itu yang ditanyakan pertama kali saat log dilampirkan.
-	m.logf(j.ID, "job %s started — %s", j.ID, filepath.Base(j.Input))
+	m.logf(j.ID, "job %s started: %s", j.ID, filepath.Base(j.Input))
 	m.logf(j.ID, "whisper=%s scoring=%s output=%s", j.Options.WhisperModel, j.Options.Provider, outDir)
 
 	clips, err := p.Run(ctx, j.ID, j.Input, workDir, outDir, func(pr pipeline.Progress) {
@@ -239,7 +239,7 @@ func (m *Manager) run(j *Job) {
 		m.logf(j.ID, "⚠ Canceled by the user")
 		j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 	default:
-		m.logf(j.ID, "✓ Finished — %d clip(s)", len(clips))
+		m.logf(j.ID, "✓ Finished: %d clip(s)", len(clips))
 		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": len(clips)}})
 	}
 	j.closeSubs()

@@ -34,7 +34,7 @@ export default function AccountButton() {
   };
 
   return (
-    <Popover width={280} buttonClass="rail-tool" side="beside" label={
+    <Popover width={280} buttonClass="rail-tool" side="beside" ariaLabel={t("accountTitle")} label={
       <>
         <CircleUser className="ico" aria-hidden="true" />
         {saved && <span className="dot-ok" aria-hidden="true" />}

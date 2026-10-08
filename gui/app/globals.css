@@ -30,13 +30,24 @@
  * mengubah satu piksel pun. Angka dari Figma nanti tinggal menimpa di sini.
  */
 @theme {
-  --color-bg: #f5f5f5;
+  /* Nilai dari DESIGN.md §4.1 (9 Oktober 2026). Nama lama (panel, panel2,
+     muted) tetap, sebab ratusan aturan di bawah memakainya. */
+  --color-bg: #f4f5f7;
   --color-panel: #ffffff;
-  --color-panel2: #fafafa;
-  --color-border: #e2e2e2;
-  --color-text: #27292a;
-  --color-muted: #6b6e70;
-  --color-accent: #0072ec;
+  --color-panel2: #f9fafb;
+  --color-sunken: #eef0f3;
+  --color-border: #e4e7ec;
+  --color-border-strong: #cfd4dc;
+  --color-text: #101828;
+  --color-text-2: #475467;
+  --color-muted: #667085;
+  --color-accent: #0b63d6;
+  --color-accent-hover: #0a57bb;
+  --color-accent-soft: #e8f1fe;
+  /* Teks DI ATAS warna aksen (tombol utama, label sumbu). Putih di sini;
+     di tema gelap aksennya terlalu terang untuk teks putih. */
+  --color-on-accent: #ffffff;
+  --color-focus: #0b63d6;
 
   /* Hijau, oranye, dan merah punya DUA nilai, dan itu bukan kemewahan.
    *
@@ -44,30 +55,65 @@
    * 3,36:1 — ketiganya jauh di bawah ambang 4,5:1 untuk teks. Di tema gelap
    * mereka aman; di tema terang tidak. Jadi nilai cerahnya hanya untuk LAMPU
    * status (titik, bilah, latar), dan teks memakai varian -text yang sudah
-   * digelapkan sampai persis lolos ambang (4,58 · 4,61 · 4,50).
+   * digelapkan sampai lolos ambang di atas dasar halaman, bukan cuma di atas
+   * panel putih (4,9 · 5,2 · 5,0). Nilai status DESIGN.md §4.1 juga gagal
+   * sebagai teks (2,9–4,4:1), jadi aturannya sama: cerah untuk lampu, -text
+   * untuk tulisan.
    *
    * Ini jenis kesalahan yang lolos dari mata saat mendesain dan baru terasa
    * setelah dipakai lama — karena itu angkanya dihitung, bukan dikira. */
-  --color-good: #20c07d;
-  --color-warn: #ff9d43;
-  --color-bad: #ff4747;
-  --color-good-text: #168658;
-  --color-warn-text: #a6662c;
-  --color-bad-text: #d93c3c;
+  --color-good: #12a673;
+  --color-warn: #d97706;
+  --color-bad: #d92d20;
+  --color-good-soft: #e6f6ef;
+  --color-warn-soft: #fef4e6;
+  --color-bad-soft: #fdecea;
+  --color-good-text: #137a4f;
+  --color-warn-text: #94591f;
+  --color-bad-text: #c53030;
 }
 
 /* Nama pendek yang dipakai seluruh CSS tulisan tangan di bawah. Dipetakan ke
  * token di atas, bukan diberi nilai sendiri — satu tempat, satu kebenaran. */
 :root {
   /* Tinggi semua kendali sebaris — lihat komentarnya di aturan input/select. */
-  --ctl-h: 32px;
+  --ctl-h: 34px;
   --bg: var(--color-bg);
   --panel: var(--color-panel);
   --panel2: var(--color-panel2);
+  --sunken: var(--color-sunken);
   --border: var(--color-border);
+  --border-strong: var(--color-border-strong);
   --text: var(--color-text);
+  --text-2: var(--color-text-2);
   --muted: var(--color-muted);
   --accent: var(--color-accent);
+  --accent-hover: var(--color-accent-hover);
+  --accent-soft: var(--color-accent-soft);
+  --on-accent: var(--color-on-accent);
+  --focus: var(--color-focus);
+  --good-soft: var(--color-good-soft);
+  --warn-soft: var(--color-warn-soft);
+  --bad-soft: var(--color-bad-soft);
+
+  /* Huruf, skala, radius, elevasi, gerak: DESIGN.md §4.2–4.3. Variabel
+     --font-inter/--font-jbmono dipasang next/font di layout.tsx. */
+  --font-ui: var(--font-inter), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-jbmono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --fs-caption: 12px;
+  --fs-label: 13px;
+  --fs-body: 14px;
+  --fs-title: 16px;
+  --fs-h2: 20px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-full: 999px;
+  --e-1: 0 1px 2px rgb(16 24 40 / 5%);
+  --e-2: 0 4px 12px rgb(16 24 40 / 8%), 0 1px 2px rgb(16 24 40 / 4%);
+  --e-3: 0 16px 40px rgb(16 24 40 / 14%);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
   --good: var(--color-good);
   --warn: var(--color-warn);
   --bad: var(--color-bad);
@@ -101,24 +147,48 @@
  * warna cerah itu justru yang terbaca — jadi -text dikembalikan ke nilai
  * cerahnya. */
 :root[data-theme="dark"] {
-  --color-bg: #0f1115;
-  --color-panel: #171a21;
-  --color-panel2: #1e222b;
-  --color-border: #2a2f3a;
-  --color-text: #e6e9ef;
-  --color-muted: #9aa4b2;
-  --color-accent: #4f8cff;
-  --color-good: #3ecf8e;
-  --color-warn: #f5a623;
-  --color-bad: #ff6b6b;
-  --color-good-text: #3ecf8e;
-  --color-warn-text: #f5a623;
-  --color-bad-text: #ff6b6b;
+  --color-bg: #0b0d12;
+  --color-panel: #14171e;
+  --color-panel2: #1a1e27;
+  --color-sunken: #0f1218;
+  --color-border: #252a34;
+  --color-border-strong: #353c49;
+  --color-text: #e8ebf0;
+  --color-text-2: #a9b2c0;
+  --color-muted: #8591a1;
+  --color-accent: #5b9bff;
+  --color-accent-hover: #76acff;
+  --color-accent-soft: #16233a;
+  --color-on-accent: #06101f; /* 6,88:1 di atas #5b9bff; putih tidak lolos */
+  --color-focus: #76acff;
+  --color-good: #34d399;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+  --color-good-soft: #10281f;
+  --color-warn-soft: #2a2112;
+  --color-bad-soft: #2b1515;
+  --color-good-text: #34d399;
+  --color-warn-text: #fbbf24;
+  --color-bad-text: #f87171;
 }
 /* Panggung pratinjau memang sudah gelap di kedua tema — di tema gelap ia
    dinaikkan sedikit dari hitam pekat supaya tepinya masih terbaca sebagai
    bidang, bukan lubang. */
-:root[data-theme="dark"] { --stage: #0a0c0f; --stage-2: #1a1d23; }
+:root[data-theme="dark"] {
+  --stage: #06080b; --stage-2: #1a1d23;
+  --e-1: 0 1px 2px rgb(0 0 0 / 40%);
+  --e-2: 0 4px 12px rgb(0 0 0 / 48%);
+  --e-3: 0 16px 40px rgb(0 0 0 / 60%);
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+/* Cincin fokus untuk SEMUA yang bisa difokus (DESIGN.md §4.4). Hanya untuk
+   fokus papan ketik — klik mouse tidak memunculkannya. */
+:where(a, button, [role="button"], input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
 /* Kotak log memakai token panggung, bukan hex sendiri — kalau tidak, ia jadi
    satu-satunya kotak yang tidak ikut berganti tema. */
 .logbox { background: var(--stage); color: var(--stage-text); }
@@ -142,7 +212,8 @@ body {
   flex-direction: column;
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
   line-height: 1.5;
 }
 
@@ -313,19 +384,55 @@ body:has(.screen) {
 }
 
 /* Dua kelompok setara yang dibaca berdampingan. */
-.start-panel { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.start-panel button { flex: 1; }
-/* Kemajuan job: satu baris bar + satu baris teks, keduanya SELALU ada supaya
-   panel ini tidak pernah berubah tinggi. Teksnya dipotong elipsis, bukan
-   dibungkus — pesan tahap yang panjang akan menambah baris, dan itu berarti
-   panelnya bergerak tiap kali pesannya berganti. */
-.run-progress { flex: 1 0 100%; }
-.run-progress .stage {
-  margin-top: 4px;
+/* Kepala halaman (DESIGN.md §5.2, keputusan pemilik 9 Oktober 2026).
+   Satu pita selebar kolom halaman: judul + subjudul di kiri, status + aksi
+   utama di kanan. Tingginya TETAP: subjudul satu baris dengan elipsis, dan
+   bilah kemajuan menempel di tepi bawah (absolut) — jadi memulai job atau
+   mengganti bahasa tidak menggeser isi halaman. Tidak sticky dan tanpa blur:
+   .screen tidak pernah bergulir, jadi tidak ada yang lewat di bawahnya. */
+.page-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  /* margin-bottom -4: jarak ke isi 8 px, bukan gap .screen 12 px. Bersama
+     padding 8 dan baris judul 26, ketiganya membayar 14 px yang membuat kolom
+     kiri halaman klip pas di 1240x860 (terukur 13 px lebih sebelumnya). */
+  margin: -16px -16px -4px;
+  padding: 8px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.ph-text { flex: 1; min-width: 0; }
+.page-header h1 {
+  font-size: var(--fs-h2);
+  line-height: 26px;
+  font-weight: 600;
+  margin: 0;
+}
+.page-header p {
+  margin: 0;
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.ph-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+.ph-actions button { min-height: 36px; padding: 0 18px; }
+.ph-actions button.primary { min-width: 160px; }
+.run-status {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-label); color: var(--muted); white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+/* Titik ini menandai keadaan NYATA (diam / berjalan), tanpa denyut. */
+.run-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); }
+.run-status.on { color: var(--text); }
+.run-status.on .run-dot { background: var(--accent); }
+.ph-progress { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; }
+.ph-progress > div { height: 100%; background: var(--accent); transition: width var(--dur-base) var(--ease); }
 
 /* Di jendela sempit panel samping turun ke bawah, dan keduanya berbagi tinggi
    yang sama — bukan menumpuk lalu memaksa halaman bergulir. */
@@ -344,14 +451,14 @@ h1 { font-size: 24px; margin: 0 0 4px; }
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   padding: 20px;
   margin-bottom: 20px;
 }
 
 .row { display: flex; gap: 12px; flex-wrap: wrap; }
 .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; flex: 1; min-width: 160px; }
-label { font-size: 13px; color: var(--muted); }
+label { font-size: var(--fs-label); font-weight: 500; color: var(--text-2); }
 
 /* SATU tinggi untuk semua kendali sebaris: <input>, <Select>, dan tombol di
    dalam kisi. Ditulis sebagai variabel karena ketiganya harus berubah bersama —
@@ -359,16 +466,20 @@ label { font-size: 13px; color: var(--muted); }
    kotak isian 32 px, jadi tombol berdiri 8 px lebih tinggi DAN 8 px lebih ke
    atas daripada kotak di sebelahnya. */
 input, select {
-  background: var(--panel2);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 7px 11px;
-  font-size: 14px;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  transition: border-color var(--dur-fast) var(--ease);
   width: 100%;
   min-height: var(--ctl-h);
 }
 input:focus, select:focus { outline: 2px solid var(--accent); }
+input:hover:not(:disabled), select:hover:not(:disabled), .sel:hover:not(:disabled) { border-color: var(--muted); }
+input:disabled, select:disabled { background: var(--sunken); color: var(--muted); cursor: not-allowed; }
 
 /* Daftar pilihan milik sendiri (select.tsx).
  *
@@ -382,20 +493,21 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   gap: 6px;
   width: 100%;
   min-height: var(--ctl-h);
-  background: var(--panel2);
-  border: 1px solid var(--border);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 7px 9px 7px 11px;
-  font-size: 14px;
-  font-weight: 400;
+  font-size: var(--fs-label);
+  font-weight: 500;
+  transition: border-color var(--dur-fast) var(--ease);
   text-align: left;
   cursor: pointer;
 }
 .sel:disabled { opacity: 0.45; cursor: not-allowed; }
 .sel:focus-visible, .sel.open { outline: 2px solid var(--accent); }
 .sel-value { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sel-note { flex: none; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.sel-note { flex: none; font-size: var(--fs-caption); color: var(--muted); white-space: nowrap; }
 .sel-chev { width: 15px; height: 15px; flex: none; opacity: 0.6; }
 
 /* Daftarnya: fixed, dengan alasan yang sama seperti .popover — kolom di
@@ -406,9 +518,9 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 4px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--e-3);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
@@ -419,7 +531,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   width: 100%;
   background: transparent;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--r-sm);
   padding: 8px 10px;
   font-size: 13px;
   font-weight: 400;
@@ -450,7 +562,7 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
   align-items: center;
   background: var(--panel2);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   overflow: hidden;
 }
 .stepper:focus-within { outline: 2px solid var(--accent); }
@@ -487,25 +599,32 @@ input:focus, select:focus { outline: 2px solid var(--accent); }
 
 button {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 11px 20px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
 }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
-button.ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+/* Tombol utama yang mati: kelabu padat, bukan biru pucat — biru pucat masih
+   terbaca sebagai "aksi utama", padahal belum bisa ditekan (DESIGN.md §5.5). */
+/* Tombol tanpa kelas = tombol utama (gaya dasar `button` di atas), jadi ia
+   ikut aturan yang sama dengan .primary. */
+button.primary:disabled, button:not([class]):disabled { background: var(--sunken); color: var(--muted); opacity: 1; }
+button.primary:hover:not(:disabled), button:not([class]):hover:not(:disabled) { background: var(--accent-hover); }
+button.ghost { background: transparent; border: 1px solid var(--border-strong); color: var(--text); }
+button.ghost:hover:not(:disabled) { background: var(--panel2); }
 
-.progress-outer { background: var(--panel2); border-radius: 8px; height: 10px; overflow: hidden; }
+.progress-outer { background: var(--panel2); border-radius: var(--r-sm); height: 10px; overflow: hidden; }
 .progress-inner { background: var(--accent); height: 100%; transition: width 0.3s; }
 .stage { font-size: 13px; color: var(--muted); margin-top: 8px; }
 .err { color: var(--bad-text); font-size: 14px; }
 
 /* .clips (kisi hasil job terakhir) dibuang bersama halaman Results — riwayat
    sekarang satu-satunya tempat klip dilihat. */
-.clip { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.clip { background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
 .clip video { width: 100%; display: block; background: #000; aspect-ratio: 9/16; object-fit: contain; }
 .clip .body { padding: 12px; }
 .score { display: inline-block; font-weight: 700; font-size: 18px; }
@@ -514,8 +633,8 @@ button.ghost { background: transparent; border: 1px solid var(--border); color: 
 .score.low { color: var(--muted); }
 .title { font-size: 14px; font-weight: 600; margin: 4px 0; min-height: 20px; }
 .meta { font-size: 12px; color: var(--muted); }
-.reasons { font-size: 11px; color: var(--muted); margin-top: 6px; }
-.tag { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; margin: 2px 2px 0 0; font-size: 11px; }
+.reasons { font-size: var(--fs-caption); color: var(--muted); margin-top: 6px; }
+.tag { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 1px 6px; margin: 2px 2px 0 0; font-size: var(--fs-caption); }
 /* Tautan unduh kartu klip diganti tombol "buka folder" (reveal.go), jadi
    selektornya ikut menerima <button> — tanpa ini ia mewarisi tombol terisi
    penuh dari aturan `button` di atas dan mendominasi seluruh kartu. */
@@ -537,7 +656,7 @@ a.dl, button.dl {
   background: rgba(245,166,35,0.12);
   border: 1px solid var(--warn);
   color: #ffd591;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 10px 12px;
   font-size: 13px;
   margin-bottom: 14px;
@@ -545,7 +664,7 @@ a.dl, button.dl {
 .warnbox code {
   background: var(--panel);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   color: var(--good-text);
 }
 
@@ -585,7 +704,7 @@ a.dl, button.dl {
 .warn-chip .ico { animation: warn-pulse 1.8s ease-in-out 3; }
 .warn-pop { font-size: 13px; line-height: 1.5; color: var(--warn-text); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .warn-pop button { margin-left: 0; }
-.warn-pop code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+.warn-pop code { background: var(--panel2); padding: 1px 5px; border-radius: var(--r-sm); }
 
 /* Lencana "tanpa suara" di atas bingkai pratinjau: melayang, jadi ia tidak
    menambah satu baris pun ke kolomnya. */
@@ -600,8 +719,8 @@ a.dl, button.dl {
   align-items: center;
   gap: 4px;
   padding: 2px 8px 2px 6px;
-  border-radius: 999px;
-  font-size: 11px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-caption);
   font-weight: 600;
   color: var(--warn-text);
   background: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -630,13 +749,13 @@ a.dl, button.dl {
   align-items: flex-start;
   gap: 10px;
   padding: 10px 10px 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   font-size: 13px;
   line-height: 1.45;
   background: var(--panel);
   border: 1px solid var(--border);
   border-left: 4px solid var(--border);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--e-3);
 }
 .alert.error { border-color: var(--bad); color: var(--bad-text); }
 .alert.warn { border-color: var(--warn); color: var(--warn-text); }
@@ -645,7 +764,7 @@ a.dl, button.dl {
 .alert-text code {
   background: var(--panel2);
   padding: 1px 5px;
-  border-radius: 4px;
+  border-radius: var(--r-sm);
 }
 .alert-x {
   flex: none;
@@ -663,11 +782,12 @@ a.dl, button.dl {
 .logbox {
   background: #0b0d11;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 10px 12px;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
-  color: #b9c2d0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #cfd6e4;
   /* Tinggi datang dari PANELNYA (flex:1 di kolom), bukan dari isinya: kotak yang
      tumbuh mengikuti isi menggeser seluruh kolom tiap baris log masuk — dan log
      paling ramai persis ketika pengguna sedang mengawasi hal lain. */
@@ -691,7 +811,7 @@ a.dl, button.dl {
   aspect-ratio: 9 / 16;
   background: #000;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   overflow: hidden;
   touch-action: none;   /* penting: drag di layar sentuh */
   user-select: none;
@@ -774,9 +894,9 @@ a.dl, button.dl {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Ikon sebaris. Ukurannya mengikuti huruf di sekitarnya (1em), bukan angka
@@ -817,7 +937,7 @@ a.dl, button.dl {
   text-transform: uppercase;
 }
 .safezone span.vert { writing-mode: vertical-rl; }
-button.tiny { padding: 2px 8px; font-size: 11px; margin-left: 8px; font-weight: 500; }
+button.tiny { padding: 2px 8px; font-size: var(--fs-caption); margin-left: 8px; font-weight: 500; }
 input[type=range] { padding: 0; accent-color: var(--accent); }
 
 /* Checkbox efek subtitle */
@@ -827,7 +947,7 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
 /* Status Mesin AI */
 .ok { color: var(--good-text); font-size: 12px; font-weight: 600; }
 .warn { color: var(--warn-text); font-size: 12px; }
-.warn code, .ok code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+.warn code, .ok code { background: var(--panel2); padding: 1px 5px; border-radius: var(--r-sm); }
 
 /* ---------- Kerangka: rail kiri, bilah atas, isi ----------
  *
@@ -896,7 +1016,7 @@ input[type=range] { padding: 0; accent-color: var(--accent); }
   height: 32px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--muted);
   cursor: pointer;
@@ -918,13 +1038,13 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
    Aturannya sederhana dan layak dipegang — JANGAN menaruh dropdown di dalam
    popup; itu popup di dalam popup, dan yang terlihat pengguna cuma dua kotak
    melayang bertumpuk. */
-.seg { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 3px; }
+.seg { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px; }
 .seg button {
-  flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: 6px;
+  flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: var(--r-sm);
   padding: 6px 8px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
 .seg button:hover { color: var(--text); }
-.seg button.active { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.10); }
+.seg button.active { background: var(--panel); color: var(--accent); box-shadow: var(--e-1); }
 .pop-actions { display: flex; gap: 8px; }
 .pop-actions button { flex: 1; padding: 8px 12px; font-size: 13px; }
 .rail-brand {
@@ -949,10 +1069,10 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
   align-items: center;
   gap: 4px;
   padding: 8px 4px;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   color: var(--muted);
   text-decoration: none;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   line-height: 1.25;
   text-align: center;
 }
@@ -965,7 +1085,7 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
    dengan tetangganya. */
 .rail-item.active {
   color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--accent-soft);
   font-weight: 600;
 }
 .rail-item.active::before {
@@ -994,7 +1114,7 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
 .settings-title .meta { white-space: nowrap; }
 .settings-group { display: flex; flex-direction: column; gap: 8px; }
 .settings-head {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1020,7 +1140,7 @@ textarea {
   background: var(--panel2);
   border: 1px solid var(--border);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 10px 12px;
   font-size: 14px;
   width: 100%;
@@ -1051,9 +1171,9 @@ label em { font-style: normal; opacity: 0.7; }
   scrollbar-color: var(--border) transparent;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   padding: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--e-3);
 }
 /* Dasar popup sejajar dasar tombolnya (lihat usePopup side="beside"). */
 /* Popup yang membuka KE ATAS: dasarnya dipatok ke tepi atas tombolnya, dan
@@ -1080,7 +1200,7 @@ label em { font-style: normal; opacity: 0.7; }
   cursor: pointer;
   background: var(--panel2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 8px;
   /* TANPA overflow:hidden, dan itu bukan kelalaian. Item grid dengan `overflow`
      selain visible kehilangan minimum otomatisnya (min-height jadi 0), jadi
@@ -1104,7 +1224,7 @@ label em { font-style: normal; opacity: 0.7; }
   width: 64px;
   height: 48px;
   flex: none;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   object-fit: cover;
   display: block;
   background: var(--panel);
@@ -1128,7 +1248,7 @@ label em { font-style: normal; opacity: 0.7; }
   background: var(--panel2);
   border: 1px solid var(--border);
   border-left: 4px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   padding: 12px 14px;
 }
 .par.pick-card { border-left-color: var(--accent); }
@@ -1147,7 +1267,7 @@ label em { font-style: normal; opacity: 0.7; }
 }
 .par-body { flex: 1; min-width: 0; }
 .par-text { font-size: 13px; line-height: 1.5; }
-.par-reason { font-size: 11px; color: var(--muted); margin-top: 6px; font-style: italic; }
+.par-reason { font-size: var(--fs-caption); color: var(--muted); margin-top: 6px; font-style: italic; }
 .par-actions { display: flex; gap: 8px; margin-top: 10px; }
 /* Dua tombol SAMA LEBAR. Labelnya berganti saat dipilih ("Use on card" →
    "On card"), jadi tombol yang melebar mengikuti teksnya berubah ukuran tiap
@@ -1155,7 +1275,7 @@ label em { font-style: normal; opacity: 0.7; }
    sejajar. Lebar dibagi rata, isinya rata tengah. */
 .par-actions button { margin-left: 0; flex: 1; justify-content: center; text-align: center; }
 .par-score.auto { color: var(--muted); }
-.par-auto { display: block; font-size: 9px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
+.par-auto { display: block; font-size: var(--fs-caption); font-weight: 500; letter-spacing: .06em; text-transform: uppercase; opacity: .8; }
 
 /* Bingkai foto (.photo-tools/.photo-box/.photo-knobs) DIBUANG 6 Agustus 2026
    bersama kotak seretnya: ia pratinjau kedua di halaman yang sudah punya
@@ -1236,8 +1356,14 @@ label em { font-style: normal; opacity: 0.7; }
  * kotak log + 12 jarak + 60 bilah kendali & baris waktu + 30 padding halaman.
  * Kalau salah satunya berubah, ubah di sini — dan UKUR ULANG dengan
  * scripts/measure-ui.mjs, jangan ditebak. */
+/* Batas KEDUA dari lebar (9 Oktober 2026): 100cqw = lebar .screen-main.
+   Tanpa ini, jendela yang lebih TINGGI membuat bingkai lebih LEBAR, kolom
+   setelan di sebelahnya turun di bawah 340 px, kisinya jatuh ke 2 lalu 1
+   kolom, dan kolomnya bergulir — terukur 77 px di 1240x860 dan 264 px di
+   1240x1000 (ruang isi), padahal 0 di 765. 400px = padding panel 32 + jarak
+   18 + 350 untuk kisi tiga kolom setelan. */
 .sub-layout {
-  --pv-w: clamp(150px, calc((100dvh - 300px) * 9 / 16), 506px);
+  --pv-w: clamp(150px, min(calc((100dvh - 300px) * 9 / 16), calc(100cqw - 400px)), 506px);
 }
 .sub-preview .preview9x16 { --pvh: calc(var(--pv-w) * 16 / 9); height: var(--pvh); }
 .sub-preview .field { margin-top: 10px; margin-bottom: 0; }
@@ -1249,7 +1375,7 @@ label em { font-style: normal; opacity: 0.7; }
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
   margin-bottom: 14px;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   /* Garis putus-putus hanya muncul saat ada yang diseret ke atasnya: dalam
      keadaan diam ia cuma dua isian biasa, dan bingkai tambahan di sekelilingnya
      adalah tinta tanpa kabar. */
@@ -1365,6 +1491,9 @@ label em { font-style: normal; opacity: 0.7; }
   gap: 10px;
 }
 .group-title.with-action button.tiny { margin-left: 0; letter-spacing: 0; text-transform: none; }
+/* Popover yang menumpang di judul kelompok tidak boleh mewarisi huruf kapital
+   & spasi lebar judulnya. */
+.group-title .popover { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: var(--fs-body); color: var(--text); }
 .sub-settings .group:last-child { margin-bottom: 0; }
 /* Judul kelompok yang bisa diciutkan. <button> penuh selebar kelompoknya, jadi
    seluruh barisnya bisa diklik — bukan cuma panah kecil di ujungnya. */
@@ -1381,7 +1510,7 @@ label em { font-style: normal; opacity: 0.7; }
   padding: 0 0 4px;
   cursor: pointer;
   /* Mewarisi rupa .group-title — ia memang judul yang sama, cuma bisa ditekan. */
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 400;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -1411,7 +1540,7 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
 }
 .swatch-dot {
   width: 16px; height: 16px; flex: none;
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--border);
   background: var(--panel2);
 }
@@ -1473,7 +1602,7 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
      angka sama sekali. */
   padding: 7px 4px 7px 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: var(--panel2);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
@@ -1512,7 +1641,7 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   width: 46px;
   height: 78px;
   border: 2px dashed var(--stage-muted);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   position: relative;
   margin-bottom: 4px;
 }
@@ -1521,7 +1650,7 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   position: absolute;
   left: 8px; right: 8px; bottom: 14px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--border);
 }
 .pe-title { font-size: 13px; font-weight: 600; color: var(--stage-text); }
@@ -1541,8 +1670,9 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   margin-bottom: 14px !important;
 }
 .group-title {
-  font-size: 11px;
-  letter-spacing: 0.09em;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
   padding-bottom: 3px;
@@ -1575,9 +1705,9 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 500;
   white-space: nowrap;
   flex: none;
@@ -1620,9 +1750,9 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   background: transparent;
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 3px 9px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
@@ -1665,9 +1795,9 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   max-width: 100%;
   max-height: 100%;
   display: block;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   border: 1px solid var(--border);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--e-2);
 }
 /* Bingkai kosong berbentuk KARTUNYA, bukan kotak setinggi kolom.
    --card-ar datang dari rasio yang sedang dipilih (news/page.tsx). Sebelumnya
@@ -1675,7 +1805,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
    pertama datang — pratinjau yang bentuknya berubah sendiri. */
 .card-view .preview-empty {
   border: 1px dashed var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   aspect-ratio: var(--card-ar, 9 / 16);
   height: 100%;
   width: auto;
@@ -1689,9 +1819,9 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   top: 8px; right: 8px;
   background: color-mix(in srgb, var(--stage) 80%, transparent);
   color: var(--stage-muted);
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
 }
 /* Pratinjau kartu memakai SELURUH tinggi kolomnya, bukan angka tetap.
  *
@@ -1741,7 +1871,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 24px;
   cursor: zoom-out;
 }
-.lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; display: block; }
+.lightbox img { max-width: 100%; max-height: 100%; border-radius: var(--r-sm); display: block; }
 .lightbox-x {
   position: absolute;
   top: 16px; right: 16px;
@@ -1749,7 +1879,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   background: rgba(0, 0, 0, 0.5);
   color: #fff;
   cursor: pointer;
@@ -1783,7 +1913,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   width: 34px;
   height: 34px;
   padding: 0;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   border: 2px solid transparent;
   cursor: pointer;
 }
@@ -1804,7 +1934,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .modal {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-md);
   width: min(860px, 100%);
   max-height: min(720px, 90vh);
   display: flex;
@@ -1822,7 +1952,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .modal-head button, .modal-foot button { padding: 8px 14px; font-size: 13px; }
 
 .picker-path { display: flex; gap: 8px; padding: 12px 16px; align-items: center; }
-.picker-path input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.picker-path input { font-family: var(--font-mono); font-size: 12px; }
 .picker-path button { padding: 9px 12px; font-size: 13px; white-space: nowrap; }
 
 .picker-body { display: flex; gap: 0; flex: 1; min-height: 0; border-top: 1px solid var(--border); }
@@ -1843,7 +1973,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   align-items: center;
   gap: 10px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   font-size: 14px;
 }
@@ -1891,7 +2021,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   position: absolute;
   left: 0; right: 0; bottom: 0;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-sm);
   background: var(--border);
   overflow: hidden;
 }
@@ -1902,16 +2032,16 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 .req-name { font-size: 14px; font-weight: 600; }
 .req-tag {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--fs-caption);
   font-weight: 500;
   color: var(--warn-text);
   border: 1px solid var(--warn);
-  border-radius: 5px;
+  border-radius: var(--r-sm);
   padding: 0 5px;
 }
 .req-path {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
   color: var(--muted);
   overflow-wrap: anywhere;
 }
@@ -1922,7 +2052,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   background: rgba(62,207,142,0.12);
   border: 1px solid var(--good);
   color: #b8f0d5;
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   padding: 10px 14px;
   margin-bottom: 20px;
   font-size: 14px;
@@ -1975,7 +2105,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
   display: inline-flex; align-items: center; justify-content: center;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   color: var(--muted);
   cursor: pointer;
@@ -1990,12 +2120,14 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
    (fetch tidak bisa memicu dialog simpan tanpa menyalin isinya ke memori). */
 .btn-dl {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 7px 12px; border-radius: 8px; font-size: 13px; text-decoration: none;
+  padding: 7px 12px; border-radius: var(--r-sm); font-size: 13px; text-decoration: none;
   border: 1px solid var(--border); color: var(--text); background: var(--panel2);
 }
 .btn-dl:hover { border-color: var(--muted); }
 .btn-dl.off { opacity: 0.5; pointer-events: none; }
-button.danger { background: var(--bad); color: #fff; display: inline-flex; align-items: center; gap: 6px; }
+/* Hapus TIDAK boleh jadi yang paling mencolok di bilahnya (DESIGN.md §5.5):
+   tepi + teks merah, latar merah lembut saat disentuh. */
+button.danger { background: transparent; color: var(--bad-text); border: 1px solid var(--bad-text); display: inline-flex; align-items: center; gap: 6px; }
 button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 
 /* Pemilih jenis keluaran di halaman riwayat. */
@@ -2030,7 +2162,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 .card-tile {
   position: relative;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--r-md);
   overflow: hidden;
   background: var(--panel2);
   cursor: pointer;
@@ -2043,7 +2175,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px;
 }
-.card-tile-foot .meta { flex: 1; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-tile-foot .meta { flex: 1; min-width: 0; font-size: var(--fs-caption); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card-tile-foot .dl { flex: none; display: inline-flex; }
 /* .card-cap dibuang bersama kartu riwayat berbentuk strip: caption dua baris di
    tiap ubin membuat tinggi ubin bergantung panjang teksnya, jadi kisinya
@@ -2065,7 +2197,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
   width: 100%;
   padding: 5px 8px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--r-sm);
   background: none;
   color: var(--text);
   font-size: 13px;
@@ -2075,7 +2207,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 .srv-row:hover { background: var(--hover); }
 .srv-row.on { border-color: var(--accent); background: var(--hover); }
 .srv-name { font-weight: 500; }
-.srv-row .meta { font-size: 11px; white-space: nowrap; }
+.srv-row .meta { font-size: var(--fs-caption); white-space: nowrap; }
 
 /* Panel Settings HARUS MUAT; yang boleh bergulir hanya daftar di dalamnya.
    Terukur 7 Agustus 2026: isinya 463 px sementara batas popover 420 px, jadi
@@ -2119,7 +2251,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 /* Foto dibatasi rendah dengan sengaja: yang paling perlu terbaca begitu job
    selesai adalah JUDULNYA, dan foto setinggi 200px mendorongnya ke bawah lipatan
    kotak artikel. */
-.post-image { width: 100%; max-height: 130px; object-fit: cover; border-radius: 8px; }
+.post-image { width: 100%; max-height: 130px; object-fit: cover; border-radius: var(--r-sm); }
 .post-actions { display: flex; gap: 6px; }
 
 /* Keranjang sumber. Batas tingginya ada karena isinya tumbuh sampai lima baris
@@ -2134,7 +2266,7 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
  *
  * flex:none supaya ia tidak ikut merebut sisa ruang dari daftar beritanya. */
 .feed-panel .basket { flex: none; max-height: 106px; }
-.basket-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.basket-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); }
 .basket-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .basket-text .news-title {
   font-size: 13px;
@@ -2214,14 +2346,14 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    baris mendorong tombol Mulai keluar jendela — persis yang dilarang notes/29.
    flex:none supaya ia tidak ikut merebut sisa ruang panelnya. */
 .cap-drop { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-.cap-drop.over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: 8px; }
+.cap-drop.over { outline: 2px dashed var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
 .feed-panel .cap-list { flex: none; max-height: 168px; }
 
 /* Satu video di kolom hasil: nama berkasnya, lalu caption-captionnya. */
 .cap-file { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
 .cap-file:first-child { border-top: 0; padding-top: 0; margin-top: 0; }
 .cap-file-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
-.cap-variant { position: relative; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
+.cap-variant { position: relative; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 8px; }
 .cap-variant p { margin: 0 0 6px; line-height: 1.5; }
 .cap-variant p:last-child { margin-bottom: 0; }
 .cap-hook { font-weight: 600; }
@@ -2292,6 +2424,10 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
   position: absolute;
   pointer-events: none;
   border: 1px dashed var(--accent);
-  border-radius: 4px;
+  border-radius: var(--r-sm);
   opacity: 0.7;
 }
+
+/* Isi popover "Advanced" di halaman klip: kisi tiga kolom yang sama dengan
+   kelompok setelan, diberi ruang dari tepi popovernya. */
+.pop-grid { padding: 8px; align-items: end; }

@@ -10,6 +10,7 @@
 // panjang. Tidak ada mode kedua, tidak ada tombol kedua.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageHeader from "../page-header";
 import { X, Copy, Folder, Film } from "lucide-react";
 import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
@@ -185,7 +186,7 @@ export default function CaptionsPage() {
     for (const f of Array.from(files)) {
       if (web) {
         try {
-          add([await upload(f, (x) => setUpNote(`${f.name} — ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
+          add([await upload(f, (x) => setUpNote(`${f.name}: ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
         } catch (e) { setError(`${f.name}: ${String(e)}`); }
         setUpNote("");
         continue;
@@ -255,6 +256,15 @@ export default function CaptionsPage() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabCaptions")} subtitle={t("subCaptions")}>
+        <RunPanel
+          busy={busy} testing={false}
+          disabled={busy || videos.length === 0}
+          cancellable={busy && !!jobId}
+          onStart={start} onCancel={cancel}
+          progress={job?.progress ?? 0}
+        />
+      </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
       <div className="screen-body two">
@@ -443,13 +453,6 @@ export default function CaptionsPage() {
             />
           </div>
 
-          <RunPanel
-            busy={busy} testing={false}
-            disabled={busy || videos.length === 0}
-            cancellable={busy && !!jobId}
-            onStart={start} onCancel={cancel}
-            progress={job?.progress ?? 0}
-          />
         </div>
       </div>
 

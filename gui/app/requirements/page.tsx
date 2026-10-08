@@ -8,6 +8,7 @@
 // tebakan.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageHeader from "../page-header";
 import { useI18n } from "../i18n";
 import { eng, engineURL, useWeb } from "../engine";
 import Picker from "../picker";
@@ -216,6 +217,7 @@ export default function RequirementsPage() {
 
   return (
     <main className="screen">
+      <PageHeader title={t("tabRequirements")} subtitle={t("subRequirements")} />
       {pickingFolder && (
         <Picker
           mode="folder"
@@ -352,7 +354,7 @@ export default function RequirementsPage() {
               <div className="req-dot idle" />
               <div className="req-main">
                 <div className="req-name">{label}</div>
-                <div className="req-path" title={used || ""}>{used || "—"}</div>
+                <div className="req-path" title={used || ""}>{used || "–"}</div>
                 {!custom && <div className="meta">{t("reqFolderDefault")}</div>}
               </div>
               {!web && <div className="req-actions">

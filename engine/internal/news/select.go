@@ -147,7 +147,7 @@ func SelectParagraphs(ctx context.Context, content Content, complete Completer, 
 
 	var r reply
 	if err := json.Unmarshal([]byte(extractJSON(raw)), &r); err != nil {
-		return Selection{}, fmt.Errorf("%s returned JSON that could not be read: %w — reply: %s",
+		return Selection{}, fmt.Errorf("%s returned JSON that could not be read: %w; reply: %s",
 			engineName, err, truncate(strings.ReplaceAll(raw, "\n", " "), 300))
 	}
 
@@ -202,7 +202,7 @@ func build(content Content, r reply, engineName string) Selection {
 	note := ""
 	switch {
 	case len(scored) == 0:
-		note = fmt.Sprintf("%s gave no rankings at all — the order below was produced automatically by the engine.", engineName)
+		note = fmt.Sprintf("%s gave no rankings at all: the order below was produced automatically by the engine.", engineName)
 	case missed > 0:
 		note = fmt.Sprintf("%s scored %d of %d paragraphs; the rest were scored automatically by the engine.",
 			engineName, len(scored), len(content.Paragraphs))

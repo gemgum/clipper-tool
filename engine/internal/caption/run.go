@@ -173,7 +173,7 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 		name := filepath.Base(video)
 
 		emit(onProgress, Progress{Stage: "transcribing", Value: base + step*0.05,
-			Message: fmt.Sprintf("Transcribing %d/%d — %s", i+1, len(opts.Videos), name)})
+			Message: fmt.Sprintf("Transcribing %d/%d: %s", i+1, len(opts.Videos), name)})
 
 		f, err := one(ctx, video, opts, deps, used, func(p Progress) {
 			p.Value = base + step*p.Value
@@ -187,7 +187,7 @@ func Run(ctx context.Context, opts Options, deps Deps, onProgress func(Progress)
 			}
 			f.Error = err.Error()
 			emit(onProgress, Progress{Stage: "writing", Value: base + step,
-				Message: "Failed " + name + " — " + err.Error()})
+				Message: "Failed " + name + ": " + err.Error()})
 		}
 		res.Files = append(res.Files, f)
 	}
@@ -233,7 +233,7 @@ func one(ctx context.Context, video string, opts Options, deps Deps, used map[st
 	}
 
 	emit(onProgress, Progress{Stage: "writing", Value: 0.6,
-		Message: "Writing captions for " + f.Name + " — " + opts.EngineName})
+		Message: "Writing captions for " + f.Name + ": " + opts.EngineName})
 	variants, err := Generate(ctx, deps.Complete, speech.Text(), opts)
 	if err != nil {
 		return f, err

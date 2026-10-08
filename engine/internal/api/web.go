@@ -104,7 +104,7 @@ func (s *Server) webOff(h http.HandlerFunc) http.HandlerFunc {
 		return h
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		writeErr(w, 403, "not available in the web version — this works on the server's own files")
+		writeErr(w, 403, "not available in the web version: this works on the server's own files")
 	}
 }
 

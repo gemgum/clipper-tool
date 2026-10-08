@@ -17,10 +17,12 @@ import { usePopup } from "./use-popup";
 // getBoundingClientRect() tombolnya, lalu dijepit ke lebar jendela supaya tidak
 // pernah keluar layar di jendela terkecil (900 px).
 export default function Popover({
-  label, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen,
+  label, ariaLabel, width = 320, align = "left", buttonClass = "ghost", disabled, onOpen,
   maxHeight = 460, side = "below", open: openProp, onOpenChange, children,
 }: {
   label: React.ReactNode;
+  /** Wajib bila label cuma ikon: tanpa ini pembaca layar mengumumkan "tombol" saja. */
+  ariaLabel?: string;
   width?: number;
   align?: "left" | "right";
   buttonClass?: string;
@@ -58,6 +60,7 @@ export default function Popover({
     <div className="popover-anchor">
       <button ref={btn} type="button" disabled={disabled}
         className={buttonClass + (open ? " active" : "")}
+        aria-label={ariaLabel} title={ariaLabel}
         aria-expanded={open} onClick={toggle}>
         {label}
       </button>

@@ -145,7 +145,7 @@ func whisperHint() string {
 	if runtime.GOOS == "darwin" {
 		return "On macOS, install it with: brew install whisper-cpp"
 	}
-	return "No ready-made build for this system — it has to be compiled from source"
+	return "No ready-made build for this system: it has to be compiled from source"
 }
 
 func ffmpegRecipe() *recipe {
@@ -353,7 +353,7 @@ func download(ctx context.Context, src source, dest string, onProgress func(Prog
 		// justru membuat percobaan berikutnya mewarisi kerusakan yang sama.
 		os.Remove(tmp)
 		os.Remove(from)
-		return fmt.Errorf("%s does not match its known checksum — the file was rejected (expected %s, got %s)",
+		return fmt.Errorf("%s does not match its known checksum: the file was rejected (expected %s, got %s)",
 			src.url, src.sha256, sum)
 	}
 

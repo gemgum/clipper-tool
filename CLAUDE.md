@@ -332,34 +332,41 @@ Sebelum menyerahkan perubahan tampilan apa pun, periksa:
 - tiap daftar punya `max-height` + `overflow-y: auto`;
 - kendali yang cuma satu angka memakai `<Stepper>`, bukan `<input type="range">`
   yang melar selebar kolomnya;
-- tidak ada judul halaman, kalimat pengantar, atau keterangan yang mengulang apa
-  yang sudah terlihat.
+- tidak ada kalimat pengantar atau keterangan yang mengulang apa yang sudah
+  terlihat — SELAIN satu judul + satu baris subjudul di `.page-header`
+  (keputusan pemilik 9 Oktober 2026, `DESIGN.md` §5.2).
 
 ### 2. Halaman `/` (Video clips) adalah STANDAR. Salin, jangan mengarang.
 
 Halaman lain mengikuti bentuknya; jangan menemukan tata letak baru tiap halaman.
 Bentuk bakunya:
 
-**Tidak ada bilah atas.** Akun, tema, dan setelan menepi ke DASAR rail kiri
-(`.rail-tools`), berukuran sama. Satu baris penuh selebar jendela untuk tiga
-ikon adalah tinggi yang diambil dari isi halaman, tiap halaman, selamanya.
+**Tidak ada bilah ikon di atas.** Akun, tema, dan setelan menepi ke DASAR rail
+kiri (`.rail-tools`), berukuran sama.
+
+**Satu `.page-header` per halaman** (keputusan pemilik 9 Oktober 2026,
+`DESIGN.md` §5.2): `<h1>` judul halaman, satu baris subjudul, status job, dan
+SATU aksi utama. Ia menggantikan `.start-panel` — tombol jalan tidak ada di dua
+tempat. Tinggi yang ia ambil dibayar dari isi halaman, jadi ukur ulang.
+Arah rupa (warna, huruf, radius, elevasi) ada di `DESIGN.md`; bagian
+responsifnya (§7) DIBUANG, acuan tetap 900×600 dan 1240×860.
 
 ```
 .screen
-├── .screen-head          hanya bila ada galat/peringatan — TIDAK ada <h1>
+├── .page-header          <h1> + subjudul + status job + aksi utama
+├── .screen-head          hanya bila ada galat/peringatan
 └── .screen-body.two
     ├── .screen-main      KIRI: yang dilihat
     │   └── .panel > .sub-layout
     │        ├── .sub-preview    bingkai pratinjau
     │        └── .sub-settings   setelan yang MENGUBAH pratinjau itu
     │                            (kelompok bernama, tiap kelompok .grid3)
-    └── .screen-col       KANAN: yang diisi & dijalankan
-        ├── .panel        kelompok bernama, dibaca atas ke bawah
-        └── .panel.start-panel   satu tombol aksi di dasar
+    └── .screen-col       KANAN: yang diisi & dipilih
+        └── .panel        kelompok bernama, dibaca atas ke bawah
 ```
 
 Aturan pembagian kolomnya satu kalimat: **kiri = pratinjau + apa pun yang
-mengubah rupanya; kanan = masukan, pilihan, dan tombol jalan.** Setelan rupa
+mengubah rupanya; kanan = masukan dan pilihan; tombol jalan di `.page-header`.** Setelan rupa
 TIDAK pernah ditaruh di kolom kanan, dan isian sumber TIDAK pernah ditempel ke
 panel pratinjau.
 

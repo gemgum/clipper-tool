@@ -290,9 +290,9 @@ func span(s, open, close string) string {
 func JSONError(engineName, raw string, err error) error {
 	hint := ""
 	if s := strings.TrimSpace(raw); !strings.HasSuffix(s, "}") {
-		hint = " — the reply was cut off before it ended, so the model ran out of its output budget"
+		hint = ": the reply was cut off before it ended, so the model ran out of its output budget"
 	}
-	return fmt.Errorf("%s returned JSON that could not be read: %w%s — reply: %s",
+	return fmt.Errorf("%s returned JSON that could not be read: %w%s; reply: %s",
 		engineName, err, hint, truncate(strings.ReplaceAll(raw, "\n", " "), 300))
 }
 

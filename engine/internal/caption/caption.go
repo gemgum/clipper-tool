@@ -213,11 +213,11 @@ func check(variants []Variant, transcript string) []Variant {
 		}
 		if n := len([]rune(text)); n > MaxChars {
 			v.Violations = append(v.Violations,
-				fmt.Sprintf("%d characters — %d over the limit, so it will be cut off with a “more”", n, n-MaxChars))
+				fmt.Sprintf("%d characters: %d over the limit, so it will be cut off with a “more”", n, n-MaxChars))
 		}
 		if strings.ContainsAny(text, `"“”`) {
 			v.Violations = append(v.Violations,
-				"contains quotation marks — speech recognition output is never exact enough to quote")
+				"contains quotation marks: speech recognition output is never exact enough to quote")
 		}
 		out = append(out, v)
 	}

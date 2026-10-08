@@ -60,7 +60,7 @@ func FetchContent(ctx context.Context, page string, browse Browser, cacheDir, la
 			page = original
 		} else {
 			if browse == nil {
-				return Content{}, fmt.Errorf("search-result links must be opened in a browser, but no browser is available — install Chrome/Chromium, or open the link yourself and paste the real address")
+				return Content{}, fmt.Errorf("search-result links must be opened in a browser, but no browser is available: install Chrome/Chromium, or open the link yourself and paste the real address")
 			}
 			dom, err := browse(ctx, page)
 			if err != nil {
@@ -99,7 +99,7 @@ func contentFromHTML(htmlStr, origin, lang string) (Content, error) {
 	// terjadi — jangan diteruskan, sebab yang terbaca halaman Google, bukan
 	// artikelnya.
 	if IsGoogleNewsLink(art.URL) {
-		return Content{}, fmt.Errorf("the link has not reached the original article yet — try again, or open it in a browser and paste the address that appears")
+		return Content{}, fmt.Errorf("the link has not reached the original article yet: try again, or open it in a browser and paste the address that appears")
 	}
 	return buildContent(art, htmlStr)
 }
@@ -108,7 +108,7 @@ func buildContent(art Article, htmlStr string) (Content, error) {
 	paragraphs := parseParagraphs(htmlStr)
 	if len(paragraphs) == 0 {
 		return Content{}, fmt.Errorf(
-			"the article body could not be read from %s — the page may be paywalled, or its content is loaded via JavaScript. "+
+			"the article body could not be read from %s: the page may be paywalled, or its content is loaded via JavaScript. "+
 				"Try another article, or copy the paragraphs yourself", art.Domain)
 	}
 	words := 0

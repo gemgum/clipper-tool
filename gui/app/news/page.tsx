@@ -2,6 +2,7 @@
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
 import { Link2, Download, RotateCw, X } from "lucide-react";
+import PageHeader from "../page-header";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCopyLink } from "../copy-link";
@@ -561,6 +562,7 @@ export default function News() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabNews")} subtitle={t("subNews")} />
       {/* Melayang, bukan kepala halaman — lihat alerts.tsx. */}
       <Alerts items={[
         error && { kind: "error" as const, text: error },
@@ -918,7 +920,7 @@ export default function News() {
                   {t("backToSources")}
                 </button>
               ) : (
-                <button onClick={runSearch} disabled={!typed.trim() || listBusy}>
+                <button className="ghost" onClick={runSearch} disabled={!typed.trim() || listBusy}>
                   {listBusy && query ? t("searching") : t("search")}
                 </button>
               )}

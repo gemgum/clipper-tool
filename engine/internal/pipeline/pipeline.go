@@ -193,7 +193,7 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 		selected = kept
 	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("%s produced no clips — try loosening the duration preset or lowering the minimum score", engineName)
+		return nil, fmt.Errorf("%s produced no clips: try loosening the duration preset or lowering the minimum score", engineName)
 	}
 
 	// 6. Render klip.
@@ -415,7 +415,7 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 		emit(onProgress, Progress{
 			Stage:   "correcting",
 			Value:   0.48 + 0.10*float64(done)/float64(total),
-			Message: fmt.Sprintf("%s is correcting the transcript — part %d/%d", engineName, done, total),
+			Message: fmt.Sprintf("%s is correcting the transcript: part %d/%d", engineName, done, total),
 		})
 	})
 	if err != nil {
@@ -423,7 +423,7 @@ func (p *Pipeline) correctTranscript(ctx context.Context, tr types.Transcript, c
 		// Pesannya menyebut cara mematikan koreksi, supaya pengguna tanpa LLM
 		// tidak kehabisan jalan.
 		return types.Transcript{}, fmt.Errorf(
-			"transcript correction failed: %w — fix the engine above, or turn correction off (-transcript-fix off in the CLI, or the checkbox in the GUI)", err)
+			"transcript correction failed: %w. Fix the engine above, or turn correction off (-transcript-fix off in the CLI, or the checkbox in the GUI)", err)
 	}
 
 	emit(onProgress, Progress{Stage: "correcting", Value: 0.58, Message: report.Summary()})
@@ -481,7 +481,7 @@ func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel mome
 		}
 		msg := fmt.Sprintf("%s is choosing from %d candidate clips", engineName, len(cands))
 		if batches > 1 {
-			msg = fmt.Sprintf("%s is choosing clips — part %d/%d", engineName, b+1, batches)
+			msg = fmt.Sprintf("%s is choosing clips: part %d/%d", engineName, b+1, batches)
 		}
 		emit(onProgress, Progress{Stage: "scoring", Value: 0.58 + 0.15*float64(b)/float64(batches), Message: msg})
 

@@ -5,6 +5,7 @@
 // semua font, dan hubung ASCII terlihat lebih pendek daripada plusnya sehingga
 // dua tombol sejajar tampak tidak sama.
 import { Minus, Plus } from "lucide-react";
+import { useI18n } from "./i18n";
 
 // Angka dengan tombol −/+.
 //
@@ -27,6 +28,7 @@ export default function Stepper({
   step?: number;
   suffix?: string;
 }) {
+  const { t } = useI18n();
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
   // Dibulatkan ke kelipatan step supaya angka yang diketik tangan tidak pernah
   // keluar dari nilai yang bisa dicapai tombolnya.
@@ -34,14 +36,14 @@ export default function Stepper({
 
   return (
     <div className="stepper">
-      <button type="button" className="step-btn" aria-label="−"
+      <button type="button" className="step-btn" aria-label={t("decrease")}
         disabled={value <= min} onClick={() => onChange(clamp(value - step))}>
         <Minus className="ico" aria-hidden="true" />
       </button>
       <input type="number" value={value} min={min} max={max} step={step}
         onChange={(e) => { const n = Number(e.target.value); if (!Number.isNaN(n)) onChange(quantise(n)); }} />
       {suffix && <span className="step-suffix">{suffix}</span>}
-      <button type="button" className="step-btn" aria-label="+"
+      <button type="button" className="step-btn" aria-label={t("increase")}
         disabled={value >= max} onClick={() => onChange(clamp(value + step))}>
         <Plus className="ico" aria-hidden="true" />
       </button>

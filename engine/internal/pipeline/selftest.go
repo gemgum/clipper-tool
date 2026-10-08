@@ -88,7 +88,7 @@ func SelfTest(ctx context.Context, url, model string) (string, []SelfTestStep) {
 		// entri yang hilang berarti model tidak sanggup memenuhinya — di
 		// transkrip sungguhan itu muncul sebagai kalimat yang tidak pernah
 		// terkoreksi, bukan sebagai galat.
-		step.Error = fmt.Sprintf("%s answered, but left %d of %d segments unanswered — the model is most likely too small for this task (llama3.1 8B is the smallest that handles it reliably here)",
+		step.Error = fmt.Sprintf("%s answered, but left %d of %d segments unanswered: the model is most likely too small for this task (llama3.1 8B is the smallest that handles it reliably here)",
 			name, report.Missing, report.Total)
 	default:
 		step.OK, step.Detail = true, report.Summary()
@@ -104,16 +104,16 @@ func SelfTest(ctx context.Context, url, model string) (string, []SelfTestStep) {
 	case err != nil:
 		step.Error = err.Error()
 	case len(picks) == 0:
-		step.Error = fmt.Sprintf("%s picked no moment out of %d candidates — a job would finish with zero clips", name, len(selfTestCandidates))
+		step.Error = fmt.Sprintf("%s picked no moment out of %d candidates: a job would finish with zero clips", name, len(selfTestCandidates))
 	case picks[0].Index < 0 || picks[0].Index >= len(selfTestCandidates):
 		// Nomor di luar daftar = model mengarang alih-alih memilih. Di job
 		// sungguhan pilihan itu dibuang diam-diam, jadi gejalanya cuma "klipnya
 		// lebih sedikit dari yang diminta".
-		step.Error = fmt.Sprintf("%s returned candidate number %d, but only 0-%d exist — it is inventing numbers instead of picking",
+		step.Error = fmt.Sprintf("%s returned candidate number %d, but only 0-%d exist: it is inventing numbers instead of picking",
 			name, picks[0].Index, len(selfTestCandidates)-1)
 	default:
 		step.OK = true
-		step.Detail = fmt.Sprintf("picked #%d, score %.0f — %q", picks[0].Index, picks[0].Score, picks[0].Title)
+		step.Detail = fmt.Sprintf("picked #%d, score %.0f: %q", picks[0].Index, picks[0].Score, picks[0].Title)
 	}
 	return name, append(steps, step)
 }

@@ -140,7 +140,7 @@ func RemoveModel(l config.Layout, name string) error {
 // itulah cara baris yang sedang berjalan dikenali.
 var LLMServers = []struct{ ID, Name, Detail, Hint, URL string }{
 	{"ollama", "Ollama",
-		"Local LLM. Manages its own models — the simplest place to start.",
+		"Local LLM. Manages its own models: the simplest place to start.",
 		"Install it, start it, then pull a model. llama3.1 is the best pick for the term list.",
 		"https://ollama.com/download"},
 	{"lmstudio", "LM Studio",
@@ -206,7 +206,7 @@ func Status(l config.Layout) []Component {
 	chrome := Component{
 		ID: "chrome", Name: "Chrome / Edge", Kind: KindApp, Pointable: true,
 		Detail:      "Renders the news cards. Not needed for video clips.",
-		Hint:        "Install Chrome or Chromium — the Edge that ships with Windows works too.",
+		Hint:        "Install Chrome or Chromium: the Edge that ships with Windows works too.",
 		URL:         "https://www.google.com/chrome/",
 		Installable: false,
 	}
@@ -237,7 +237,7 @@ func modelNote(name string) string {
 	case "tiny", "base":
 		return "Fast, for quick tests."
 	case "small":
-		return "The default — the balance this project is tuned for."
+		return "The default: the balance this project is tuned for."
 	default:
 		return "More accurate, much slower on a CPU."
 	}
@@ -286,7 +286,7 @@ func checkRuns(c Component) Component {
 	c.Installed = false
 	c.Detail = fmt.Sprintf("%s is at %s but will not run: %v", c.Name, c.Path, err)
 	if msg != "" {
-		c.Detail += " — " + msg
+		c.Detail += ": " + msg
 	}
 	return c
 }
@@ -357,7 +357,7 @@ func Install(ctx context.Context, l config.Layout, id string, onProgress func(Pr
 	case "whisper":
 		return installRecipe(ctx, l, whisperRecipe(), "whisper.cpp", whisperHint(), onProgress)
 	case "ollama", "chrome":
-		return fmt.Errorf("%s is a separate application — install it yourself, then press Refresh", id)
+		return fmt.Errorf("%s is a separate application: install it yourself, then press Refresh", id)
 	}
 	return fmt.Errorf("unknown component %q", id)
 }
@@ -400,7 +400,7 @@ func installModel(ctx context.Context, l config.Layout, name string, onProgress 
 // installRecipe menjalankan satu resep unduh+bongkar.
 func installRecipe(ctx context.Context, l config.Layout, r *recipe, what, hint string, onProgress func(Progress)) error {
 	if r == nil {
-		return fmt.Errorf("this build cannot install %s automatically on %s — %s", what, runtime.GOOS, hint)
+		return fmt.Errorf("this build cannot install %s automatically on %s: %s", what, runtime.GOOS, hint)
 	}
 	if err := os.MkdirAll(l.ToolsDir, 0o755); err != nil {
 		return err
@@ -422,7 +422,7 @@ func installRecipe(ctx context.Context, l config.Layout, r *recipe, what, hint s
 		return err
 	}
 	if n == 0 {
-		return fmt.Errorf("the %s download did not contain the expected files — the release layout may have changed", what)
+		return fmt.Errorf("the %s download did not contain the expected files: the release layout may have changed", what)
 	}
 	onProgress(Progress{Value: 1, Message: fmt.Sprintf("%s is ready (%d files).", what, n)})
 	return nil

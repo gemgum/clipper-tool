@@ -256,7 +256,7 @@ func (s *Server) newsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !strings.HasPrefix(feed, "http://") && !strings.HasPrefix(feed, "https://") {
-		writeErr(w, 400, "unknown feed — use one of the built-in ids, or paste a full feed URL")
+		writeErr(w, 400, "unknown feed: use one of the built-in ids, or paste a full feed URL")
 		return
 	}
 	items, err := news.ListFeed(r.Context(), feed, name, max, lang(r))
@@ -409,7 +409,7 @@ const llmMaxTokens = 8192
 // detik, sementara mesin job dirancang untuk pekerjaan hitungan menit.
 func (s *Server) makeCard(w http.ResponseWriter, r *http.Request) {
 	if s.paths.Chrome == "" {
-		writeErr(w, 503, "browser not found — install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
+		writeErr(w, 503, "browser not found: install Chrome/Chromium, or set CLIPPER_CHROME to the chrome.exe path")
 		return
 	}
 	var req struct {
@@ -970,7 +970,7 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 		return res
 	}
 	if !fontNameOK.MatchString(name) {
-		res.Error = "invalid name format — use letters/digits, spaces, dots, ' & or -, at most 64 characters (e.g. \"Poppins\", \"Bebas Neue\")"
+		res.Error = "invalid name format: use letters/digits, spaces, dots, ' & or -, at most 64 characters (e.g. \"Poppins\", \"Bebas Neue\")"
 		return res
 	}
 	for _, f := range fontCatalog {
@@ -993,7 +993,7 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 	defer cancel()
 	out, err := exec.CommandContext(ctx, "fc-match", "-f", "%{family}\t%{file}", name).Output()
 	if err != nil {
-		res.Error = "cannot check system fonts (fontconfig/fc-match unavailable) — use a bundled font"
+		res.Error = "cannot check system fonts (fontconfig/fc-match unavailable): use a bundled font"
 		return res
 	}
 	parts := strings.SplitN(strings.TrimSpace(string(out)), "\t", 2)
@@ -1008,7 +1008,7 @@ func (s *Server) resolveFont(ctx context.Context, name string) fontResult {
 		}
 	}
 	res.Family = strings.TrimSpace(strings.Split(parts[0], ",")[0])
-	res.Error = fmt.Sprintf("font %q is not installed — subtitles will be rendered with %q instead", name, res.Family)
+	res.Error = fmt.Sprintf("font %q is not installed: subtitles will be rendered with %q instead", name, res.Family)
 	return res
 }
 

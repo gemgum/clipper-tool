@@ -194,7 +194,7 @@ func EngineFor(id, model string) (writer.Completer, string, error) {
 	}
 	d, ok := engineByID(id)
 	if !ok {
-		return nil, "", fmt.Errorf("unknown engine %q — choose one of: %s", id, engineIDs())
+		return nil, "", fmt.Errorf("unknown engine %q: choose one of: %s", id, engineIDs())
 	}
 	e := resolve(d)
 	if model = strings.TrimSpace(model); model == "" {
@@ -205,7 +205,7 @@ func EngineFor(id, model string) (writer.Completer, string, error) {
 	switch d.Kind {
 	case kindAnthropic:
 		if key == "" {
-			return nil, "", fmt.Errorf("%s has no API key yet — add it on the Requirements page", d.Name)
+			return nil, "", fmt.Errorf("%s has no API key yet: add it on the Requirements page", d.Name)
 		}
 		c := llm.New(key, model)
 		c.BaseURL = e.BaseURL
@@ -216,10 +216,10 @@ func EngineFor(id, model string) (writer.Completer, string, error) {
 
 	case kindOpenAI:
 		if e.BaseURL == "" {
-			return nil, "", fmt.Errorf("%s has no address yet — add it on the Requirements page", d.Name)
+			return nil, "", fmt.Errorf("%s has no address yet: add it on the Requirements page", d.Name)
 		}
 		if key == "" {
-			return nil, "", fmt.Errorf("%s has no API key yet — add it on the Requirements page", d.Name)
+			return nil, "", fmt.Errorf("%s has no API key yet: add it on the Requirements page", d.Name)
 		}
 		c := ollama.New(e.BaseURL, model)
 		c.Kind, c.Path, c.APIKey = ollama.KindOpenAI, d.Path, key

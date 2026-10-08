@@ -86,12 +86,12 @@ func Run(ctx context.Context, o Options, ff *ffmpeg.Client, paths config.Paths, 
 	if o.Watermark.Image == "" && headline == "" {
 		// Halaman ini TIDAK punya pekerjaan lain: tanpa banner dan tanpa teks,
 		// yang dihasilkannya cuma salinan yang dikompresi ulang.
-		return Result{}, fmt.Errorf("nothing to burn — choose a watermark image, type a headline, or both")
+		return Result{}, fmt.Errorf("nothing to burn: choose a watermark image, type a headline, or both")
 	}
 	// Sumber "llm" tidak berlaku di sini: tidak ada klip, jadi tidak ada judul
 	// yang dipilihkan LLM. Dinyatakan, bukan didiamkan.
 	if o.Watermark.Headline.Source == config.HeadlineLLM {
-		return Result{}, fmt.Errorf("the LLM title only exists for clips — type a headline for this page")
+		return Result{}, fmt.Errorf("the LLM title only exists for clips: type a headline for this page")
 	}
 
 	work := filepath.Join(paths.DataDir, "cache", "watermark")
@@ -137,7 +137,7 @@ func one(ctx context.Context, o Options, ff *ffmpeg.Client, paths config.Paths,
 	}
 	// 9:16, atau ditolak. Lihat aspectTolerance.
 	if want := 9.0 / 16.0; abs(float64(w)/float64(h)-want) > aspectTolerance {
-		return "", 0, fmt.Errorf("this video is %dx%d, not 9:16 — watermark is placed in a 1080x1920 space, so cut it to 9:16 first", w, h)
+		return "", 0, fmt.Errorf("this video is %dx%d, not 9:16: watermark is placed in a 1080x1920 space, so cut it to 9:16 first", w, h)
 	}
 	dur, err := ff.Duration(ctx, video)
 	if err != nil {

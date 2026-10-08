@@ -263,7 +263,7 @@ func (d *Draft) dropRepeats() []Violation {
 	for _, du := range dups {
 		what := "repeats"
 		if drop {
-			what = "removed — it repeats"
+			what = "removed: it repeats"
 		}
 		vs = append(vs, Violation{"repetition", truncate(d.Body[du.at], 60),
 			fmt.Sprintf("paragraph %d %s %s", du.at+1, what, du.label)})

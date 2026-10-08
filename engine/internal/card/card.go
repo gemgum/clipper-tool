@@ -289,7 +289,7 @@ func New(cap *capture.Client, fontsDir string) *Builder {
 // disimpan.
 func (b *Builder) Build(ctx context.Context, req Request, dir string, preview bool) error {
 	if strings.TrimSpace(req.Article.Title) == "" {
-		return fmt.Errorf("the title is empty — a card needs the article title")
+		return fmt.Errorf("the title is empty: a card needs the article title")
 	}
 	outPNG := filepath.Join(dir, FilePNG)
 	width, height := Dims(req.Ratio)

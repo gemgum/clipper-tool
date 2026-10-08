@@ -515,7 +515,7 @@ func summarizeError(stderr string) string {
 	}
 	message := strings.Join(important, " | ")
 	if hint := errorHint(message); hint != "" {
-		message += " — " + hint
+		message += ": " + hint
 	}
 	return message
 }

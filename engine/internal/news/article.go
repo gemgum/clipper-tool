@@ -19,7 +19,7 @@ import (
 func FetchArticle(ctx context.Context, page, lang string) (Article, error) {
 	u, err := url.Parse(strings.TrimSpace(page))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return Article{}, fmt.Errorf("invalid URL — paste a full link starting with https://")
+		return Article{}, fmt.Errorf("invalid URL: paste a full link starting with https://")
 	}
 	raw, err := download(ctx, u.String())
 	if err != nil {
@@ -35,7 +35,7 @@ func parseArticle(htmlStr string, u *url.URL, lang string) (Article, error) {
 	meta := readMeta(htmlStr)
 	title := firstNonEmpty(meta["og:title"], meta["twitter:title"], tagTitle(htmlStr))
 	if title == "" {
-		return Article{}, fmt.Errorf("no title found at %s — that page may not be an article, or it loads its content via JavaScript", domain(u.String()))
+		return Article{}, fmt.Errorf("no title found at %s: that page may not be an article, or it loads its content via JavaScript", domain(u.String()))
 	}
 	// og:url menyebut alamat kanonik artikel. Untuk halaman hasil resolusi
 	// Google News, inilah satu-satunya tempat alamat aslinya muncul.

@@ -101,9 +101,9 @@ func markdown(d Draft, sources []Source, lang string) string {
 	var sb strings.Builder
 
 	if len(d.Violations) > 0 {
-		fmt.Fprintf(&sb, "> **%s (%d)** — %s:\n", p.unverified, len(d.Violations), p.checkFirst)
+		fmt.Fprintf(&sb, "> **%s (%d)**: %s:\n", p.unverified, len(d.Violations), p.checkFirst)
 		for _, v := range d.Violations {
-			fmt.Fprintf(&sb, "> - `%s` %q — %s\n", v.Kind, v.Text, v.Detail)
+			fmt.Fprintf(&sb, "> - `%s` %q: %s\n", v.Kind, v.Text, v.Detail)
 		}
 		sb.WriteString(">\n\n")
 	}
@@ -149,7 +149,7 @@ func sourceLinks(sources []Source, lang string) string {
 		media := strings.TrimSpace(s.Facts.Source)
 		fmt.Fprintf(&sb, "- [%s](%s)", title, u)
 		if media != "" {
-			fmt.Fprintf(&sb, " — %s", media)
+			fmt.Fprintf(&sb, ", %s", media)
 		}
 		sb.WriteString("\n")
 	}

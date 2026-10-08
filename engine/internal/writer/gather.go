@@ -95,7 +95,7 @@ func Gather(ctx context.Context, urls []string, browse news.Browser, cacheDir, l
 	}
 
 	if len(b.Sources) == 0 {
-		return b, fmt.Errorf("no usable source article — %s", reasons(b.Skipped))
+		return b, fmt.Errorf("no usable source article: %s", reasons(b.Skipped))
 	}
 	b.OffTopic = offTopic(b.Sources)
 	return b, nil

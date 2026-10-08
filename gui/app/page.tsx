@@ -20,6 +20,7 @@
 // Lambang yang TIDAK diganti: ⚠ ✓ ✕ → ↗ ↓ ↑ ✗. Semuanya simbol teks biasa yang
 // ada di font mana pun.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PageHeader from "./page-header";
 import { useI18n } from "./i18n";
 import Alerts from "./alerts";
 import { eng, engineURL, isWeb } from "./engine";
@@ -502,6 +503,13 @@ export default function Home() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabClips")} subtitle={t("subClips")}>
+        <RunPanel
+          busy={busy} testing={testing} disabled={busy || testing || !path || !!modelMissing}
+          cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
+          progress={progress}
+        />
+      </PageHeader>
       {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek.
           DUA aturan per font, tegak dan tebal: kalau hanya satu yang dipasang,
           browser menebalkan sendiri face tegaknya, dan penebalan buatan itu tidak
@@ -615,11 +623,6 @@ export default function Home() {
             testing={testing} setTesting={setTesting}
           />
 
-          <RunPanel
-            busy={busy} testing={testing} disabled={busy || testing || !path || !!modelMissing}
-            cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
-            progress={progress}
-          />
         </div>
       </div>
     </div>

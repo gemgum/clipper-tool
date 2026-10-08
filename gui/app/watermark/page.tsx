@@ -13,6 +13,7 @@
 // Ikon: lucide-react (ISC). Tanpa satu emoji pun — alasannya di gui/app/page.tsx.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageHeader from "../page-header";
 import { Film, Folder, X } from "lucide-react";
 
 import { eng, isWeb, upload, useWeb } from "../engine";
@@ -198,7 +199,7 @@ export default function WatermarkPage() {
     for (const f of Array.from(files)) {
       if (web) {
         try {
-          add([await upload(f, (x) => setUpNote(`${f.name} — ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
+          add([await upload(f, (x) => setUpNote(`${f.name}: ${t("uploadingPct", { pct: Math.round(x * 100) })}`))]);
         } catch (e) { setError(`${f.name}: ${String(e)}`); }
         setUpNote("");
         continue;
@@ -252,6 +253,15 @@ export default function WatermarkPage() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabWatermark")} subtitle={t("subWatermark")}>
+        <RunPanel
+          busy={busy} testing={false}
+          disabled={busy || videos.length === 0 || !watermarkOn(watermark)}
+          cancellable={busy && !!jobId}
+          onStart={start} onCancel={cancel}
+          progress={job?.progress ?? 0}
+        />
+      </PageHeader>
       {/* Font asli dimuat supaya pratinjau memakai huruf yang SAMA dengan yang
           dibakar libass. Dua aturan, tegak dan tebal — alasannya di page.tsx. */}
       <style dangerouslySetInnerHTML={{ __html: [400, 700].map((w) =>
@@ -465,13 +475,6 @@ export default function WatermarkPage() {
             </div>
           </div>
 
-          <RunPanel
-            busy={busy} testing={false}
-            disabled={busy || videos.length === 0 || !watermarkOn(watermark)}
-            cancellable={busy && !!jobId}
-            onStart={start} onCancel={cancel}
-            progress={job?.progress ?? 0}
-          />
         </div>
       </div>
 

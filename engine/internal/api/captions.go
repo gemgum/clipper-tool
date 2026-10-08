@@ -52,11 +52,11 @@ func (s *Server) createCaption(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Videos) == 0 {
-		writeErr(w, 400, "the 'videos' field is required — pick at least one video")
+		writeErr(w, 400, "the 'videos' field is required: pick at least one video")
 		return
 	}
 	if len(req.Videos) > maxCaptionVideos {
-		writeErr(w, 400, fmt.Sprintf("%d videos in one go is more than the %d this page takes — run it in batches",
+		writeErr(w, 400, fmt.Sprintf("%d videos in one go is more than the %d this page takes: run it in batches",
 			len(req.Videos), maxCaptionVideos))
 		return
 	}

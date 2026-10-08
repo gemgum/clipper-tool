@@ -11,6 +11,7 @@
 // cepat atau lambat membuat teks karangan keluar sebagai kutipan verbatim.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import PageHeader from "../page-header";
 import { X, Copy, RotateCw, Check, Link2 } from "lucide-react";
 import { eng, useWeb } from "../engine";
 import { useI18n } from "../i18n";
@@ -223,7 +224,7 @@ export default function WriterPage() {
     // Yang disalin = artikel LENGKAP: tagar dan kaki sumber ikut, sebab inilah
     // yang ditempel ke media pemilik proyek. Atribusi yang harus diingat sendiri
     // adalah atribusi yang cepat atau lambat lupa ditempel.
-    const foot = used.map((s) => `${s.title} — ${s.url}`);
+    const foot = used.map((s) => `${s.title}: ${s.url}`);
     const text = what === "title"
       ? draft.title
       : [draft.title, "", draft.lead, "", ...draft.body,
@@ -240,6 +241,15 @@ export default function WriterPage() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabWriter")} subtitle={t("subWriter")}>
+        <RunPanel
+          busy={busy} testing={false}
+          disabled={busy || basket.length === 0}
+          cancellable={busy && !!jobId}
+          onStart={start} onCancel={cancel}
+          progress={job?.progress ?? 0}
+        />
+      </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
       <div className="screen-body two">
@@ -289,7 +299,7 @@ export default function WriterPage() {
                       {used.map((s) => (
                         <li key={s.url}>
                           <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a>
-                          {s.media && <span className="meta"> — {s.media}</span>}
+                          {s.media && <span className="meta"> · {s.media}</span>}
                         </li>
                       ))}
                     </ul>
@@ -366,7 +376,7 @@ export default function WriterPage() {
                 placeholder={t("searchPlaceholder")}
                 aria-label={t("search")}
               />
-              <button onClick={() => loadList(typed.trim())} disabled={listBusy}>{t("search")}</button>
+              <button className="ghost" onClick={() => loadList(typed.trim())} disabled={listBusy}>{t("search")}</button>
             </div>
 
             <div className="news-list">
@@ -428,13 +438,6 @@ export default function WriterPage() {
             )}
           </div>
 
-          <RunPanel
-            busy={busy} testing={false}
-            disabled={busy || basket.length === 0}
-            cancellable={busy && !!jobId}
-            onStart={start} onCancel={cancel}
-            progress={job?.progress ?? 0}
-          />
         </div>
       </div>
     </div>

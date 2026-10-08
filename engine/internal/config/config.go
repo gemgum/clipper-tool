@@ -34,7 +34,7 @@ func (r Reframe) Check() error {
 	case ReframeCenter, ReframeFit:
 		return nil
 	}
-	return fmt.Errorf("unknown reframe mode %q — choose %q or %q", r, ReframeCenter, ReframeFit)
+	return fmt.Errorf("unknown reframe mode %q: choose %q or %q", r, ReframeCenter, ReframeFit)
 }
 
 // Background = isi ruang kosong saat video tidak memenuhi bingkai 9:16 —

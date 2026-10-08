@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import PageHeader from "../page-header";
 import { CheckSquare, Square, Trash2, Download } from "lucide-react";
 import { eng, engineURL } from "../engine";
 import Alerts from "../alerts";
@@ -157,6 +158,7 @@ export default function HistoryPage() {
 
   return (
     <div className="screen">
+      <PageHeader title={t("tabHistory")} subtitle={t("subHistory")} />
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
       <div className="screen-body one">
@@ -247,7 +249,7 @@ export default function HistoryPage() {
                       {/* Tanggal & waktu jadi JUDUL barisnya: itu yang dicari
                           orang saat menelusuri riwayat, bukan nama berkasnya. */}
                       <div className="run-title">{when(j.created_at)}</div>
-                      <div className="req-path" title={j.source}>{j.source || "—"}</div>
+                      <div className="req-path" title={j.source}>{j.source || "–"}</div>
                     </div>
                     <span className="meta">{t("clipCount", { n: clips.length })} · {j.status}</span>
                     {clips.length > 0 && (

@@ -437,7 +437,7 @@ func Correct(ctx context.Context, tr types.Transcript, terms []string, complete 
 			if report.Failed*failedChunkPart > total {
 				return types.Transcript{}, report, fmt.Errorf(
 					"%s could not return readable JSON for %d of %d parts, even after splitting them down to a single segment (last reply: %s). "+
-						"The model is most likely too small for this task — llama3.1 (8B) is the smallest that handles it reliably here",
+						"The model is most likely too small for this task: llama3.1 (8B) is the smallest that handles it reliably here",
 					engineName, report.Failed, total, describeReply(lastRaw))
 			}
 			if onProgress != nil {

@@ -12,17 +12,17 @@ import (
 func TestLogRoundTrip(t *testing.T) {
 	m := NewManager(config.Layout{DataDir: t.TempDir()}, config.Paths{}, 1)
 
-	m.logf("job_0001", "job %s started — %s", "job_0001", "video.mp4")
+	m.logf("job_0001", "job %s started: %s", "job_0001", "video.mp4")
 	m.logf("job_0001", "%s: %s", "transcribing", "whisper is running")
 	// Tabel ringkasan waktu: banyak baris, tanpa cap waktu, perataannya wajib utuh.
 	m.logRaw("job_0001", "stage      seconds\nextract      12.0\nrender       48.5")
-	m.logf("job_0001", "✓ Finished — %d clip(s)", 3)
+	m.logf("job_0001", "✓ Finished: %d clip(s)", 3)
 
 	lines := m.ReadLog("job_0001")
 	if len(lines) != 6 {
 		t.Fatalf("baris = %d, mau 6: %q", len(lines), lines)
 	}
-	if !strings.HasSuffix(lines[0], "job job_0001 started — video.mp4") {
+	if !strings.HasSuffix(lines[0], "job job_0001 started: video.mp4") {
 		t.Errorf("baris pertama = %q", lines[0])
 	}
 	// Baris tabel TIDAK boleh mendapat cap waktu; satu saja merusak kolomnya.

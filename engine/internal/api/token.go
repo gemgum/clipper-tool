@@ -157,10 +157,10 @@ func (s *Server) withToken(next http.Handler) http.Handler {
 		}
 		if !sameToken(requestToken(r), s.token) {
 			if s.web {
-				writeErr(w, 401, "you are signed out — reload the page to sign in again")
+				writeErr(w, 401, "you are signed out: reload the page to sign in again")
 				return
 			}
-			writeErr(w, 401, "missing or wrong session key — open the app window again")
+			writeErr(w, 401, "missing or wrong session key: open the app window again")
 			return
 		}
 		next.ServeHTTP(w, r)
