@@ -249,7 +249,7 @@ export default function RequirementsPage() {
             {st?.error && <Warn>{st.error}</Warn>}
           </p>
           <p className="meta">{live ? st.message : c.detail}</p>
-          {c.installed && c.path && <p className="set-path">{c.path}</p>}
+          {c.installed && c.path && !web && <p className="set-path">{c.path}</p>}
           {!c.installed && !c.installable && c.hint && <p className="meta">{c.hint}</p>}
           {notes[c.id] && <p className="meta">{notes[c.id]}</p>}
           {live && <div className="bar slim"><div style={{ width: `${Math.max(0, st.value) * 100}%` }} /></div>}
@@ -302,7 +302,8 @@ export default function RequirementsPage() {
 
       {/* Tiga tab dengan garis bawah aksen (DESIGN §9 SettingsTabs). */}
       <div className="set-tabs" role="tablist" aria-label={t("tabRequirements")}>
-        {([["ai", t("setTabAI")], ["programs", t("setTabPrograms")], ["files", t("setTabFiles")]] as const).map(([id, label]) => (
+        {/* Mode web: tab lokasi berkas dibuang — folder server bukan urusan tim. */}
+        {([["ai", t("setTabAI")], ["programs", t("setTabPrograms")], ...(web ? [] : [["files", t("setTabFiles")]])] as [typeof tab, string][]).map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "on" : ""}
             onClick={() => setTab(id)}>{label}</button>
         ))}
@@ -335,7 +336,7 @@ export default function RequirementsPage() {
                 <p className="step-hint flush">{t("setSpeechModelsHint")}</p>
                 {models.map(row)}
               </section>
-              {comps.some((c) => c.kind === "app") && (
+              {!web && comps.some((c) => c.kind === "app") && (
                 <details className="card adv">
                   <summary>{t("setLocalAIGuide")}</summary>
                   <p className="meta adv-hint">{t("setLocalAIGuideHint")}</p>
@@ -345,7 +346,7 @@ export default function RequirementsPage() {
             </>
           )}
 
-          {tab === "files" && req && (
+          {tab === "files" && req && !web && (
             <section className="card">
               <h2>{t("setFilesTitle")}</h2>
               {([

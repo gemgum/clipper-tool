@@ -26,6 +26,8 @@ export type EngineInfo = {
   has_key: boolean;
   ready: boolean;
   keys_url?: string;
+  // Mesin yang ditambahkan pengguna sendiri; hanya ini yang bisa dihapus.
+  user?: boolean;
 };
 
 /** Nilai khusus: bukan mesin, melainkan pintu ke setelan. */

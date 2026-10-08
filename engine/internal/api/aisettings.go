@@ -42,7 +42,7 @@ func readAIChoice(tool string) *aiChoice {
 }
 
 // effectiveAI: pengecualian alat bila ada, kalau tidak pilihan global, kalau
-// belum pernah diisi juga: Ollama lokal (bawaan lama GUI). Model kosong =
+// belum pernah diisi juga: defaultEngineID. Model kosong =
 // model bawaan mesin itu (yang disimpan di halaman Pengaturan).
 func effectiveAI(tool string) aiChoice {
 	c := readAIChoice(tool)
@@ -50,7 +50,7 @@ func effectiveAI(tool string) aiChoice {
 		c = readAIChoice("")
 	}
 	if c == nil {
-		c = &aiChoice{Engine: "ollama"}
+		c = &aiChoice{Engine: defaultEngineID()}
 	}
 	out := *c
 	if out.Model == "" && out.Engine != "heuristic" {

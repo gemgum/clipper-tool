@@ -3063,3 +3063,11 @@ button.wm-logo-empty { width: 100%; min-height: 72px; }
 .wm-tag.ok { color: var(--good-text); background: var(--good-soft); }
 .wm-tag.bad { color: var(--bad-text); background: var(--bad-soft); }
 .wm-place .stepper { max-width: 200px; }
+
+/* ================= Pengaturan: satu form mesin ================= */
+.engine-form-pick { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; margin-top: 14px; }
+.engine-form-pick .field { flex: 1 1 260px; max-width: 360px; }
+.engine-form-status { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; }
+.engine-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 16px; }
+.engine-form-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.engine-form-actions .engine-result { font-size: 13px; overflow-wrap: anywhere; }

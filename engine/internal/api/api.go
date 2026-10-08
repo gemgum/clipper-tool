@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/engines", s.listEngines)
 	mux.HandleFunc("POST /api/engines", s.saveEngine)
 	mux.HandleFunc("POST /api/engines/test", s.testEngine)
+	mux.HandleFunc("POST /api/engines/delete", s.deleteEngine)
 	mux.HandleFunc("GET /api/settings/ai", s.getAISettings)
 	mux.HandleFunc("POST /api/settings/ai", s.saveAISettings)
 	mux.HandleFunc("GET /api/engines/{id}/models", s.engineModels)

@@ -54,6 +54,9 @@ type engineDef struct {
 	EnvModel string
 	// KeysURL = halaman tempat pengguna mengambil kuncinya.
 	KeysURL string
+	// User = mesin yang ditambahkan pengguna sendiri lewat halaman Pengaturan
+	// (bukan dari tabel pabrik di bawah); hanya jenis ini yang boleh dihapus.
+	User bool
 }
 
 // engineDefs = daftar tertutup. Ditulis di satu tempat supaya menambah penyedia
@@ -100,8 +103,63 @@ var engineDefs = []engineDef{
 	},
 }
 
-func engineByID(id string) (engineDef, bool) {
+// userEnginesEnv = daftar id mesin tambahan pengguna, dipisah koma. Isian tiap
+// mesinnya di .env juga (userEnv), sama seperti kunci pabrik: satu sumber
+// kebenaran, ikut terbaca CLI.
+const userEnginesEnv = "CLIPPER_ENGINES"
+
+func userEnv(id, field string) string { return "ENGINE_" + strings.ToUpper(id) + "_" + field }
+
+func userEngineIDs() []string {
+	var out []string
+	for _, id := range strings.Split(os.Getenv(userEnginesEnv), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// allEngineDefs = tabel pabrik + mesin tambahan pengguna.
+//
+// Mode web membuang mesin lokal: server tim tidak menjalankan Ollama, dan
+// pilihan yang tidak mungkin siap cuma membingungkan.
+func allEngineDefs() []engineDef {
+	out := make([]engineDef, 0, len(engineDefs)+4)
 	for _, d := range engineDefs {
+		if d.Kind == kindLocal && webRoot != "" {
+			continue
+		}
+		out = append(out, d)
+	}
+	for _, id := range userEngineIDs() {
+		// Semua mesin tambahan bicara /chat/completions: itu satu-satunya
+		// bentuk yang bisa diisi cukup dengan alamat + kunci + model.
+		out = append(out, engineDef{
+			ID: id, Name: firstNonEmpty(os.Getenv(userEnv(id, "NAME")), id), Kind: kindOpenAI, Path: "/v1",
+			EnvKey: userEnv(id, "API_KEY"), EnvBase: userEnv(id, "BASE_URL"), EnvModel: userEnv(id, "MODEL"),
+			User: true,
+		})
+	}
+	return out
+}
+
+// defaultEngineID = mesin bila belum ada yang dipilih: Ollama di desktop,
+// mesin siap pertama di mode web.
+func defaultEngineID() string {
+	if webRoot == "" {
+		return "ollama"
+	}
+	for _, e := range Engines() {
+		if e.Ready {
+			return e.ID
+		}
+	}
+	return "claude"
+}
+
+func engineByID(id string) (engineDef, bool) {
+	for _, d := range allEngineDefs() {
 		if d.ID == id {
 			return d, true
 		}
@@ -123,11 +181,12 @@ type Engine struct {
 	// mengarah ke setelan (notes/39).
 	Ready   bool   `json:"ready"`
 	KeysURL string `json:"keys_url,omitempty"`
+	User    bool   `json:"user,omitempty"`
 }
 
 // resolve membaca satu mesin beserta timpaan .env-nya.
 func resolve(d engineDef) Engine {
-	e := Engine{ID: d.ID, Name: d.Name, Kind: d.Kind, BaseURL: d.Base, Model: d.Model, KeysURL: d.KeysURL}
+	e := Engine{ID: d.ID, Name: d.Name, Kind: d.Kind, BaseURL: d.Base, Model: d.Model, KeysURL: d.KeysURL, User: d.User}
 	if v := envOr(d.EnvBase, ""); v != "" {
 		// Dinormalkan saat DIBACA, bukan cuma saat disimpan lewat GUI: .env juga
 		// diisi tangan dan lewat variabel lingkungan, dan alamat berakhiran /v1
@@ -176,8 +235,9 @@ func envOr(name, fallback string) string {
 
 // Engines melaporkan seluruh mesin beserta keadaannya.
 func Engines() []Engine {
-	out := make([]Engine, 0, len(engineDefs))
-	for _, d := range engineDefs {
+	defs := allEngineDefs()
+	out := make([]Engine, 0, len(defs))
+	for _, d := range defs {
 		out = append(out, resolve(d))
 	}
 	return out
@@ -190,7 +250,7 @@ func Engines() []Engine {
 // gagal ya gagal dengan pesan akar masalahnya (notes/12).
 func EngineFor(id, model string) (writer.Completer, string, error) {
 	if id == "" {
-		id = "ollama"
+		id = defaultEngineID()
 	}
 	d, ok := engineByID(id)
 	if !ok {
@@ -240,8 +300,9 @@ func EngineFor(id, model string) (writer.Completer, string, error) {
 }
 
 func engineIDs() string {
-	ids := make([]string, 0, len(engineDefs))
-	for _, d := range engineDefs {
+	defs := allEngineDefs()
+	ids := make([]string, 0, len(defs))
+	for _, d := range defs {
 		ids = append(ids, d.ID)
 	}
 	sort.Strings(ids)
@@ -287,6 +348,7 @@ func (s *Server) engineModels(w http.ResponseWriter, r *http.Request) {
 func (s *Server) saveEngine(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ID      string  `json:"id"`
+		Name    *string `json:"name"`
 		APIKey  *string `json:"api_key"`
 		BaseURL *string `json:"base_url"`
 		Model   *string `json:"model"`
@@ -295,10 +357,30 @@ func (s *Server) saveEngine(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	if req.ID == "" {
+		// Mesin baru: id diturunkan dari namanya, dan alamatnya wajib — tanpa
+		// alamat ia tidak pernah bisa siap.
+		name := ""
+		if req.Name != nil {
+			name = strings.TrimSpace(*req.Name)
+		}
+		if name == "" || req.BaseURL == nil || strings.TrimSpace(*req.BaseURL) == "" {
+			writeErr(w, 400, "a new engine needs a name and an address")
+			return
+		}
+		req.ID = newEngineID(name)
+		s.setEnv(userEnginesEnv, strings.Join(append(userEngineIDs(), req.ID), ","))
+	}
 	d, ok := engineByID(req.ID)
 	if !ok {
 		writeErr(w, 400, "unknown engine "+req.ID)
 		return
+	}
+	if req.Name != nil && d.User {
+		if n := strings.TrimSpace(*req.Name); n != "" {
+			s.setEnv(userEnv(d.ID, "NAME"), n)
+			d.Name = n
+		}
 	}
 	if req.APIKey != nil {
 		key := strings.TrimSpace(*req.APIKey)
@@ -320,6 +402,60 @@ func (s *Server) saveEngine(w http.ResponseWriter, r *http.Request) {
 		s.setEnv(d.EnvModel, strings.TrimSpace(*req.Model))
 	}
 	writeJSON(w, 200, resolve(d))
+}
+
+// newEngineID membentuk id dari nama: huruf kecil, angka, dan garis bawah saja
+// (ia jadi bagian nama variabel .env), berawalan "u_" supaya tidak pernah
+// bertabrakan dengan mesin pabrik, dan diberi nomor bila sudah terpakai.
+func newEngineID(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case b.Len() > 0 && !strings.HasSuffix(b.String(), "_"):
+			b.WriteByte('_')
+		}
+	}
+	base := "u_" + strings.Trim(b.String(), "_")
+	if base == "u_" {
+		base = "u_engine"
+	}
+	id := base
+	for n := 2; ; n++ {
+		if _, taken := engineByID(id); !taken {
+			return id
+		}
+		id = fmt.Sprintf("%s_%d", base, n)
+	}
+}
+
+// deleteEngine membuang satu mesin tambahan pengguna beserta isiannya di .env.
+// Mesin pabrik tidak bisa dihapus; kosongkan kuncinya bila tidak dipakai.
+func (s *Server) deleteEngine(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	d, ok := engineByID(req.ID)
+	if !ok || !d.User {
+		writeErr(w, 400, "only engines you added can be removed")
+		return
+	}
+	var keep []string
+	for _, id := range userEngineIDs() {
+		if id != d.ID {
+			keep = append(keep, id)
+		}
+	}
+	s.setEnv(userEnginesEnv, strings.Join(keep, ","))
+	for _, f := range []string{"NAME", "API_KEY", "BASE_URL", "MODEL"} {
+		s.setEnv(userEnv(d.ID, f), "")
+	}
+	writeJSON(w, 200, map[string]any{"engines": Engines()})
 }
 
 // setEnv menulis ke proses ini DAN ke .env. Keduanya perlu: yang pertama supaya
