@@ -442,7 +442,11 @@ func WriteASS(path string, segs []types.TranscriptSegment, clipStart float64, su
 	pages := buildPages(words, maxCharsPerLine(sub.Size), maxLines, minDur)
 	for _, p := range pages {
 		if sub.Mode == config.SubKaraoke {
-			writeKaraokePage(&b, p, pos, assColor(sub.Color), highlightColor(sub))
+			writeKaraokePage(&b, p, pos, karaokeTag(highlightColor(sub)))
+			continue
+		}
+		if sub.Mode == config.SubHighlight {
+			writeKaraokePage(&b, p, pos, blockTag(highlightColor(sub), sub.Size))
 			continue
 		}
 		fmt.Fprintf(&b, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s%s\n", tc(p.start), tc(p.end), pos, renderPlain(p))
@@ -544,10 +548,28 @@ func renderPlain(p page) string {
 	return strings.Join(rendered, `\N`)
 }
 
+// karaokeTag: kata aktif berganti warna saja.
+func karaokeTag(hl string) string { return fmt.Sprintf("{\\c%s&}", hl) }
+
+// blockTag: kata aktif berdiri di atas BLOK warna sorotan ("Sorot kata",
+// DESIGN.md §4.2). .ass tidak punya latar per kata, jadi bloknya adalah garis
+// tepi yang sangat tebal (\bord ≈ ukuran/5) berwarna sorotan, tanpa bayangan,
+// dengan teks gelap di atasnya — garis tepi tiap huruf menyatu jadi satu
+// bidang. Tidak perlu mengukur lebar huruf, jadi bloknya selalu pas dengan
+// katanya di font apa pun.
+func blockTag(hl string, size int) string {
+	bord := size / 5
+	if bord < 6 {
+		bord = 6
+	}
+	return fmt.Sprintf("{\\1c&H001D1815&\\3c%s&\\bord%d\\shad0}", hl, bord)
+}
+
 // writeKaraokePage menulis satu Dialogue per kata: seluruh tampilan tetap
-// terlihat dalam warna dasar, hanya kata yang sedang diucapkan yang disorot
-// (dengan tag \c inline). Waktu ganti sorot memakai timestamp kata asli.
-func writeKaraokePage(b *strings.Builder, p page, pos, base, hl string) {
+// terlihat dalam gaya dasar, hanya kata yang sedang diucapkan yang diberi tag
+// `on`; sesudahnya {\r} mengembalikan gaya dasar. Waktu ganti sorot memakai
+// timestamp kata asli.
+func writeKaraokePage(b *strings.Builder, p page, pos, on string) {
 	flat := make([]types.Word, 0, p.words())
 	for _, ln := range p.lines {
 		flat = append(flat, ln...)
@@ -565,19 +587,19 @@ func writeKaraokePage(b *strings.Builder, p page, pos, base, hl string) {
 			continue
 		}
 		fmt.Fprintf(b, "Dialogue: 0,%s,%s,Default,,0,0,0,,%s%s\n",
-			tc(start), tc(end), pos, renderHighlighted(p, i, base, hl))
+			tc(start), tc(end), pos, renderHighlighted(p, i, on))
 	}
 }
 
 // renderHighlighted membangun teks tampilan dengan kata ke-active disorot.
-func renderHighlighted(p page, active int, base, hl string) string {
+func renderHighlighted(p page, active int, on string) string {
 	idx := 0
 	rendered := make([]string, len(p.lines))
 	for i, ln := range p.lines {
 		parts := make([]string, len(ln))
 		for j, w := range ln {
 			if idx == active {
-				parts[j] = fmt.Sprintf("{\\c%s&}%s{\\c%s&}", hl, w.Text, base)
+				parts[j] = on + w.Text + "{\\r}"
 			} else {
 				parts[j] = w.Text
 			}

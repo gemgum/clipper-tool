@@ -287,7 +287,7 @@ body:has(.screen) {
    Pratinjau setinggi isinya; sisa ruang jatuh ke log, jadi dasar kolom kiri
    berhenti di garis yang sama dengan tombol Mulai di kolom kanan. Itu juga yang
    membuat kotak log sepanjang mungkin tanpa satu angka tinggi pun dipaku. */
-.screen-main:has(> .log-panel) > .panel:first-of-type { flex: none; }
+.screen-main:has(> .log-panel:not(.closed)) > .panel:first-of-type { flex: none; }
 /* Halaman kartu tidak punya kotak log, jadi aturan dasar di atas membuat
    panel PERTAMANYA meregang setinggi kolom — dan karena isinya berhenti di
    tengah, yang terlihat kotak putih raksasa yang separuhnya kosong, sekaligus
@@ -627,13 +627,16 @@ button.ghost:hover:not(:disabled) { background: var(--panel2); }
 .clip { background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
 .clip video { width: 100%; display: block; background: #000; aspect-ratio: 9/16; object-fit: contain; }
 .clip .body { padding: 12px; }
-.score { display: inline-block; font-weight: 700; font-size: 18px; }
+.score { display: inline-block; font-weight: 600; font-size: 28px; line-height: 36px; font-variant-numeric: tabular-nums; }
 .score.high { color: var(--good-text); }
 .score.mid { color: var(--warn-text); }
 .score.low { color: var(--muted); }
-.title { font-size: 14px; font-weight: 600; margin: 4px 0; min-height: 20px; }
+.title { font-size: var(--fs-label); font-weight: 500; margin: 4px 0; min-height: 20px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meta { font-size: 12px; color: var(--muted); }
-.reasons { font-size: var(--fs-caption); color: var(--muted); margin-top: 6px; }
+.reasons { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: var(--r-full); background: var(--panel); border: 1px solid var(--border);
+  font-size: var(--fs-caption); color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tag { display: inline-block; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 1px 6px; margin: 2px 2px 0 0; font-size: var(--fs-caption); }
 /* Tautan unduh kartu klip diganti tombol "buka folder" (reveal.go), jadi
    selektornya ikut menerima <button> — tanpa ini ia mewarisi tombol terisi
@@ -802,6 +805,26 @@ a.dl, button.dl {
 }
 /* Judul kotak log dirapatkan — ia keterangan, bukan kelompok setelan. */
 .log-panel .group-title { margin-bottom: 8px; }
+/* Laci log (DESIGN.md §5.7). Tertutup: satu baris berisi baris terakhir, dan
+   panel di atasnya yang meregang. Terbuka: seperti sebelumnya. */
+.screen-main > .log-panel.closed { flex: none; }
+.log-panel.closed .group-title { margin-bottom: 0; border-bottom: 0; padding-bottom: 0; }
+.log-head { display: flex; align-items: center; gap: 10px; }
+.log-head .log-toggle { flex: 1; min-width: 0; }
+.log-head button.tiny { margin-left: 0; display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.log-last {
+  flex: 1; min-width: 0; margin: 0 10px;
+  font-family: var(--font-mono); font-size: var(--fs-caption);
+  text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left;
+}
+.logbox .ts { color: #6b7688; }
+.logbox .ok { color: #34d399; }
+.logbox .err { color: #f87171; }
+.logbox .stage { color: #8ab4ff; }
+.log-last .ts { color: var(--muted); }
+.log-last .ok { color: var(--good-text); }
+.log-last .err { color: var(--bad-text); }
 
 /* Preview subtitle 9:16 + overlay geser */
 .preview9x16 {
@@ -1038,9 +1061,9 @@ button.ok-btn { color: var(--good-text); border-color: var(--good); }
    Aturannya sederhana dan layak dipegang — JANGAN menaruh dropdown di dalam
    popup; itu popup di dalam popup, dan yang terlihat pengguna cuma dua kotak
    melayang bertumpuk. */
-.seg { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 3px; }
+.seg { display: flex; gap: 4px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-full); padding: 3px; }
 .seg button {
-  flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: var(--r-sm);
+  flex: 1; background: transparent; color: var(--muted); border: 0; border-radius: var(--r-full);
   padding: 6px 8px; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap;
 }
 .seg button:hover { color: var(--text); }
@@ -1215,8 +1238,21 @@ label em { font-style: normal; opacity: 0.7; }
   gap: 10px;
   align-items: flex-start;
 }
-.news-item:hover { border-color: var(--muted); }
-.news-item.active { border-color: var(--accent); outline: 1px solid var(--accent); }
+.news-item:hover { border-color: var(--muted); background: var(--panel); }
+.news-item.active { border-color: var(--accent); outline: 1px solid var(--accent); background: var(--accent-soft); }
+/* Tombol salin muncul saat baris disentuh atau difokus (DESIGN.md §5.8): chip
+   yang selalu tampil di setiap baris membuat daftar ramai. Tetap bisa dicapai
+   papan ketik — :focus-within menampakkannya. */
+.news-item .copy-btn { opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.news-item:hover .copy-btn, .news-item:focus-within .copy-btn,
+.news-item .copy-btn.ok, .news-item .copy-btn:disabled { opacity: 1; }
+/* Kerangka pemuatan: bentuk baris berita tanpa isi, diam. */
+.news-item.skel { cursor: default; }
+.skel-img { width: 64px; height: 48px; flex: none; border-radius: var(--r-sm); background: var(--border); }
+.skel-lines { flex: 1; display: grid; gap: 6px; padding-top: 2px; }
+.skel-lines span { height: 10px; border-radius: var(--r-sm); background: var(--border); }
+.skel-lines span:nth-child(2) { width: 80%; }
+.skel-lines span:nth-child(3) { width: 45%; }
 /* Gambar kecil di KIRI, teks di kanan. Daftar samping yang sempit tidak muat
    gambar 16:9 selebar kolom — dan gambar sebesar itu cuma memuat empat artikel
    per layar, padahal gunanya memindai banyak judul sekaligus. */
@@ -1231,7 +1267,7 @@ label em { font-style: normal; opacity: 0.7; }
 }
 .news-text { flex: 1; min-width: 0; }
 .news-title {
-  font-size: 12.5px; font-weight: 600; line-height: 1.35; margin-bottom: 4px;
+  font-size: var(--fs-label); font-weight: 500; line-height: 1.35; margin-bottom: 4px;
   /* Dua baris lalu elipsis: judul enam baris mendorong artikel berikutnya
      keluar layar. */
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
@@ -1632,10 +1668,9 @@ label .hint { width: 13px; height: 13px; opacity: 0.55; vertical-align: -2px; }
   padding-top: 52px;
   gap: 8px;
   text-align: center;
-  background:
-    repeating-linear-gradient(45deg,
-      rgba(255,255,255,0.03) 0 10px, transparent 10px 20px),
-    var(--stage-2);
+  /* Polos, bukan arsir diagonal: arsirnya lebih ramai daripada isinya
+     (DESIGN.md §5.6). */
+  background: var(--stage-2);
 }
 .pe-icon {
   width: 46px;
@@ -2128,7 +2163,7 @@ select:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Hapus TIDAK boleh jadi yang paling mencolok di bilahnya (DESIGN.md §5.5):
    tepi + teks merah, latar merah lembut saat disentuh. */
 button.danger { background: transparent; color: var(--bad-text); border: 1px solid var(--bad-text); display: inline-flex; align-items: center; gap: 6px; }
-button.danger:hover:not(:disabled) { filter: brightness(1.08); }
+button.danger:hover:not(:disabled) { background: var(--bad-soft); }
 
 /* Pemilih jenis keluaran di halaman riwayat. */
 /* Satu bilah: tab keluaran di kiri, aksi atas pilihan di kanan. */
@@ -2141,10 +2176,12 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
    ~600 px — satu baris job saja sudah melimpahi jendela. Yang dipotong hanya
    gambarnya (object-fit: cover) dan teks yang panjangnya tak tentu. */
 .strip .clip video { max-height: 240px; object-fit: cover; }
-.strip .clip .title, .strip .clip .reasons {
+.strip .clip .title {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.strip .clip .reasons { -webkit-line-clamp: 1; }
+/* Chip nilai: tiga baris setinggi tetap (dua chip per baris di kartu selebar
+   ini), jadi kelima nilai terlihat dan kartu-kartu sederet tetap sama tinggi. */
+.strip .clip .reasons { height: 68px; overflow: hidden; align-content: flex-start; }
 /* Hashtag tidak ditampilkan di deretan riwayat: jumlahnya berbeda-beda tiap
    klip, jadi tinggi tiap kartu ikut berbeda dan deretannya bergerigi. Hashtagnya
    sendiri tetap ada di berkas .txt pendamping klip. */
@@ -2431,3 +2468,40 @@ button.danger:hover:not(:disabled) { filter: brightness(1.08); }
 /* Isi popover "Advanced" di halaman klip: kisi tiga kolom yang sama dengan
    kelompok setelan, diberi ruang dari tepi popovernya. */
 .pop-grid { padding: 8px; align-items: end; }
+
+/* Keadaan kosong (DESIGN.md §5.10): ikon, judul, satu kalimat, satu aksi. */
+.empty {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  text-align: center;
+  flex: 1;
+}
+.empty-ico { width: 32px; height: 32px; color: var(--muted); stroke-width: 1.5; }
+.empty h3 { font-size: var(--fs-body); font-weight: 600; color: var(--text-2); margin: 0; }
+.empty p { font-size: var(--fs-caption); color: var(--muted); max-width: 38ch; margin: 0; }
+a.btn-link {
+  margin-top: 4px;
+  display: inline-flex; align-items: center; min-height: 34px; padding: 0 14px;
+  border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+  color: var(--text); font-size: var(--fs-label); font-weight: 600; text-decoration: none;
+}
+a.btn-link:hover { background: var(--panel2); }
+
+/* Ikon ⓘ yang bisa difokus + kotak keterangannya (tip.tsx, DESIGN.md §5.4). */
+button.tip {
+  background: none; border: 0; padding: 0 2px; margin: 0; min-height: 0;
+  color: inherit; cursor: help; display: inline-flex; vertical-align: -2px; border-radius: var(--r-sm);
+}
+button.tip:hover .hint, button.tip:focus-visible .hint { opacity: 1; }
+.tip-box {
+  position: fixed; z-index: 80; width: 240px;
+  padding: 8px 10px; border-radius: var(--r-sm);
+  background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
+  box-shadow: var(--e-3);
+  font-size: var(--fs-caption); line-height: 1.45; font-weight: 400;
+  text-transform: none; letter-spacing: 0; white-space: normal; pointer-events: none;
+}
+.tip-box.up { transform: translateY(-100%); }

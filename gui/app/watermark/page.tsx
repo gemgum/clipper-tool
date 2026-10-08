@@ -349,7 +349,7 @@ export default function WatermarkPage() {
                     video selesai. */}
                 {!!files.length && (
                   <div className="group">
-                    <div className="group-title">{t("wmResults")}</div>
+                    <div className="group-title" role="heading" aria-level={3}>{t("wmResults")}</div>
                     <div className="basket watermark-results">
                       {files.map((f, i) => (
                         <div key={f.video} className="basket-item">
@@ -377,7 +377,7 @@ export default function WatermarkPage() {
         {/* KANAN: yang diisi & dijalankan. */}
         <div className="screen-col">
           <div className="panel feed-panel">
-            <div className="group-title">{t("capVideos", { n: videos.length })}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("capVideos", { n: videos.length })}</div>
 
             <div className={"cap-drop" + (dragOver ? " over" : "")}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -462,7 +462,7 @@ export default function WatermarkPage() {
           </div>
 
           <div className="panel">
-            <div className="group-title">{t("wmOutputTitle")}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("wmOutputTitle")}</div>
             <div className="grid3">
               <div className="field">
                 <label title={t("wmQualityTip")}>{t("quality")}</label>

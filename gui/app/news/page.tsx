@@ -2,6 +2,7 @@
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
 import { Link2, Download, RotateCw, X } from "lucide-react";
+import NewsSkeleton from "../news-skeleton";
 import PageHeader from "../page-header";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -881,7 +882,7 @@ export default function News() {
         {/* --- KANAN: kabar terbaru dari SEMUA feed, terus terlihat --- */}
         <div className="screen-col">
           <div className="panel feed-panel">
-            <div className="group-title with-action">
+            <div className="group-title with-action" role="heading" aria-level={3}>
               <span>{t("groupSource")}</span>
               <button className="ghost tiny icon-only" disabled={listBusy}
                 title={t("reloadFeeds")} aria-label={t("reloadFeeds")}
@@ -932,7 +933,7 @@ export default function News() {
                 gulir kembali ke atas, lalu daftar baru muncul. Sekarang kabar
                 "memuat" hanya baris kecil di dasar daftar yang sudah ada. */}
             {listBusy && items.length === 0 ? (
-              <p className="stage">{t("loadingNews")}</p>
+              <NewsSkeleton />
             ) : (
               <div className="news-list" onScroll={onListScroll}>
                 {items.map((a) => (

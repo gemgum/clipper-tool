@@ -1,7 +1,8 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { FolderOpen, Info, X } from "lucide-react";
+import { FolderOpen, X } from "lucide-react";
+import Tip from "./tip";
 
 import { useI18n } from "./i18n";
 import Section from "./section";
@@ -66,7 +67,7 @@ export default function WatermarkPanel({
     <Section open={open} onToggle={setOpen}
       title={`${t("groupWatermark")} · ${watermarkOn(watermark) ? t("watermarkOn_") : t("watermarkOff_")}`}>
       <div className="grid3">
-        <div className="field"><label title={t("wmImageTip")}>{t("wmImage")} <Info className="ico hint" aria-hidden="true" /></label>
+        <div className="field"><label>{t("wmImage")} <Tip text={t("wmImageTip")} /></label>
           <div className="field-inline">
             <button className="ghost" title={name || t("wmImagePick")} onClick={onPickImage}>
               <FolderOpen className="ico" aria-hidden="true" /> {name || t("wmImagePick")}
@@ -83,10 +84,10 @@ export default function WatermarkPanel({
             digepengkan, tidak dipotong — jadi sisi yang lebih longgar cuma jadi
             ruang kosong. Satu angka saja memaksa pengguna menghitung sendiri
             tinggi yang akan muncul dari rasio gambarnya. */}
-        <div className="field"><label title={t("wmSizeTip")}>{t("wmWidth")} <Info className="ico hint" aria-hidden="true" /></label>
+        <div className="field"><label>{t("wmWidth")} <Tip text={t("wmSizeTip")} /></label>
           <Stepper value={watermark.width} onChange={(v) => setWatermark({ width: v })}
             min={5} max={100} step={1} suffix="%" /></div>
-        <div className="field"><label title={t("wmSizeTip")}>{t("wmHeight")} <Info className="ico hint" aria-hidden="true" /></label>
+        <div className="field"><label>{t("wmHeight")} <Tip text={t("wmSizeTip")} /></label>
           <Stepper value={watermark.height} onChange={(v) => setWatermark({ height: v })}
             min={5} max={100} step={1} suffix="%" /></div>
         <PositionField label={t("position")} x={watermark.x} y={watermark.y}
@@ -94,15 +95,15 @@ export default function WatermarkPanel({
 
         {/* Waktu tampil. 0 detik durasi = sampai klip habis, dan itu bawaannya:
             syarat kontes lazimnya "identitas harus terlihat", bukan "berkedip". */}
-        <div className="field"><label title={t("wmAtTip")}>{t("wmAt")} <Info className="ico hint" aria-hidden="true" /></label>
+        <div className="field"><label>{t("wmAt")} <Tip text={t("wmAtTip")} /></label>
           <Stepper value={watermark.at} onChange={(v) => setWatermark({ at: v })} min={0} max={60} step={1} suffix="s" /></div>
-        <div className="field"><label title={t("wmForTip")}>{t("wmFor")} <Info className="ico hint" aria-hidden="true" /></label>
+        <div className="field"><label>{t("wmFor")} <Tip text={t("wmForTip")} /></label>
           <Stepper value={watermark.dur} onChange={(v) => setWatermark({ dur: v })} min={0} max={180} step={1} suffix="s" /></div>
         <div className="field"><label>{t("headlineSize")}</label>
           <Stepper value={watermark.hlSize} onChange={(v) => setWatermark({ hlSize: v })} min={24} max={140} step={2} /></div>
 
         {allowLLM && (
-          <div className="field"><label title={t("headlineSourceTip")}>{t("headlineSource")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("headlineSource")} <Tip text={t("headlineSourceTip")} /></label>
             <Select value={watermark.hlSource} onChange={(v) => setWatermark({ hlSource: v as Watermark["hlSource"] })}
               options={[
                 { value: "text", label: t("headlineMine") },

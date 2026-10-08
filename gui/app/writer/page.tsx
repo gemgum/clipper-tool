@@ -11,8 +11,10 @@
 // cepat atau lambat membuat teks karangan keluar sebagai kutipan verbatim.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import NewsSkeleton from "../news-skeleton";
+import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { X, Copy, RotateCw, Check, Link2 } from "lucide-react";
+import { X, Copy, RotateCw, Check, Link2, FileText } from "lucide-react";
 import { eng, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import { useCopyLink } from "../copy-link";
@@ -256,7 +258,7 @@ export default function WriterPage() {
         {/* KIRI: yang dilihat. */}
         <div className="screen-main">
           <div className="panel post-panel">
-            <div className="group-title with-action">
+            <div className="group-title with-action" role="heading" aria-level={3}>
               <span>{t("writerArticleTitle")}</span>
               {draft && (
                 <span className="post-actions">
@@ -271,7 +273,8 @@ export default function WriterPage() {
             </div>
 
             {!draft ? (
-              <p className="stage">{busy ? t("writerRunning") : t("writerEmpty", { max: maxSources })}</p>
+              busy ? <p className="stage">{t("writerRunning")}</p>
+                : <EmptyState icon={FileText} title={t("writerEmptyTitle")} description={t("writerEmpty", { max: maxSources })} />
             ) : (
               <div className="post-view">
                 {violations.length > 0 && (
@@ -328,7 +331,7 @@ export default function WriterPage() {
               Mulai 188 px keluar jendela. Lagipula tempatnya memang di sini:
               isinya persis apa yang baru dicentang dari daftar di bawahnya. */}
           <div className="panel feed-panel">
-            <div className="group-title with-action">
+            <div className="group-title with-action" role="heading" aria-level={3}>
               <span>{t("writerBasket", { n: basket.length, max: maxSources })}</span>
               <button className="ghost tiny icon-only" disabled={listBusy}
                 title={t("reloadFeeds")} aria-label={t("reloadFeeds")}
@@ -379,6 +382,7 @@ export default function WriterPage() {
               <button className="ghost" onClick={() => loadList(typed.trim())} disabled={listBusy}>{t("search")}</button>
             </div>
 
+            {listBusy && items.length === 0 ? <NewsSkeleton /> : (
             <div className="news-list">
               {items.map((a) => (
                 <div key={a.url}
@@ -415,10 +419,11 @@ export default function WriterPage() {
               ))}
               {listBusy && <div className="meta feed-more">{t("loadingNews")}</div>}
             </div>
+            )}
           </div>
 
           <div className="panel">
-            <div className="group-title">{t("writerEngineTitle")}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("writerEngineTitle")}</div>
             <EnginePicker
               title={splitEngines ? t("writerStageRead") : undefined}
               engines={engines} engine={engine} setEngine={setEngine}

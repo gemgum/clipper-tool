@@ -91,5 +91,7 @@ type Clip struct {
 	// .txt berisi ucapan klip tanpa timestamp — untuk ditempel ke LLM lain saat
 	// membuat caption. Selalu ada, apa pun mode simpannya.
 	TranscriptTXT string `json:"transcript_txt"`
-	Status        string `json:"status"` // scored | rendering | rendered
+	Status        string `json:"status"` // scored | rendering | rendered | failed
+	// Error = sebab render gagal (Status "failed"); kosong selain itu.
+	Error string `json:"error,omitempty"`
 }

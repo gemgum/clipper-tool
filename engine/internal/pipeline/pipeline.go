@@ -197,9 +197,13 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 	}
 
 	// 6. Render klip.
-	tw, th := p.Opts.Dims()
-	crf, preset := p.Opts.Encode()
+	//
+	// Satu klip yang gagal dirender TIDAK menggagalkan job (DESIGN.md §9):
+	// klip itu ditandai "failed" beserta sebabnya, sisanya tetap dirender, dan
+	// yang gagal bisa dirender ulang belakangan (Rerender). Job baru gagal bila
+	// SEMUA klip gagal — saat itu tidak ada hasil apa pun untuk diserahkan.
 	tRender := time.Now()
+	failed := 0
 	for i := range selected {
 		cl := &selected[i]
 		cl.ID = fmt.Sprintf("clip_%02d", i+1)
@@ -221,79 +225,20 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 			cl.Start = 0
 		}
 
-		// Teks ucapan klip tanpa timestamp — bahan untuk dibuatkan caption oleh
-		// LLM mana pun. Ditulis untuk SETIAP klip, tidak seperti .srt yang hanya
-		// ada di mode clean/both: caption dibutuhkan saat memposting, dan orang
-		// memposting klip bersubtitle juga.
-		//
-		// Kegagalannya tidak menggagalkan job: klipnya sudah jadi, dan berkas
-		// pendamping yang hilang bukan alasan membuang pekerjaan berat itu.
-		txt := filepath.Join(outDir, cl.ID+".txt")
-		if err := subtitle.WriteText(txt, segs, cl.Start); err == nil {
-			cl.TranscriptTXT = txt
+		if err := p.renderClip(ctx, input, outDir, tmpDir, segs, cl); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			failed++
+			cl.Status, cl.Error = "failed", err.Error()
+			emit(onProgress, Progress{Stage: "rendering", Value: frac,
+				Message: fmt.Sprintf("%s failed to render: %v", cl.ID, err), Clip: cl})
+			continue
 		}
-
-		enc := ffmpeg.EncodeOpts{
-			CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
-			Mode: string(p.Opts.Reframe), Background: p.Opts.Background, Zoom: p.Opts.Zoom,
-			FPS: p.Opts.FPS,
-		}
-		// Varian polos (tanpa subtitle) — untuk mode clean & both.
-		if p.Opts.SubtitleOutput == config.OutputClean || p.Opts.SubtitleOutput == config.OutputBoth {
-			name := cl.ID + ".mp4"
-			if p.Opts.SubtitleOutput == config.OutputBoth {
-				name = cl.ID + "_clean.mp4"
-			}
-			raw := filepath.Join(outDir, name)
-			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, raw); err != nil {
-				return nil, err
-			}
-			cl.VideoPathRaw = raw
-			cl.VideoPath = raw // dipakai GUI bila tidak ada varian bersubtitle
-			// Sertakan .srt agar klip polos bisa disubtitle di editor lain.
-			srt := filepath.Join(outDir, cl.ID+".srt")
-			if err := subtitle.WriteSRT(srt, segs, cl.Start, p.Opts.Subtitle); err == nil {
-				cl.SubtitleSRT = srt
-			}
-		}
-		// Varian bersubtitle (dibakar) — untuk mode burn & both.
-		//
-		// .ass hanya dibuat bila memang akan dibakar, ditulis ke tmp/, lalu
-		// dihapus setelah pembakaran berhasil: isinya sudah menyatu di video
-		// dan tidak dipakai siapa pun sesudah itu. Bila render gagal, berkasnya
-		// sengaja ditinggal supaya penyebabnya masih bisa ditelusuri.
-		if p.Opts.SubtitleOutput != config.OutputClean {
-			// Watermark hanya di sini, dan itu disengaja: berkas "clean" dipakai
-			// untuk disunting ulang di editor lain, dan identitas yang sudah
-			// terbakar di dalamnya tidak bisa dilepas lagi.
-			//
-			// Sumber "llm" memakai judul yang dipilihkan LLM untuk KLIP INI,
-			// jadi teksnya beda tiap klip — itu sebabnya ia dihitung di dalam
-			// perulangan, bukan sekali di luar.
-			headline := p.Opts.Watermark.Headline.Text
-			if p.Opts.Watermark.Headline.Source == config.HeadlineLLM {
-				headline = cl.Title
-			}
-			assPath := filepath.Join(tmpDir, cl.ID+".ass")
-			if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle,
-				p.Opts.Watermark, headline, cl.End-cl.Start); err != nil {
-				return nil, err
-			}
-			enc.AssPath = assPath
-			enc.Watermark = ffmpeg.Watermark{
-				Image: p.Opts.Watermark.Image, X: p.Opts.Watermark.X, Y: p.Opts.Watermark.Y,
-				Width: p.Opts.Watermark.Width, Height: p.Opts.Watermark.Height,
-				At: p.Opts.Watermark.At, For: p.Opts.Watermark.For,
-			}
-			outMP4 := filepath.Join(outDir, cl.ID+".mp4")
-			if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
-				return nil, err
-			}
-			_ = os.Remove(assPath)
-			cl.VideoPath = outMP4
-		}
-		cl.Status = "rendered"
 		emit(onProgress, Progress{Stage: "rendering", Value: frac, Clip: cl})
+	}
+	if failed == len(selected) {
+		return nil, fmt.Errorf("every clip failed to render. First error: %s", selected[0].Error)
 	}
 
 	rec.since(fmt.Sprintf("Render %d %s", len(selected), plural(len(selected), "clip", "clips")), tRender,
@@ -503,6 +448,140 @@ func (p *Pipeline) selectWith(ctx context.Context, tr types.Transcript, sel mome
 		return nil, fmt.Errorf("%s chose none of the %d candidate clips", engineName, len(cands))
 	}
 	return topN(clips, p.Opts.MaxClips, p.Opts.MinScore), nil
+}
+
+// renderClip menulis berkas satu klip (video polos dan/atau bersubtitle, .srt,
+// .txt). Dipakai Run dan Rerender — satu jalan render, jadi klip yang dirender
+// ulang identik dengan yang dirender pertama kali. cl.Start sudah termasuk
+// ancang-ancang clipLeadIn.
+func (p *Pipeline) renderClip(ctx context.Context, input, outDir, tmpDir string, segs []types.TranscriptSegment, cl *types.Clip) error {
+	tw, th := p.Opts.Dims()
+	crf, preset := p.Opts.Encode()
+	// Teks ucapan klip tanpa timestamp — bahan untuk dibuatkan caption oleh
+	// LLM mana pun. Ditulis untuk SETIAP klip, tidak seperti .srt yang hanya
+	// ada di mode clean/both: caption dibutuhkan saat memposting, dan orang
+	// memposting klip bersubtitle juga.
+	//
+	// Kegagalannya tidak menggagalkan job: klipnya sudah jadi, dan berkas
+	// pendamping yang hilang bukan alasan membuang pekerjaan berat itu.
+	txt := filepath.Join(outDir, cl.ID+".txt")
+	if err := subtitle.WriteText(txt, segs, cl.Start); err == nil {
+		cl.TranscriptTXT = txt
+	}
+
+	enc := ffmpeg.EncodeOpts{
+		CRF: crf, Preset: preset, FontsDir: p.Paths.FontsDir,
+		Mode: string(p.Opts.Reframe), Background: p.Opts.Background, Zoom: p.Opts.Zoom,
+		FPS: p.Opts.FPS,
+	}
+	// Varian polos (tanpa subtitle) — untuk mode clean & both.
+	if p.Opts.SubtitleOutput == config.OutputClean || p.Opts.SubtitleOutput == config.OutputBoth {
+		name := cl.ID + ".mp4"
+		if p.Opts.SubtitleOutput == config.OutputBoth {
+			name = cl.ID + "_clean.mp4"
+		}
+		raw := filepath.Join(outDir, name)
+		if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, raw); err != nil {
+			return err
+		}
+		cl.VideoPathRaw = raw
+		cl.VideoPath = raw // dipakai GUI bila tidak ada varian bersubtitle
+		// Sertakan .srt agar klip polos bisa disubtitle di editor lain.
+		srt := filepath.Join(outDir, cl.ID+".srt")
+		if err := subtitle.WriteSRT(srt, segs, cl.Start, p.Opts.Subtitle); err == nil {
+			cl.SubtitleSRT = srt
+		}
+	}
+	// Varian bersubtitle (dibakar) — untuk mode burn & both.
+	//
+	// .ass hanya dibuat bila memang akan dibakar, ditulis ke tmp/, lalu
+	// dihapus setelah pembakaran berhasil: isinya sudah menyatu di video
+	// dan tidak dipakai siapa pun sesudah itu. Bila render gagal, berkasnya
+	// sengaja ditinggal supaya penyebabnya masih bisa ditelusuri.
+	if p.Opts.SubtitleOutput != config.OutputClean {
+		// Watermark hanya di sini, dan itu disengaja: berkas "clean" dipakai
+		// untuk disunting ulang di editor lain, dan identitas yang sudah
+		// terbakar di dalamnya tidak bisa dilepas lagi.
+		//
+		// Sumber "llm" memakai judul yang dipilihkan LLM untuk KLIP INI,
+		// jadi teksnya beda tiap klip — itu sebabnya ia dihitung di dalam
+		// perulangan, bukan sekali di luar.
+		headline := p.Opts.Watermark.Headline.Text
+		if p.Opts.Watermark.Headline.Source == config.HeadlineLLM {
+			headline = cl.Title
+		}
+		assPath := filepath.Join(tmpDir, cl.ID+".ass")
+		if err := subtitle.WriteASS(assPath, segs, cl.Start, p.Opts.Subtitle,
+			p.Opts.Watermark, headline, cl.End-cl.Start); err != nil {
+			return err
+		}
+		enc.AssPath = assPath
+		enc.Watermark = ffmpeg.Watermark{
+			Image: p.Opts.Watermark.Image, X: p.Opts.Watermark.X, Y: p.Opts.Watermark.Y,
+			Width: p.Opts.Watermark.Width, Height: p.Opts.Watermark.Height,
+			At: p.Opts.Watermark.At, For: p.Opts.Watermark.For,
+		}
+		outMP4 := filepath.Join(outDir, cl.ID+".mp4")
+		if err := p.ff.ClipReframe(ctx, input, cl.Start, cl.End, tw, th, enc, outMP4); err != nil {
+			return err
+		}
+		_ = os.Remove(assPath)
+		cl.VideoPath = outMP4
+	}
+	cl.Status, cl.Error = "rendered", ""
+	return nil
+}
+
+// Rerender merender ulang klip berstatus "failed" dari job yang sudah selesai.
+//
+// Transkrip (dan koreksinya) diambil dari cache dengan jalan yang sama seperti
+// Run, jadi tidak ada transkripsi ulang selama video sumbernya masih ada.
+// Klip lain tidak disentuh. Hasilnya daftar klip lengkap dengan status baru.
+func (p *Pipeline) Rerender(ctx context.Context, input, workDir, outDir string, clips []types.Clip, onProgress ProgressFunc) ([]types.Clip, error) {
+	if outDir == "" {
+		outDir = workDir
+	}
+	tmpDir := filepath.Join(workDir, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("work folder %q: %w", tmpDir, err)
+	}
+	got, err := p.Transcript(ctx, input, tmpDir, 0, false, onProgress)
+	if err != nil {
+		return nil, err
+	}
+	tr := got.Transcript
+	if p.Opts.TranscriptFix != config.TranscriptFixOff {
+		if tr, err = p.correctTranscript(ctx, tr, got.CacheKey, onProgress); err != nil {
+			return nil, err
+		}
+	}
+	out := append([]types.Clip(nil), clips...)
+	var todo []int
+	for i := range out {
+		if out[i].Status == "failed" {
+			todo = append(todo, i)
+		}
+	}
+	for n, i := range todo {
+		cl := &out[i]
+		frac := float64(n+1) / float64(len(todo))
+		emit(onProgress, Progress{Stage: "rendering", Value: frac,
+			Message: fmt.Sprintf("Rendering %s again", cl.ID)})
+		// Segmen dicari dari awal ucapan ASLI (sebelum ancang-ancang), sama
+		// seperti di Run.
+		segs := segmentsInRange(tr, cl.Start+clipLeadIn, cl.End)
+		if err := p.renderClip(ctx, input, outDir, tmpDir, segs, cl); err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			cl.Status, cl.Error = "failed", err.Error()
+			emit(onProgress, Progress{Stage: "rendering", Value: frac,
+				Message: fmt.Sprintf("%s failed to render again: %v", cl.ID, err), Clip: cl})
+			continue
+		}
+		emit(onProgress, Progress{Stage: "rendering", Value: frac, Clip: cl})
+	}
+	return out, nil
 }
 
 // picksToClips memetakan nomor pilihan model kembali ke kandidatnya.

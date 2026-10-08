@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "./i18n";
+import Tip from "./tip";
 import Stepper from "./stepper";
 import Select from "./select";
 
@@ -41,7 +42,7 @@ export default function FramePanel({
 
   return (
     <div className="group">
-      <div className="group-title">{t("groupVideoInFrame")}</div>
+      <div className="group-title" role="heading" aria-level={3}>{t("groupVideoInFrame")}</div>
       <div className="grid3">
         {/* Dua cara memasangkan video ke bingkai 9:16 — pilihan yang berdiri
             sendiri, bukan titik pada satu sumbu. Mode "video utuh" itulah alasan
@@ -51,7 +52,7 @@ export default function FramePanel({
             { value: "center", label: t("fitCenter") },
             { value: "fit", label: t("fitWhole") },
           ]} /></div>
-        <div className="field"><label title={t("backgroundTip")}>{t("background")}</label>
+        <div className="field"><label>{t("background")} <Tip text={noEmptySpace ? t("backgroundWhy") : t("backgroundTip")} /></label>
           <Select value={background} onChange={setBackground} disabled={noEmptySpace} options={[
             { value: "blur", label: t("backgroundBlur") },
             { value: "black", label: t("backgroundBlack") },

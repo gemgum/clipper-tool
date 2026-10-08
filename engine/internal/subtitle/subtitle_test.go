@@ -318,3 +318,31 @@ func TestPlainTextHasNoHangingSpaces(t *testing.T) {
 		}
 	}
 }
+
+// "Sorot kata": kata aktif mendapat blok (garis tepi tebal berwarna sorotan,
+// teks gelap), dan gaya dasar dipulihkan sesudahnya dengan {\r} — kata lain
+// tidak ikut tertutup blok.
+func TestHighlightModeDrawsBlockBehindActiveWord(t *testing.T) {
+	segs := []types.TranscriptSegment{utterance(0, 0.4, "satu", "dua", "tiga")}
+	sub := config.DefaultSubtitle()
+	sub.Mode = config.SubHighlight
+	sub.Size = 94
+
+	path := t.TempDir() + "/h.ass"
+	if err := WriteASS(path, segs, 0, sub, config.Watermark{}, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	body := readFile(t, path)
+	block := `{\1c&H001D1815&\3c&H0000FFFF&\bord18\shad0}`
+	for _, w := range []string{"satu", "dua", "tiga"} {
+		if !strings.Contains(body, block+w+`{\r}`) {
+			t.Errorf("kata %q tidak pernah mendapat blok sorotan", w)
+		}
+	}
+	if n := strings.Count(body, "Dialogue:"); n != 3 {
+		t.Errorf("dapat %d Dialogue, ingin 3", n)
+	}
+	if n := strings.Count(body, `\bord18`); n != 3 {
+		t.Errorf("blok muncul %d kali, ingin tepat 1 per Dialogue", n)
+	}
+}

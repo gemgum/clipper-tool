@@ -51,8 +51,12 @@ export default function ClipCard({ c }: { c: Clip }) {
         <span className={`score ${scoreClass(c.score)}`}>{c.score}</span><span className="meta"> /100</span>
         <div className="title">{c.title || t("noTitle")}</div>
         <div className="meta">{formatTime(c.start)}–{formatTime(c.end)} · {Math.round(c.duration)}s</div>
+        {/* Chip per nilai, bukan satu baris yang terpotong "…" (DESIGN.md §5.9). */}
         <div className="reasons">
-          {t("reasonHook")} {c.reasons.hook} · {t("reasonEmotion")} {c.reasons.emotion} · {t("reasonClarity")} {c.reasons.clarity} · {t("reasonShare")} {c.reasons.shareability} · {t("reasonStandalone")} {c.reasons.standalone}
+          {([["reasonHook", c.reasons.hook], ["reasonEmotion", c.reasons.emotion], ["reasonClarity", c.reasons.clarity],
+            ["reasonShare", c.reasons.shareability], ["reasonStandalone", c.reasons.standalone]] as const).map(([k, v]) => (
+            <span className="chip" key={k}>{t(k)} {v}</span>
+          ))}
         </div>
         {c.hashtags?.map((h) => <span className="tag" key={h}>{h}</span>)}
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { CheckSquare, Square, Trash2, Download } from "lucide-react";
+import { CheckSquare, Square, Trash2, Download, History } from "lucide-react";
 import { eng, engineURL } from "../engine";
 import Alerts from "../alerts";
 import { useI18n } from "../i18n";
@@ -235,7 +236,8 @@ export default function HistoryPage() {
           ) : jobs === null ? (
             <div className="panel"><div className="meta">{t("loading")}</div></div>
           ) : jobs.length === 0 ? (
-            <div className="panel"><div className="meta">{t("historyEmpty")}</div></div>
+            <div className="panel"><EmptyState icon={History} title={t("historyEmpty")} description={t("historyEmptyHint")}
+              action={<a className="btn-link" href="/">{t("historyGoClips")}</a>} /></div>
           ) : (
             jobs.map((j) => {
               const clips = (j.clips || []).slice().sort((a, b) => b.score - a.score);

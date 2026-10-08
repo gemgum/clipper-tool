@@ -128,8 +128,9 @@ type Subtitle struct {
 	OutlineColor string `json:"outline_color"` // warna tepi (default hitam)
 	Box          bool   `json:"box"`           // latar kotak di belakang teks
 
-	// Mode tampilan: "normal" (kalimat utuh), "karaoke" (kata aktif disorot,
-	// sisa kalimat tetap terlihat), "word" (satu kata per layar).
+	// Mode tampilan: "normal" (kalimat utuh), "karaoke" (kata aktif berganti
+	// warna, sisa kalimat tetap terlihat), "highlight" (kata aktif diberi blok
+	// warna di belakangnya), "word" (satu kata per layar).
 	Mode           string `json:"mode"`
 	HighlightColor string `json:"highlight_color"` // warna sorot untuk karaoke/word
 	Speed          string `json:"speed"`           // slow | normal | dense
@@ -137,9 +138,10 @@ type Subtitle struct {
 
 // Mode subtitle yang dikenali.
 const (
-	SubNormal  = "normal"
-	SubKaraoke = "karaoke"
-	SubWord    = "word"
+	SubNormal    = "normal"
+	SubKaraoke   = "karaoke"
+	SubHighlight = "highlight"
+	SubWord      = "word"
 )
 
 // Kecepatan tampil subtitle yang dikenali.
@@ -328,7 +330,7 @@ func (o *Options) Validate() error {
 		o.Subtitle.OutlineColor = ds.OutlineColor
 	}
 	switch o.Subtitle.Mode {
-	case SubNormal, SubKaraoke, SubWord:
+	case SubNormal, SubKaraoke, SubHighlight, SubWord:
 	default:
 		o.Subtitle.Mode = SubNormal
 	}

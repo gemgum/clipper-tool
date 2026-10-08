@@ -3,7 +3,9 @@ package job
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -43,8 +45,11 @@ type Job struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 
 	cancel context.CancelFunc
-	subs   map[chan Event]struct{}
-	mu     sync.Mutex
+	// rerender: job ini masuk antrian lagi hanya untuk merender ulang klip yang
+	// gagal (Manager.Rerender), bukan menjalankan seluruh pipeline.
+	rerender bool
+	subs     map[chan Event]struct{}
+	mu       sync.Mutex
 }
 
 // Manager menyimpan seluruh job & mengatur antrian eksekusi.
@@ -128,6 +133,14 @@ func (m *Manager) worker() {
 			// Dibatalkan selagi mengantri.
 			j.broadcast(Event{Type: "error", Data: map[string]string{"message": "Canceled by the user"}})
 			j.closeSubs()
+			continue
+		}
+		j.mu.Lock()
+		again := j.rerender
+		j.rerender = false
+		j.mu.Unlock()
+		if again {
+			m.runRerender(j)
 			continue
 		}
 		m.run(j)
@@ -247,10 +260,149 @@ func (m *Manager) run(j *Job) {
 	// tidak akan pernah dilanjutkan, jadi menyimpan keadaan tengahnya cuma
 	// menaruh baris "0%" abadi di riwayat.
 	m.Persist(j.ID)
-	if status == StatusDone && m.OnDone != nil {
-		m.OnDone(j.Input)
-		m.logf(j.ID, "uploaded source removed from the server")
+	m.maybeDone(j, status)
+}
+
+// maybeDone memanggil OnDone (mode web: hapus unggahan) hanya bila job selesai
+// TANPA klip gagal. Klip gagal masih butuh video sumbernya untuk dirender ulang.
+func (m *Manager) maybeDone(j *Job, status string) {
+	if status != StatusDone || m.OnDone == nil || failedClips(j) > 0 {
+		return
 	}
+	m.OnDone(j.Input)
+	m.logf(j.ID, "uploaded source removed from the server")
+}
+
+func failedClips(j *Job) int {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	n := 0
+	for _, c := range j.Clips {
+		if c.Status == "failed" {
+			n++
+		}
+	}
+	return n
+}
+
+// ErrNotRetryable dan kawan-kawan: alasan permintaan ulang ditolak, dalam
+// kalimat yang langsung bisa ditampilkan.
+var (
+	ErrNotRetryable  = errors.New("only a job that failed or was canceled can be tried again")
+	ErrNothingFailed = errors.New("this job has no failed clips to render again")
+	ErrSourceGone    = errors.New("the source video is no longer on this machine: upload it again and start a new job")
+)
+
+// Retry menjalankan ulang job yang gagal/dibatalkan sebagai job BARU dengan
+// setelan yang sama ("Coba lagi dari tahap ini", DESIGN.md §9). Tahap yang
+// sudah selesai tidak diulang karena hasilnya ada di cache: transkrip
+// (data/cache/transcripts) dan koreksinya (data/cache/corrected).
+func (m *Manager) Retry(id string) (*Job, error) {
+	j, ok := m.Get(id)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	j.mu.Lock()
+	status, input, opts := j.Status, j.Input, j.Options
+	j.mu.Unlock()
+	if status != StatusError && status != StatusCanceled {
+		return nil, ErrNotRetryable
+	}
+	if _, err := os.Stat(input); err != nil {
+		return nil, ErrSourceGone
+	}
+	return m.Create(input, opts), nil
+}
+
+// Rerender memasukkan job yang sudah selesai ke antrian lagi untuk merender
+// ulang klip berstatus "failed" saja ("Render ulang yang gagal").
+func (m *Manager) Rerender(id string) (*Job, error) {
+	j, ok := m.Get(id)
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	if failedClips(j) == 0 {
+		return nil, ErrNothingFailed
+	}
+	j.mu.Lock()
+	if j.Status == StatusQueued || j.Status == StatusRunning {
+		j.mu.Unlock()
+		return nil, errors.New("this job is still running")
+	}
+	input := j.Input
+	j.mu.Unlock()
+	if _, err := os.Stat(input); err != nil {
+		return nil, ErrSourceGone
+	}
+	j.mu.Lock()
+	j.Status, j.Error, j.rerender = StatusQueued, "", true
+	j.UpdatedAt = time.Now()
+	j.mu.Unlock()
+	m.queue <- j
+	return j, nil
+}
+
+// runRerender: pasangan run() untuk Rerender. Status akhir "done" walau ada
+// klip yang gagal lagi — klipnya sendiri yang membawa sebabnya.
+func (m *Manager) runRerender(j *Job) {
+	ctx, cancel := context.WithCancel(context.Background())
+	j.mu.Lock()
+	j.cancel = cancel
+	j.Status = StatusRunning
+	j.Progress = 0
+	clips := append([]types.Clip(nil), j.Clips...)
+	j.mu.Unlock()
+
+	m.mu.RLock()
+	layout := m.layout
+	m.mu.RUnlock()
+	paths := config.ResolvePaths(layout, j.Options)
+	if k := m.getAPIKey(); k != "" {
+		paths.APIKey = k
+	}
+	workDir := filepath.Join(paths.DataDir, j.Dir)
+	outDir := workDir
+	if j.Options.OutputDir != "" {
+		outDir = filepath.Join(j.Options.OutputDir, j.Dir)
+	}
+	m.logf(j.ID, "rendering the failed clips again")
+	out, err := pipeline.New(paths, j.Options).Rerender(ctx, j.Input, workDir, outDir, clips, func(pr pipeline.Progress) {
+		j.mu.Lock()
+		j.Stage, j.Progress, j.UpdatedAt = pr.Stage, pr.Value, time.Now()
+		j.mu.Unlock()
+		if pr.Message != "" {
+			m.logf(j.ID, "%s: %s", pr.Stage, pr.Message)
+		}
+		if pr.Clip != nil {
+			j.broadcast(Event{Type: "clip", Data: pr.Clip})
+		} else {
+			j.broadcast(Event{Type: "progress", Data: pr})
+		}
+	})
+
+	j.mu.Lock()
+	switch {
+	case ctx.Err() == context.Canceled || j.Status == StatusCanceled:
+		// Dibatalkan: klip lama tetap seperti semula, job kembali "done".
+		j.Status, j.Error = StatusDone, ""
+	case err != nil:
+		j.Status, j.Error = StatusDone, ""
+		m.logf(j.ID, "⚠ render again failed: %v", err)
+	default:
+		j.Status, j.Clips, j.Progress = StatusDone, out, 1.0
+	}
+	j.UpdatedAt = time.Now()
+	n := len(j.Clips)
+	j.mu.Unlock()
+	if err != nil {
+		j.broadcast(Event{Type: "error", Data: map[string]string{"message": err.Error()}})
+	} else {
+		m.logf(j.ID, "✓ Finished: %d clip(s), %d still failed", n, failedClips(j))
+		j.broadcast(Event{Type: "done", Data: map[string]interface{}{"job_id": j.ID, "clips": n}})
+	}
+	j.closeSubs()
+	m.Persist(j.ID)
+	m.maybeDone(j, StatusDone)
 }
 
 // Get mengembalikan job.

@@ -68,3 +68,6 @@ Thumbs.db
 
 # Folder siap-kirim (dibangun ./build-windows.sh)
 /dist/
+
+# Worktree agen Claude Code (sementara, bukan bagian proyek)
+/.claude/worktrees/

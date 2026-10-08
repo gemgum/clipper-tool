@@ -10,8 +10,9 @@
 // panjang. Tidak ada mode kedua, tidak ada tombol kedua.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { X, Copy, Folder, Film } from "lucide-react";
+import { X, Copy, Folder, Film, Captions } from "lucide-react";
 import { eng, isWeb, upload, useWeb } from "../engine";
 import { useI18n } from "../i18n";
 import Alerts from "../alerts";
@@ -271,10 +272,11 @@ export default function CaptionsPage() {
         {/* KIRI: yang dilihat. */}
         <div className="screen-main">
           <div className="panel post-panel">
-            <div className="group-title">{t("capTitle")}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("capTitle")}</div>
 
             {!files.length ? (
-              <p className="stage">{busy ? t("capRunning") : t("capEmpty")}</p>
+              busy ? <p className="stage">{t("capRunning")}</p>
+                : <EmptyState icon={Captions} title={t("capEmptyTitle")} description={t("capEmpty")} />
             ) : (
               <div className="post-view">
                 {files.map((f, idx) => (
@@ -324,7 +326,7 @@ export default function CaptionsPage() {
         {/* KANAN: yang diisi & dijalankan. */}
         <div className="screen-col">
           <div className="panel feed-panel">
-            <div className="group-title">{t("capVideos", { n: videos.length })}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("capVideos", { n: videos.length })}</div>
 
             {/* Seluruh panel jadi sasaran lepas — kotak seret-lepas tersendiri
                 cuma mengulang apa yang sudah bisa dilakukan tombol di bawahnya,
@@ -421,7 +423,7 @@ export default function CaptionsPage() {
           </div>
 
           <div className="panel">
-            <div className="group-title">{t("capSettingsTitle")}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("capSettingsTitle")}</div>
             {/* Ketiganya SEBARIS. Daftar istilah sempat dipindah ke baris
                 sendiri supaya keterangannya tidak terpotong, dan itu menambah
                 53 px pada kolom yang tepat pas — terukur, bukan dugaan.
@@ -446,7 +448,7 @@ export default function CaptionsPage() {
           </div>
 
           <div className="panel">
-            <div className="group-title">{t("writerEngineTitle")}</div>
+            <div className="group-title" role="heading" aria-level={3}>{t("writerEngineTitle")}</div>
             <EnginePicker
               engines={engines} engine={engine} setEngine={setEngine}
               model={model} setModel={setModel} busy={busy}

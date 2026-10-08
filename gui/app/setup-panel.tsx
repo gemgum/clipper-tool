@@ -1,7 +1,8 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Download, Info, Plug } from "lucide-react";
+import { Download, Plug } from "lucide-react";
+import Tip from "./tip";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
@@ -177,7 +178,7 @@ export default function SetupPanel({
   return (
     <div className="panel">
       <div className="group">
-        <div className="group-title">{t("groupEngine")}</div>
+        <div className="group-title" role="heading" aria-level={3}>{t("groupEngine")}</div>
         <div className="grid3">
           <div className="field"><label>{t("whisperModel")}</label>
             <Select value={model} onChange={setModel} options={models.map((m) => ({
@@ -231,9 +232,9 @@ export default function SetupPanel({
             heuristik — peringatannya di sini supaya tidak mengagetkan saat job
             berhenti. */}
         <div className="field" style={{ marginTop: 12 }}>
-          <label className="chk" title={t("transcriptFixTip")}>
+          <label className="chk">
             <input type="checkbox" checked={transcriptFix}
-              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} <Info className="ico hint" aria-hidden="true" />
+              onChange={(e) => setTranscriptFix(e.target.checked)} /> {t("transcriptFix")} <Tip text={t("transcriptFixTip")} />
             {transcriptFix && engine === "heuristic" && (
               <Warn>{t("transcriptFixNeedsLLM")}</Warn>
             )}
@@ -253,7 +254,7 @@ export default function SetupPanel({
       </div>
 
       <div className="group">
-        <div className="group-title">{t("groupQuality")}</div>
+        <div className="group-title" role="heading" aria-level={3}>{t("groupQuality")}</div>
         <div className="grid3">
           <div className="field"><label>{t("resolution")}</label>
             <Select value={resolution} onChange={setResolution} options={[
@@ -265,7 +266,7 @@ export default function SetupPanel({
               { value: "draft", label: t("qualityDraft") }, { value: "hd", label: t("qualityHd") },
               { value: "max", label: t("qualityMax") },
             ]} /></div>
-          <div className="field"><label title={t("fpsTip")}>{t("fps")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("fps")} <Tip text={t("fpsTip")} /></label>
             <Select value={String(fps)} onChange={(v) => setFps(Number(v))} options={[
               { value: "0", label: t("fpsSource") }, { value: "24", label: "24" },
               { value: "30", label: "30" }, { value: "60", label: "60" },
@@ -274,18 +275,18 @@ export default function SetupPanel({
       </div>
 
       <div className="group">
-        <div className="group-title">{t("groupClips")}</div>
+        <div className="group-title" role="heading" aria-level={3}>{t("groupClips")}</div>
         <div className="grid3">
-          <div className="field"><label title={t("clipDurationTip")}>{t("clipDuration")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("clipDuration")} <Tip text={t("clipDurationTip")} /></label>
             <Select value={durationPreset} onChange={setDurationPreset} options={[
               { value: "auto", label: t("durationAuto") },
               ...["30s", "60s", "90s", "2 min", "3 min"].map((n, i) => ({
                 value: ["30", "60", "90", "120", "180"][i], label: t("durationAbout", { n }),
               })),
             ]} /></div>
-          <div className="field"><label title={t("maxClipsTip")}>{t("maxClips")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("maxClips")} <Tip text={t("maxClipsTip")} /></label>
             <input type="number" min={1} max={50} value={maxClips} onChange={(e) => setMaxClips(Number(e.target.value))} /></div>
-          <div className="field"><label title={t("saveClipsTip")}>{t("saveClips")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("saveClips")} <Tip text={t("saveClipsTip")} /></label>
             <Select value={saveMode} onChange={setSaveMode} options={[
               { value: "burn", label: t("saveBurn") }, { value: "clean", label: t("saveClean") },
               { value: "both", label: t("saveBoth") },

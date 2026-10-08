@@ -1,7 +1,8 @@
 "use client";
 
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { Eye, Info, RotateCw, X } from "lucide-react";
+import { Eye, RotateCw, X } from "lucide-react";
+import Tip from "./tip";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "./i18n";
@@ -358,7 +359,7 @@ export default function PreviewPanel({
             accordion yang dibuka menambah satu baris dan kolom ini tidak punya
             sisa tinggi — terukur 76 px lebih di 1240x860 sebelum baris itu
             dipindah ke sini. */}
-        <div className="group-title with-action">
+        <div className="group-title with-action" role="heading" aria-level={3}>
           <span>{t("groupSubtitle")}</span>
           <Popover width={380} align="right" buttonClass="ghost tiny" label={t("advanced")}>
             {() => (
@@ -417,13 +418,13 @@ export default function PreviewPanel({
           <div className="field"><label>{t("size")}</label>
             <Stepper value={subSize} onChange={setSubSize} min={40} max={140} step={2} /></div>
 
-          <div className="field"><label title={t("subStyleTip")}>{t("subStyle")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("subStyle")} <Tip text={t("subStyleTip")} /></label>
             <Select value={subMode} onChange={setSubMode} options={[
               { value: "normal", label: t("subNormal") },
               { value: "karaoke", label: t("subKaraoke") },
               { value: "word", label: t("subWord") },
             ]} /></div>
-          <div className="field"><label title={t("subSpeedTip")}>{t("subSpeed")} <Info className="ico hint" aria-hidden="true" /></label>
+          <div className="field"><label>{t("subSpeed")} <Tip text={t("subSpeedTip")} /></label>
             <Select value={subSpeed} onChange={setSubSpeed} options={[
               { value: "slow", label: t("speedSlow") },
               { value: "normal", label: t("speedNormal") },
@@ -440,7 +441,7 @@ export default function PreviewPanel({
             ia mengatur ke mana subtitle boleh ditaruh, bukan bagaimana video
             dipasang. */}
         <div className="group">
-          <div className="group-title">{t("groupPlacement")}</div>
+          <div className="group-title" role="heading" aria-level={3}>{t("groupPlacement")}</div>
           <div className="grid3">
             {/* Peringatan "menabrak zona" jadi LAMBANG di label, bukan baris
                 teks di bawah kisi: baris itu muncul dan hilang tiap kali
@@ -454,7 +455,7 @@ export default function PreviewPanel({
               label={<>{t("position")}{inUnsafe && <Warn>{t("unsafeWarning")}</Warn>}</>}
               x={subX} y={subY}
               onReset={() => { setSubX(CENTER_X); setSubY(CENTER_Y); }} />
-            <div className="field"><label title={t("platformGuideTip")}>{t("platformGuide")} <Info className="ico hint" aria-hidden="true" /></label>
+            <div className="field"><label>{t("platformGuide")} <Tip text={t("platformGuideTip")} /></label>
               <Select value={platform} onChange={setPlatform} options={[
                 ...Object.keys(PLATFORMS).map((k) => ({
                   value: k, label: k === "generic" ? t("platformGeneric") : PLATFORMS[k].label,

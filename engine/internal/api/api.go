@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,6 +123,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/jobs/{id}", s.getJob)
 	mux.HandleFunc("GET /api/jobs/{id}/events", s.jobEvents)
 	mux.HandleFunc("POST /api/jobs/{id}/cancel", s.cancelJob)
+	mux.HandleFunc("POST /api/jobs/{id}/retry", s.retryJob)
+	mux.HandleFunc("POST /api/jobs/{id}/rerender", s.rerenderJob)
 	mux.HandleFunc("GET /api/jobs/{id}/log", s.jobLog)
 	mux.HandleFunc("GET /api/jobs/{id}/clips", s.jobClips)
 	mux.HandleFunc("GET /api/jobs/{id}/clips/{clip}/file", s.clipFile)
@@ -1279,6 +1282,35 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "canceled"})
+}
+
+// retryJob: "Coba lagi dari tahap ini" — job baru, setelan sama; tahap yang
+// sudah selesai diambil dari cache (job.Manager.Retry).
+func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.mgr.Retry(r.PathValue("id"))
+	if err != nil {
+		writeJobErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"id": j.ID, "status": "queued"})
+}
+
+// rerenderJob: "Render ulang yang gagal" — job yang sama, hanya klip gagal.
+func (s *Server) rerenderJob(w http.ResponseWriter, r *http.Request) {
+	j, err := s.mgr.Rerender(r.PathValue("id"))
+	if err != nil {
+		writeJobErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"id": j.ID, "status": "queued"})
+}
+
+func writeJobErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, os.ErrNotExist) {
+		writeErr(w, 404, "job not found")
+		return
+	}
+	writeErr(w, 409, err.Error())
 }
 
 // jobEvents mengalirkan progres via Server-Sent Events.
