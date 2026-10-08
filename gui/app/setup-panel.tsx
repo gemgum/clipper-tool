@@ -10,7 +10,7 @@ import { eng } from "./engine";
 import Select from "./select";
 import Warn from "./warn";
 import { sameModel, useOllama } from "./ollama";
-import EnginePicker, { useEngines } from "./engine-picker";
+import { useEngines } from "./engine-picker";
 
 export type WhisperModel = { name: string; size: string; downloaded: boolean };
 
@@ -206,11 +206,14 @@ export default function SetupPanel({
             hanya bisa diisi dari sini. Yang tersisa di sini cuma yang memang
             khusus mesin lokal: mengunduh model yang belum ada. */}
         <div style={{ marginTop: 12 }}>
-          <EnginePicker
-            engines={engines} engine={engine} setEngine={setEngine}
-            model={llmModel} setModel={setLlmModel} busy={testing}
-            extra={[{ id: "heuristic", name: t("offlineHeuristic") }]}
-          >
+          {/* Mesin AI dipilih SEKALI di Pengaturan untuk semua alat
+              (DESIGN-Clipper-Lanjutan §1). Di sini hanya ditampilkan, dengan
+              jalan ke tempat mengubahnya. */}
+          <p className="ai-line">
+            {t("aiInUse")} <b>{engine === "heuristic" ? t("offlineHeuristic") : (engines.find((e) => e.id === engine)?.name || engine)}</b>
+            {engine !== "heuristic" && llmModel && <code>{llmModel}</code>}
+            <a href="/requirements">{t("aiChangeInSettings")}</a>
+          </p>
             {ollamaActive && (
               <div className="field engine-actions">
                 <label className="engine-result">
@@ -236,7 +239,6 @@ export default function SetupPanel({
                 </label>
               </div>
             )}
-          </EnginePicker>
         </div>
 
         {/* Koreksi transkrip berlaku di kedua mode, jadi ditaruh di luar

@@ -10,7 +10,7 @@
 // yang tidak ada di artikel ditandai). notes/13 diperbarui.
 //
 // Ikon: lucide-react (ISC) — alasannya di gui/app/page.tsx.
-import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Plus, Settings, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Download, ImagePlus, Plus, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "../page-header";
@@ -18,11 +18,10 @@ import { useI18n } from "../i18n";
 import { eng, engineURL } from "../engine";
 import { useKeep, useRestore } from "../persist";
 import Stepper from "../stepper";
-import Popover from "../popover";
 import Select from "../select";
 import Alerts from "../alerts";
 import EmptyState from "../empty-state";
-import EnginePicker, { useEngines } from "../engine-picker";
+import { useAI } from "../ai";
 import { Segmented } from "../clip-steps";
 import { Newspaper, LayoutGrid } from "lucide-react";
 
@@ -89,9 +88,10 @@ export default function News() {
   const [align, setAlign] = useState("left");
   const [caption, setCaption] = useState("");
   const [hashtags, setHashtags] = useState("");
-  const { engines } = useEngines();
-  const [engine, setEngine] = useState("ollama");
-  const [model, setModel] = useState("");
+  // Mesin AI dari Pengaturan (global atau pengecualian alat "news").
+  const ai = useAI("news");
+  const engine = ai?.engine || "ollama";
+  const model = ai?.model || "";
   const [writing, setWriting] = useState<"" | "summary" | "caption">("");
   const [checks, setChecks] = useState<{ summary: Violation[]; caption: Violation[] }>({ summary: [], caption: [] });
   const [writeError, setWriteError] = useState("");
@@ -286,11 +286,10 @@ export default function News() {
   const newCard = () => { setScreen("pick"); setPicked(""); useArticle(EMPTY); setRenderError(""); };
 
   // ---------- isian tersimpan ----------
-  useKeep("news", { article, caption, hashtags, engine, model, theme, ratio, align, zoom, photoFit, photoFill, titleStep, paragraphStep, header, cardTop });
+  useKeep("news", { article, caption, hashtags, theme, ratio, align, zoom, photoFit, photoFill, titleStep, paragraphStep, header, cardTop });
   useRestore<Record<string, unknown>>("news", (v) => {
     const set = <T,>(fn: (x: T) => void, val: unknown) => { if (val !== undefined && val !== null) fn(val as T); };
     set(setArticle, v.article); set(setCaption, v.caption); set(setHashtags, v.hashtags);
-    set(setEngine, v.engine); set(setModel, v.model);
     if (typeof v.theme === "string" && THEMES.some((x) => x.id === v.theme)) setTheme(v.theme);
     set(setRatio, v.ratio); set(setAlign, v.align); set(setZoom, v.zoom);
     set(setPhotoFit, v.photoFit); set(setPhotoFill, v.photoFill);
@@ -317,29 +316,15 @@ export default function News() {
   const ratioDef = RATIOS.find((r) => r.id === ratio) || RATIOS[0];
   const sizeText = saved?.bytes ? `, ${saved.bytes > 1e6 ? (saved.bytes / 1e6).toFixed(1) + " MB" : Math.round(saved.bytes / 1e3) + " KB"}` : "";
 
-  const settings = (
-    <Popover width={360} align="right" buttonClass="ghost" ariaLabel={t("ncSettings")}
-      label={<><Settings className="ico" aria-hidden="true" /> {t("ncSettings")}</>}>
-      {() => (
-        <div className="nc-settings">
-          <p className="meta">{t("ncSettingsHint")}</p>
-          <EnginePicker engines={engines} engine={engine} setEngine={setEngine} model={model} setModel={setModel} busy={!!writing} />
-        </div>
-      )}
-    </Popover>
-  );
-
   const headerProps = screen === "pick"
     ? { title: t("tabNews"), subtitle: t("ncSub"), actions: (
         <>
           <button type="button" className="ghost" onClick={() => router.push("/history")}><LayoutGrid className="ico" aria-hidden="true" /> {t("ncMyCards")}</button>
-          {settings}
         </>) }
     : screen === "compose"
     ? { title: article.title || t("tabNews"), subtitle: [article.source || article.domain, article.date].filter(Boolean).join(" · "), actions: (
         <>
           <button type="button" className="ghost" onClick={() => setScreen("pick")}><ChevronLeft className="ico" aria-hidden="true" /> {t("ncChangeArticle")}</button>
-          {settings}
           <button type="button" className="primary big" onClick={save} disabled={saving || !article.title || !config?.has_browser}>
             {saving ? t("rendering") : t("ncSaveContinue")} <ChevronRight className="ico" aria-hidden="true" />
           </button>

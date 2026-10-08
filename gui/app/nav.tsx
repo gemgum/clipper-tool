@@ -1,5 +1,6 @@
 "use client";
 
+import RailStatus from "./rail-status";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Scissors, Newspaper, PenLine, Captions, Stamp, History } from "lucide-react";
@@ -59,6 +60,7 @@ export default function Nav() {
             diambil dari isi halaman, tiap halaman, selamanya.
             Ketiganya tetap terpisah dari navigasi di atasnya oleh jarak, jadi
             "tempat kerja" dan "atur aplikasinya" masih terbaca berbeda. */}
+        <RailStatus />
         <div className="rail-tools">
           <AccountButton />
           <ThemeToggle />

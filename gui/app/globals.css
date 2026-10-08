@@ -163,12 +163,15 @@
  * warna cerah itu justru yang terbaca — jadi -text dikembalikan ke nilai
  * cerahnya. */
 :root[data-theme="dark"] {
-  --color-bg: #0b0d12;
-  --color-panel: #14171e;
-  --color-panel2: #1a1e27;
-  --color-sunken: #0f1218;
-  --color-border: #252a34;
-  --color-border-strong: #353c49;
+  /* Latar #121212 (permintaan pemilik 9 Oktober 2026); permukaan abu netral
+     di atasnya, bukan kebiruan, supaya panel tetap terbedakan dari latar.
+     Kontras teks diukur ulang: redup #8591a1 = 5,3:1 di atas panel. */
+  --color-bg: #121212;
+  --color-panel: #1c1c1c;
+  --color-panel2: #232323;
+  --color-sunken: #181818;
+  --color-border: #2e2e2e;
+  --color-border-strong: #3d3d3d;
   --color-text: #e8ebf0;
   --color-text-2: #a9b2c0;
   --color-muted: #8591a1;
@@ -2859,3 +2862,66 @@ button.theme-tile.on { border: 2px solid var(--accent); padding: 9px; box-shadow
 .nc-mini img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; display: block; background: var(--sunken); }
 .nc-mini-body { padding: 11px 12px; display: flex; flex-direction: column; gap: 7px; }
 .nc-mini-body .btn-ghost { min-height: 34px; font-size: 13px; }
+
+/* Status di dasar rail: pekerjaan berjalan atau keadaan mesin AI global. */
+a.rail-status {
+  margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 4px; border-radius: var(--r-sm); text-decoration: none;
+  font-size: var(--fs-caption); line-height: 1.3; color: var(--text-2); text-align: center;
+}
+a.rail-status:hover { background: var(--panel2); color: var(--text); }
+a.rail-status code { font-family: var(--font-mono); font-size: var(--fs-caption); max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-dot { width: 9px; height: 9px; border-radius: 50%; }
+.rail-dot.ok { background: #3fbf72; }
+.rail-dot.bad { background: var(--bad); }
+.rail-dot.run { background: var(--accent); }
+a.rail-status + .rail-tools { margin-top: 0; }
+
+/* ================= Pengaturan — DESIGN-Clipper-Lanjutan §7 ================= */
+.settings-v2 .card h2 { font-size: 17px; }
+.set-tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 0 32px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.set-tabs button {
+  min-height: 44px; padding: 0 18px; border: 0; border-radius: 0; background: transparent;
+  font-size: 14.5px; font-weight: 500; color: var(--text-2); border-bottom: 3px solid transparent;
+}
+.set-tabs button.on { font-weight: 700; color: var(--text); border-bottom-color: var(--accent); }
+.set-body { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-start; padding: 26px 32px 0; }
+.set-content { flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.set-content .card { padding: 22px; }
+.set-ready { flex: 0 1 320px; min-width: 280px; padding: 22px !important; position: sticky; top: 104px; }
+.set-ready h2 { margin: 0 0 14px !important; font-size: 16px !important; }
+.set-ready-row { display: flex; gap: 11px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.set-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--border); }
+.set-row:last-child { border-bottom: 0; }
+.set-main { flex: 1 1 220px; min-width: 0; }
+.set-main p { margin: 0; }
+.set-main .meta { margin-top: 3px; }
+.set-name { font-size: 14.5px; font-weight: 600; }
+.set-path { margin-top: 4px !important; font-family: var(--font-mono); font-size: 13px; color: var(--text-2); overflow-wrap: anywhere; }
+.set-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #c9cfd8; }
+.set-dot.ok { background: #3fbf72; }
+.set-dot.bad { background: var(--bad); }
+.set-label { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 5px; background: var(--sunken); color: var(--text-2); white-space: nowrap; }
+.set-label.ok { background: var(--good-soft); color: var(--good-ink); }
+.set-label.bad { background: var(--bad-soft); color: var(--bad-text); }
+.set-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.set-actions button, .set-actions a { min-height: 36px; padding: 0 14px; font-size: 13.5px; }
+.bar.slim { height: 6px; margin-top: 8px; }
+.ai-current {
+  display: flex; flex-wrap: wrap; gap: 14px; align-items: center; padding: 16px;
+  background: var(--accent-soft); border: 1px solid var(--accent-line); border-radius: 12px;
+}
+.ai-current p { margin: 0; }
+.ai-sub { margin-top: 3px !important; font-size: 13px; color: var(--accent-ink); font-family: var(--font-mono); }
+.ai-current button { min-height: 40px; }
+.ai-chooser { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
+.ai-chooser .field { flex: 1 1 200px; margin: 0; }
+.ai-chooser-actions { display: flex; gap: 8px; }
+.ai-chooser-actions button { min-height: 44px; }
+.set-ok, .set-err { margin: 12px 0 0; font-size: 13.5px; }
+.set-ok { color: var(--good-text); }
+.set-err { color: var(--bad-text); }
+.settings-v2 .set-content .panel { border: 0; padding: 0; background: none; }
+p.ai-line { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 14px; }
+p.ai-line code { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); }
+p.ai-line a { margin-left: auto; font-size: 13.5px; font-weight: 600; color: var(--accent); }

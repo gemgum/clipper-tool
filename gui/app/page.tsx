@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, SlidersHorizontal } from "lucide-react";
 import PageHeader from "./page-header";
+import { useAI } from "./ai";
 import { useI18n } from "./i18n";
 import Alerts from "./alerts";
 import { eng, engineURL, isWeb, useWeb } from "./engine";
@@ -155,6 +156,14 @@ export default function Home() {
   const [aiStudioReady, setAiStudioReady] = useState<boolean | null>(null);
   const advRef = useRef<HTMLDetailsElement | null>(null);
   const router = useRouter();
+  // Mesin AI dari Pengaturan (global, atau pengecualian alat "clips"). Ia
+  // MENANG atas isian lama yang tersimpan: pemilihnya sudah tidak ada di sini.
+  const ai = useAI("clips");
+  useEffect(() => {
+    if (!ai) return;
+    setEngine(ai.engine);
+    setLlmModel(ai.model);
+  }, [ai]);
   const web = useWeb();
 
   const locale = lang === "id" ? "id-ID" : "en-GB";
