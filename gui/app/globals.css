@@ -2754,7 +2754,7 @@ a.btn-dark {
 .grow { flex: 1; }
 
 /* Layar 1: satu kolom terpusat, maks 1180 px. */
-.nc-pick { max-width: 1180px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+.nc-pick { max-width: 1480px; margin: 0 auto; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
 .nc-h { margin: 0 0 6px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
 .nc-lead { margin: 0; font-size: 15px; color: var(--text-2); }
 .nc-search { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; padding: 22px 24px !important; }
@@ -2772,17 +2772,17 @@ button.chip-btn {
   background: var(--panel); color: var(--text); border: 1px solid var(--border-strong);
 }
 button.chip-btn.on { background: var(--text); color: var(--panel); border-color: var(--text); font-weight: 600; }
-.nc-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.nc-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; }
 .nc-article { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .nc-article.on { border: 2px solid var(--accent); box-shadow: 0 0 0 3px rgb(47 91 234 / 12%); }
-.nc-thumb { height: 150px; background: var(--sunken); }
+.nc-thumb { height: 120px; background: var(--sunken); }
 .nc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.nc-body { padding: 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+.nc-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
 .nc-body h3 {
-  margin: 0; font-size: 16px; font-weight: 700; line-height: 1.35; flex: 1;
+  margin: 0; font-size: 14px; font-weight: 700; line-height: 1.35; flex: 1;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
-.nc-body button { min-height: 40px; width: 100%; }
+.nc-body button { min-height: 36px; width: 100%; font-size: 13px; padding: 0 8px; }
 .nc-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .nc-badge { font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 3px 8px; border-radius: 5px; }
 .nc-article.skel .nc-thumb { background: var(--border); }

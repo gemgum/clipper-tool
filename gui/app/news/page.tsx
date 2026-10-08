@@ -30,7 +30,8 @@ const FONT_STEPS = 10;
 const HEADER_MAX = 400;
 const CARD_TOP_MAX = 400;
 // Berapa artikel diminta tiap "Muat lebih banyak".
-const PAGE = 24;
+// Kelipatan 5: satu baris kartu berisi lima artikel.
+const PAGE = 25;
 // Ambang penghitung karakter (DESIGN-NEWSCARD §5.2).
 const IDEAL = 140;
 const LIMIT = 180;
@@ -383,7 +384,7 @@ export default function News() {
           </div>
 
           {listBusy && items.length === 0 ? (
-            <div className="nc-grid">{Array.from({ length: 6 }, (_, i) => <div key={i} className="nc-article skel" aria-hidden="true"><div className="nc-thumb" /><div className="nc-body"><span /><span /></div></div>)}</div>
+            <div className="nc-grid">{Array.from({ length: 10 }, (_, i) => <div key={i} className="nc-article skel" aria-hidden="true"><div className="nc-thumb" /><div className="nc-body"><span /><span /></div></div>)}</div>
           ) : shown.length === 0 ? (
             <section className="card"><EmptyState icon={Newspaper} title={t("ncNoResults", { q: query || "…" })} description={t("ncNoResultsHint")} /></section>
           ) : (
