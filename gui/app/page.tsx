@@ -20,14 +20,18 @@
 // Lambang yang TIDAK diganti: ⚠ ✓ ✕ → ↗ ↓ ↑ ✗. Semuanya simbol teks biasa yang
 // ada di font mana pun.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Play, SlidersHorizontal } from "lucide-react";
 import PageHeader from "./page-header";
 import { useI18n } from "./i18n";
 import Alerts from "./alerts";
-import { eng, engineURL, isWeb } from "./engine";
+import { eng, engineURL, isWeb, useWeb } from "./engine";
 import Picker from "./picker";
 import { useKeep, useRestore } from "./persist";
 
-import SourceRow from "./source-row";
+import SourceCard from "./source-card";
+import { StepCard, ChoiceCards, Segmented, Swatches } from "./clip-steps";
+import Stepper from "./stepper";
 import PreviewPanel, { CENTER_X, CENTER_Y, PLATFORMS, PLAY_H, PLAY_W, linesFor } from "./preview-panel";
 import type { Font, FontCheck } from "./preview-panel";
 import FramePanel, { zoomBounds } from "./frame-panel";
@@ -36,8 +40,9 @@ import { DEFAULT_WATERMARK, watermarkToAPI } from "./watermark-model";
 import type { Watermark } from "./watermark-model";
 import SetupPanel from "./setup-panel";
 import type { WhisperModel } from "./setup-panel";
-import RunPanel from "./run-panel";
-import LogPanel from "./log-panel";
+import RunView from "./run-view";
+import ResultView, { downloadAllURL } from "./result-view";
+import type { JobClip } from "./result-view";
 
 export default function Home() {
   const { lang, t } = useI18n();
@@ -60,23 +65,25 @@ export default function Home() {
   const [transcriptFix, setTranscriptFix] = useState(true);
   const [terms, setTerms] = useState("");
   const [durationPreset, setDurationPreset] = useState("auto");
-  const [maxClips, setMaxClips] = useState(10);
+  // Nilai bawaan DESIGN.md §13. Isian tersimpan (useRestore) tetap menang.
+  const [maxClips, setMaxClips] = useState(15);
+  const [transcriber, setTranscriber] = useState("whisper");
   const [models, setModels] = useState<WhisperModel[]>([]);
 
   // Subtitle
   const [fonts, setFonts] = useState<Font[]>([]);
   const [subFont, setSubFont] = useState("Montserrat");
-  const [subSize, setSubSize] = useState(72);
+  const [subSize, setSubSize] = useState(94);
   const [subColor, setSubColor] = useState("white");
   const [subX, setSubX] = useState(540);
   const [subY, setSubY] = useState(960);
-  const [subOutline, setSubOutline] = useState(4);
+  const [subOutline, setSubOutline] = useState(5);
   const [subBox, setSubBox] = useState(false);
-  const [subMode, setSubMode] = useState("normal");       // normal | karaoke | word
-  const [subHighlight, setSubHighlight] = useState("yellow");
+  const [subMode, setSubMode] = useState("highlight");    // normal | highlight | karaoke | word
+  const [subHighlight, setSubHighlight] = useState("#FFD400");
   const [subSpeed, setSubSpeed] = useState("normal");     // slow | normal | dense
   const [platform, setPlatform] = useState("tiktok");     // "off" = tanpa pembatas
-  const [saveMode, setSaveMode] = useState("burn");       // burn | clean | both
+  const [saveMode, setSaveMode] = useState("both");       // burn | clean | both
 
   // Watermark (banner + headline). Satu objek, bukan belasan state: ia melintasi
   // tiga berkas dan diteruskan utuh ke pratinjau maupun panel setelannya.
@@ -131,6 +138,25 @@ export default function Home() {
   const [testing, setTesting] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
 
+  // Tiga layar, satu alur (DESIGN.md §3): Atur klip → Sedang diproses → Hasil.
+  const [screen, setScreen] = useState<"setup" | "run" | "result">("setup");
+  const [jobClips, setJobClips] = useState<JobClip[]>([]);
+  const [startedAt, setStartedAt] = useState(() => Date.now());
+  const [failedStage, setFailedStage] = useState(-1);
+  const [retrying, setRetrying] = useState(false);
+  const [rerendering, setRerendering] = useState(false);
+  // Dinaikkan untuk berlangganan SSE lagi pada job yang SAMA (render ulang).
+  const [subKey, setSubKey] = useState(0);
+  const stageRef = useRef("");
+  stageRef.current = stage;
+  const [grid, setGrid] = useState<number>(20);
+  const [alwaysGuides, setAlwaysGuides] = useState(false);
+  const [showZones, setShowZones] = useState(true);
+  const [aiStudioReady, setAiStudioReady] = useState<boolean | null>(null);
+  const advRef = useRef<HTMLDetailsElement | null>(null);
+  const router = useRouter();
+  const web = useWeb();
+
   const locale = lang === "id" ? "id-ID" : "en-GB";
   const addLog = useCallback((text: string) => {
     setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString(locale)}] ${text}`]);
@@ -172,6 +198,11 @@ export default function Home() {
       else if (fontFromPreset.current && !f.some((x) => x.name === fontFromPreset.current)) setFontManual(true);
     }).catch(() => {});
   }, [addLog, t]);
+
+  useEffect(() => {
+    fetch(eng(`/api/requirements`)).then((r) => r.json())
+      .then((d) => setAiStudioReady(!!d?.ai_studio?.key_set)).catch(() => {});
+  }, []);
 
   // Font manual divalidasi di engine (format + benar-benar terpasang), ditunda
   // 400 ms supaya tidak memanggil fc-match tiap huruf yang diketik.
@@ -264,6 +295,9 @@ export default function Home() {
         setProgress(newest.progress || 0);
         setBusy(true);
         setJobId(newest.id); // memicu langganan SSE → progress lanjut terlihat
+        setScreen("run");
+        setJobClips(Array.isArray(newest.clips) ? newest.clips : []);
+        if (newest.created_at) setStartedAt(Date.parse(newest.created_at));
         addLog(t("logReconnect", { id: newest.id }));
       }
     }).catch(() => {});
@@ -281,7 +315,7 @@ export default function Home() {
   useKeep("clips", {
     path, outputDir, model, resolution, quality, reframe, background, zoom, fps,
     durationPreset, maxClips, saveMode, transcriptFix, terms,
-    engine, llmModel,
+    engine, llmModel, transcriber,
     subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed,
     watermark,
   });
@@ -305,6 +339,7 @@ export default function Home() {
     set(setTerms, v.terms);
     set(setEngine, v.engine);
     set(setLlmModel, v.llmModel);
+    set(setTranscriber, v.transcriber);
     set(setSubFont, v.subFont);
     set(setSubSize, v.subSize);
     set(setSubX, v.subX);
@@ -380,6 +415,7 @@ export default function Home() {
     }
     setError(""); setProgress(0); setStage(""); setMessage("");
     setBusy(true); setStatus("queued"); setJobId(null);
+    setJobClips([]); setFailedStage(-1); setStartedAt(Date.now()); setScreen("run");
     addLog(t("logJobStart", { resolution, quality, duration: durationPreset, font: subFont }));
     try {
       const res = await fetch(eng(`/api/jobs`), {
@@ -387,7 +423,7 @@ export default function Home() {
         body: JSON.stringify({
           source: { type: "path", value: path },
           options: {
-            whisper_model: model, resolution, quality, reframe, background,
+            whisper_model: model, transcriber, resolution, quality, reframe, background,
             zoom: Number(zoom), fps: Number(fps),
             // Satu kotak model untuk semua mesin; pipeline membaca yang
             // sesuai dengan mesin yang dipilih.
@@ -410,7 +446,7 @@ export default function Home() {
       if (!res.ok) throw new Error(data.error || t("errCreateJob"));
       setJobId(data.id); addLog(t("logJobCreated", { id: data.id }));
     } catch (e: any) { setError(e.message); setBusy(false); setStatus("error"); addLog(`⚠ ${e.message}`); }
-  }, [path, engine, llmModel, model, resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, watermark, addLog, fontManual, fontCheck, t]);
+  }, [path, engine, llmModel, model, transcriber, resolution, quality, reframe, background, zoom, fps, engine, llmModel, transcriptFix, terms, durationPreset, maxClips, outputDir, subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed, saveMode, watermark, addLog, fontManual, fontCheck, t]);
 
   const cancel = useCallback(async () => {
     if (!jobId) return;
@@ -438,11 +474,23 @@ export default function Home() {
       if (d.summary) addLog(d.summary);
     });
     events.addEventListener("clip", (e: MessageEvent) => {
-      const clip = JSON.parse(e.data);
+      const clip = JSON.parse(e.data) as JobClip;
       addLog(t("logClip", { id: clip.id, score: clip.score }));
+      // Klip muncul di layar proses begitu jadi (DESIGN.md §5).
+      setJobClips((prev) => {
+        const i = prev.findIndex((c) => c.id === clip.id);
+        if (i < 0) return [...prev, clip];
+        const next = [...prev]; next[i] = clip; return next;
+      });
     });
     events.addEventListener("done", () => {
       setStatus("done"); setProgress(1); setBusy(false); addLog(t("logFinished")); events.close();
+      setRerendering(false);
+      // Daftar akhir dari engine: urutan, status gagal, dan klip yang tidak
+      // sempat terkirim lewat SSE.
+      fetch(eng(`/api/jobs/${jobId}`)).then((r) => r.json())
+        .then((j) => { if (Array.isArray(j.clips)) setJobClips(j.clips); }).catch(() => {});
+      setScreen("result");
       // Mode web: engine sudah menghapus video unggahannya (notes/42).
       isWeb().then((w) => { if (w) { setPath(""); addLog(t("webSourceRemoved")); } });
     });
@@ -450,9 +498,43 @@ export default function Home() {
       let msg = "error";
       try { msg = JSON.parse((e as any).data).message || msg; } catch {}
       setError(msg); setStatus("error"); setBusy(false); addLog(`⚠ ${msg}`); events.close();
+      setRerendering(false);
+      // Dibatalkan → kembali ke layar 1 (DESIGN.md §9). Gagal → kartu tahap
+      // tempat ia berhenti jadi merah, dengan tombol coba lagi.
+      if (/canceled by the user/i.test(msg)) { setError(""); setScreen("setup"); return; }
+      const of: Record<string, number> = { extracting: 0, transcribing: 0, correcting: 1, segmenting: 1, scoring: 1, rendering: 2 };
+      setFailedStage(of[stageRef.current] ?? 0);
     });
     return () => events.close();
+  }, [jobId, subKey, addLog, t]);
+
+  // "Coba lagi dari tahap ini": job baru dengan setelan sama; tahap yang
+  // sudah selesai diambil dari cache engine.
+  const retry = useCallback(async () => {
+    if (!jobId) return;
+    setRetrying(true);
+    try {
+      const res = await fetch(eng(`/api/jobs/${jobId}/retry`), { method: "POST", headers: { "content-type": "application/json" } });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "retry failed");
+      setError(""); setFailedStage(-1); setProgress(0); setStage(""); setBusy(true); setStatus("queued");
+      setStartedAt(Date.now()); setJobId(d.id); addLog(t("logJobCreated", { id: d.id }));
+    } catch (e: any) { setError(e.message); }
+    finally { setRetrying(false); }
   }, [jobId, addLog, t]);
+
+  // "Render ulang yang gagal": job yang SAMA, hanya klip berstatus failed.
+  const rerender = useCallback(async () => {
+    if (!jobId) return;
+    setRerendering(true);
+    try {
+      const res = await fetch(eng(`/api/jobs/${jobId}/rerender`), { method: "POST", headers: { "content-type": "application/json" } });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "rerender failed");
+      setBusy(true); setStatus("queued"); setProgress(0); setStage("rendering"); setFailedStage(-1);
+      setStartedAt(Date.now()); setScreen("run"); setSubKey((k) => k + 1);
+    } catch (e: any) { setError(e.message); setRerendering(false); }
+  }, [jobId]);
 
   // Font yang di-@font-face untuk preview: bawaan + font manual yang lolos cek.
   const previewFonts = useMemo(() => {
@@ -500,16 +582,86 @@ export default function Home() {
     setSubX(CENTER_X);
     setSubY(zone ? Math.round(PLAY_H * (1 - zone.bottom) - blockH - 40) : centerAnchorY);
   };
+  // Operator tidak pernah mengetik koordinat (DESIGN.md §4.2): ganti platform,
+  // ukuran, atau gaya → subtitle ditaruh lagi tepat di atas area caption.
+  // Posisi manual tetap ada di Pengaturan lanjutan, sampai pilihan berikutnya.
+  const placeRef = useRef(placeSafe);
+  placeRef.current = placeSafe;
+  useEffect(() => { placeRef.current(); }, [platform, subSize, subMode, subSpeed]);
+
+  // Ukuran huruf sebagai tiga pilihan; garis tepi mengikuti (≈ ukuran/18 —
+  // setara text-stroke ukuran/9 di mockup, yang separuhnya jatuh di dalam huruf).
+  const pickSize = (px: number) => { setSubSize(px); setSubOutline(Math.round(px / 18)); };
+
+  const fileName = path.split(/[\\/]/).pop() || "";
+  const platformName = PLATFORMS[platform]?.label || platform;
+  const okClips = jobClips.filter((c) => c.status !== "failed");
+  const summary = [
+    { label: t("sumStyle"), value: t(subMode === "highlight" ? "styleHighlightName" : subMode === "karaoke" ? "styleKaraokeName" : subMode === "word" ? "subWord" : "styleNormalName") },
+    { label: t("textSize"), value: subSize >= 120 ? t("sizeLarge") : subSize >= 94 ? t("sizeMedium") : subSize <= 72 ? t("sizeSmall") : `${subSize}` },
+    { label: t("sumPlatform"), value: platformName },
+    { label: t("clipCountLabel"), value: String(maxClips) },
+    { label: t("clipLength"), value: durationPreset === "30" ? t("lenShort") : durationPreset === "60" ? t("lenMedium") : t("lenAuto") },
+    { label: t("sumClean"), value: saveMode === "burn" ? t("no") : t("yes") },
+  ];
+
+  const canStart = !busy && !testing && !!path && !modelMissing;
+  const preview = (
+    <PreviewPanel
+      part="preview" grid={grid} setGrid={setGrid} alwaysGuides={alwaysGuides} setAlwaysGuides={setAlwaysGuides}
+      showZones={showZones}
+      path={path} reframe={reframe} background={background} zoom={zoom} zone={zone}
+      fonts={fonts} subFont={subFont} setSubFont={setSubFont}
+      fontManual={fontManual} setFontManual={setFontManual}
+      fontCheck={fontCheck} fontChecking={fontChecking}
+      subSize={subSize} setSubSize={setSubSize}
+      subColor={subColor} setSubColor={setSubColor}
+      subOutline={subOutline} setSubOutline={setSubOutline}
+      subBox={subBox} setSubBox={setSubBox}
+      subMode={subMode} setSubMode={setSubMode}
+      subHighlight={subHighlight} setSubHighlight={setSubHighlight}
+      subSpeed={subSpeed} setSubSpeed={setSubSpeed}
+      subX={subX} setSubX={setSubX} subY={subY} setSubY={setSubY}
+      blockH={blockH} centerAnchorY={centerAnchorY}
+      watermark={watermark} moveWatermark={moveWatermark} moveHeadline={moveHeadline}
+      wmOpen={false} watermarkPanel={null}
+      platform={platform} setPlatform={setPlatform}
+      inUnsafe={inUnsafe} onPlaceSafe={placeSafe} addLog={addLog}
+    />
+  );
+
+  // Aksi kepala halaman berganti per layar; judulnya tetap (DESIGN.md §3).
+  const actions = screen === "setup" ? (
+    <>
+      <button type="button" className="ghost" onClick={() => {
+        if (advRef.current) { advRef.current.open = true; advRef.current.scrollIntoView({ behavior: "smooth", block: "start" }); }
+      }}>
+        <SlidersHorizontal className="ico" aria-hidden="true" /> {t("advancedTitle")}
+      </button>
+      <button type="button" className="primary big" onClick={start} disabled={!canStart}>
+        <Play className="ico" aria-hidden="true" /> {testing ? t("llmTesting") : t("makeClips", { n: maxClips })}
+      </button>
+    </>
+  ) : screen === "run" ? (
+    <>
+      <button type="button" className="ghost" onClick={() => router.push("/history")} disabled={failedStage >= 0}>{t("runInBackground")}</button>
+      <button type="button" className="danger" onClick={cancel} disabled={!busy || !jobId}>{t("cancelRun")}</button>
+    </>
+  ) : (
+    <>
+      <button type="button" className="ghost" onClick={() => { setScreen("setup"); setStatus(""); setJobClips([]); }}>{t("newBatch")}</button>
+      {okClips.length > 0 && (
+        <a className="btn-primary big" href={downloadAllURL(jobClips)} download>{t("downloadAll", { n: okClips.length })}</a>
+      )}
+    </>
+  );
+  const clipsLabel = (n: number) => (n === 1 ? t("nClipsOne") : t("nClipsLine", { n }));
+  const headerSub = screen === "setup" ? t("subClips")
+    : `${fileName} · ${clipsLabel(screen === "run" ? maxClips : okClips.length)}`;
 
   return (
-    <div className="screen">
-      <PageHeader title={t("tabClips")} subtitle={t("subClips")}>
-        <RunPanel
-          busy={busy} testing={testing} disabled={busy || testing || !path || !!modelMissing}
-          cancellable={busy && !!jobId} onStart={start} onCancel={cancel}
-          progress={progress}
-        />
-      </PageHeader>
+    <div className="screen scroll clips-v2">
+      <PageHeader title={t("tabClips")} subtitle={headerSub}>{actions}</PageHeader>
       {/* Muat font asli agar preview akurat — termasuk font manual yang lolos cek.
           DUA aturan per font, tegak dan tebal: kalau hanya satu yang dipasang,
           browser menebalkan sendiri face tegaknya, dan penebalan buatan itu tidak
@@ -529,7 +681,9 @@ export default function Home() {
           bawahnya, dan itu terjadi persis saat pengguna sedang menekan sesuatu.
           Kemajuan job pindah ke panel Start, yang tempatnya selalu ada. */}
       <Alerts items={[
-        error && { kind: "error" as const, text: error },
+        // Gagal di tengah job: sebabnya sudah tertulis di kartu tahap yang
+        // merah, jadi tidak diulang sebagai notifikasi melayang.
+        error && !(screen === "run" && failedStage >= 0) && { kind: "error" as const, text: error },
         modelMissing && { kind: "warn" as const, key: `model-${model}`,
           // Tautan ke halaman yang bisa MEMASANGNYA, bukan perintah terminal:
           // `./setup.sh` adalah skrip pengembang yang bahkan tidak ada di
@@ -554,77 +708,156 @@ export default function Home() {
         />
       )}
 
-      {/* DUA kolom, dan hanya dua. Kiri yang dilihat & dihasilkan, kanan yang
-          disetel lalu dijalankan. Kalau suatu saat ada panel yang mendarat di
-          induk yang salah lagi, di sinilah kelihatannya. */}
-      <div className="screen-body two">
-        <div className="screen-main">
-          {/* Satu panel, bukan dua: sumber duduk di kepala pratinjau sebab ia
-              yang menentukan gambar di bawahnya. Judul panel ikut dibuang —
-              bingkai 9:16 sudah mengatakan sendiri apa isinya. */}
-          <div className="panel">
-            <SourceRow
-              path={path} setPath={setPath}
-              outputDir={outputDir} setOutputDir={setOutputDir}
-              onPick={setPicker}
-              onFile={useFile} uploading={uploading} uploadPct={uploadPct}
-            />
-            <PreviewPanel
-              path={path} reframe={reframe} background={background} zoom={zoom} zone={zone}
-              fonts={fonts} subFont={subFont} setSubFont={setSubFont}
-              fontManual={fontManual} setFontManual={setFontManual}
-              fontCheck={fontCheck} fontChecking={fontChecking}
-              subSize={subSize} setSubSize={setSubSize}
-              subColor={subColor} setSubColor={setSubColor}
-              subOutline={subOutline} setSubOutline={setSubOutline}
-              subBox={subBox} setSubBox={setSubBox}
-              subMode={subMode} setSubMode={setSubMode}
-              subHighlight={subHighlight} setSubHighlight={setSubHighlight}
-              subSpeed={subSpeed} setSubSpeed={setSubSpeed}
-              subX={subX} setSubX={setSubX} subY={subY} setSubY={setSubY}
-              blockH={blockH} centerAnchorY={centerAnchorY}
-              watermark={watermark} moveWatermark={moveWatermark} moveHeadline={moveHeadline}
-              wmOpen={wmOpen}
-              /* Watermark duduk di kolom setelan pratinjau: banner & headline
-                 mengubah rupa gambar di sebelah kiri, jadi tempatnya di sini —
-                 bukan di kolom kanan bersama masukan dan tombol jalan. */
-              watermarkPanel={
-                <WatermarkPanel watermark={watermark} setWatermark={setWatermark} open={wmOpen} setOpen={setWmOpen}
-                  onPickImage={() => setPicker("banner")} />
-              }
-              platform={platform} setPlatform={setPlatform}
-              inUnsafe={inUnsafe} onPlaceSafe={placeSafe} addLog={addLog}
-            >
-              {/* Kendali bingkai duduk di ujung kolom setelan pratinjau: ketiganya
-                  langsung mengubah gambar di sebelah kirinya. */}
-              <FramePanel
-                reframe={reframe} onReframe={changeReframe}
-                background={background} setBackground={setBackground}
-                zoom={zoom} setZoom={setZoom}
+      {screen === "setup" && (
+        <div className="setup-grid">
+          <div className="setup-main">
+            <SourceCard path={path} onPick={() => setPicker("video")} onFile={useFile}
+              uploading={uploading} uploadPct={uploadPct} />
+
+            <StepCard n={2} title={t("step2Title")} hint={t("step2Hint")} disabled={!path}>
+              <ChoiceCards label={t("step2Title")} value={subMode === "word" ? "normal" : subMode} onChange={setSubMode} options={[
+                { value: "normal", name: t("styleNormalName"), desc: t("styleNormalDesc") },
+                { value: "highlight", name: t("styleHighlightName"), desc: t("styleHighlightDesc") },
+                { value: "karaoke", name: t("styleKaraokeName"), desc: t("styleKaraokeDesc") },
+              ]} />
+              <div className="step-row">
+                <div className="step-field">
+                  <p className="step-label">{t("textSize")}</p>
+                  <Segmented label={t("textSize")} value={subSize} onChange={pickSize} options={[
+                    { value: 72, name: t("sizeSmall") }, { value: 94, name: t("sizeMedium") }, { value: 120, name: t("sizeLarge") },
+                  ]} />
+                </div>
+                <div className="step-field">
+                  <p className="step-label">{t("highlightColour")}</p>
+                  <Swatches label={t("highlightColour")} value={subHighlight} onChange={setSubHighlight} options={[
+                    { value: "#FFD400", name: t("colorYellow") }, { value: "#FFFFFF", name: t("colorWhite") },
+                    { value: "#55E08A", name: t("colorGreen") }, { value: "#FF8A3D", name: t("colorOrange") },
+                  ]} />
+                </div>
+              </div>
+            </StepCard>
+
+            <StepCard n={3} title={t("step3Title")} hint={t("step3Hint")} disabled={!path}>
+              <ChoiceCards label={t("step3Title")} value={platform} onChange={setPlatform} options={[
+                { value: "tiktok", name: "TikTok", desc: t("platTiktokDesc") },
+                { value: "reels", name: "Reels", desc: t("platReelsDesc") },
+                { value: "shorts", name: "Shorts", desc: t("platShortsDesc") },
+              ]} />
+            </StepCard>
+
+            <StepCard n={4} title={t("step4Title")} disabled={!path}>
+              <div className="step-row">
+                <div className="step-field">
+                  <p className="step-label">{t("clipCountLabel")}</p>
+                  <Stepper value={maxClips} onChange={setMaxClips} min={1} max={40} />
+                </div>
+                <div className="step-field">
+                  <label className="step-label" htmlFor="clip-len">{t("clipLength")}</label>
+                  <select id="clip-len" value={["auto", "30", "60"].includes(durationPreset) ? durationPreset : "auto"}
+                    onChange={(e) => setDurationPreset(e.target.value)}>
+                    <option value="auto">{t("lenAuto")}</option>
+                    <option value="30">{t("lenShort")}</option>
+                    <option value="60">{t("lenMedium")}</option>
+                  </select>
+                </div>
+              </div>
+              <label className="chk step-check">
+                <input type="checkbox" checked={saveMode !== "burn"} onChange={(e) => setSaveMode(e.target.checked ? "both" : "burn")} />
+                {t("keepClean")}
+              </label>
+            </StepCard>
+
+            {/* Laci lanjutan (DESIGN.md §4.2): <details> asli, tertutup secara
+                bawaan. Isinya setelan yang sama persis seperti sebelumnya. */}
+            <details className="card adv" ref={advRef}>
+              <summary>{t("advancedSummary")}</summary>
+              <p className="meta adv-hint">{t("advancedHint")}</p>
+              <SetupPanel hideClips
+                model={model} setModel={setModel} models={models}
+                resolution={resolution} setResolution={setResolution}
+                quality={quality} setQuality={setQuality} fps={fps} setFps={setFps}
+                durationPreset={durationPreset} setDurationPreset={setDurationPreset}
+                maxClips={maxClips} setMaxClips={setMaxClips}
+                saveMode={saveMode} setSaveMode={setSaveMode}
+                engine={engine} setEngine={setEngine}
+                llmModel={llmModel} setLlmModel={setLlmModel}
+                transcriptFix={transcriptFix} setTranscriptFix={setTranscriptFix}
+                terms={terms} setTerms={setTerms} addLog={addLog}
+                testing={testing} setTesting={setTesting}
+                transcriber={transcriber} setTranscriber={setTranscriber} aiStudioReady={aiStudioReady}
               />
-            </PreviewPanel>
+              <PreviewPanel
+                part="settings" grid={grid} setGrid={setGrid} alwaysGuides={alwaysGuides} setAlwaysGuides={setAlwaysGuides}
+                path={path} reframe={reframe} background={background} zoom={zoom} zone={zone}
+                fonts={fonts} subFont={subFont} setSubFont={setSubFont}
+                fontManual={fontManual} setFontManual={setFontManual}
+                fontCheck={fontCheck} fontChecking={fontChecking}
+                subSize={subSize} setSubSize={setSubSize}
+                subColor={subColor} setSubColor={setSubColor}
+                subOutline={subOutline} setSubOutline={setSubOutline}
+                subBox={subBox} setSubBox={setSubBox}
+                subMode={subMode} setSubMode={setSubMode}
+                subHighlight={subHighlight} setSubHighlight={setSubHighlight}
+                subSpeed={subSpeed} setSubSpeed={setSubSpeed}
+                subX={subX} setSubX={setSubX} subY={subY} setSubY={setSubY}
+                blockH={blockH} centerAnchorY={centerAnchorY}
+                watermark={watermark} moveWatermark={moveWatermark} moveHeadline={moveHeadline}
+                wmOpen={false}
+                watermarkPanel={
+                  <WatermarkPanel watermark={watermark} setWatermark={setWatermark} open={wmOpen} setOpen={setWmOpen}
+                    onPickImage={() => setPicker("banner")} />
+                }
+                platform={platform} setPlatform={setPlatform}
+                inUnsafe={inUnsafe} onPlaceSafe={placeSafe} addLog={addLog}
+              >
+                <FramePanel
+                  reframe={reframe} onReframe={changeReframe}
+                  background={background} setBackground={setBackground}
+                  zoom={zoom} setZoom={setZoom}
+                />
+              </PreviewPanel>
+              {!web && (
+                <div className="field adv-out">
+                  <label htmlFor="out-dir">{t("outputDir")}</label>
+                  <div className="path-row">
+                    <input id="out-dir" value={outputDir} onChange={(e) => setOutputDir(e.target.value)} placeholder={t("outputDirPlaceholder")} />
+                    <button type="button" className="ghost" onClick={() => setPicker("out")}>{t("pickerGo")}…</button>
+                  </div>
+                </div>
+              )}
+            </details>
           </div>
 
-          <LogPanel logs={logs} />
+          {/* Pratinjau: kolom kanan yang menempel saat halaman digulir (§4.3). */}
+          <aside className="setup-side">
+            <section className="card preview-card">
+              <div className="card-head">
+                <h2>{t("previewTitle")}</h2>
+                <span className="chip">9:16</span>
+              </div>
+              {preview}
+              <label className="chk">
+                <input type="checkbox" checked={showZones} onChange={(e) => setShowZones(e.target.checked)} />
+                {t("showCovered")}
+              </label>
+              <p className="note">{t("autoPlaced", { platform: platformName })}</p>
+            </section>
+          </aside>
         </div>
+      )}
 
-        <div className="screen-col">
-          <SetupPanel
-            model={model} setModel={setModel} models={models}
-            resolution={resolution} setResolution={setResolution}
-            quality={quality} setQuality={setQuality} fps={fps} setFps={setFps}
-            durationPreset={durationPreset} setDurationPreset={setDurationPreset}
-            maxClips={maxClips} setMaxClips={setMaxClips}
-            saveMode={saveMode} setSaveMode={setSaveMode}
-            engine={engine} setEngine={setEngine}
-            llmModel={llmModel} setLlmModel={setLlmModel}
-            transcriptFix={transcriptFix} setTranscriptFix={setTranscriptFix}
-            terms={terms} setTerms={setTerms} addLog={addLog}
-            testing={testing} setTesting={setTesting}
-          />
+      {screen === "run" && (
+        <RunView
+          stage={stage} progress={progress} startedAt={startedAt} total={maxClips}
+          clips={jobClips} error={error} logs={logs} summary={summary}
+          failedStage={failedStage} onRetry={retry} retrying={retrying}
+          onChangeSettings={async () => { await cancel(); setScreen("setup"); }}
+        />
+      )}
 
-        </div>
-      </div>
+      {screen === "result" && (
+        <ResultView clips={jobClips} platformName={platformName} onRerender={rerender} rerendering={rerendering} />
+      )}
     </div>
   );
 }

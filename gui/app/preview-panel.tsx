@@ -14,7 +14,6 @@ import { headlineAnchor, headlineBox, wrapHeadline } from "./watermark-model";
 import type { Watermark } from "./watermark-model";
 import Select from "./select";
 import Warn from "./warn";
-import Popover from "./popover";
 
 // Ruang koordinat, titik tengah, dan mesin seret tinggal di ./drag — dipakai
 // bersama halaman watermark. Diekspor ulang dari sini supaya pemanggil lama
@@ -52,7 +51,8 @@ export type FontCheck = { valid: boolean; name: string; family: string; source: 
 // (~22 karakter pada ukuran font bawaan).
 const SAMPLE_LINES = ["sampleLine1", "sampleLine2", "sampleLine3"] as const;
 
-const hex = (c: string) => (c === "yellow" ? "#ffdd00" : c === "green" ? "#4ade80" : c === "cyan" ? "#38bdf8" : "#ffffff");
+// Nama warna lama ATAU hex (#rrggbb, swatch DESIGN.md §7.1) — engine menerima keduanya.
+const hex = (c: string) => (c.startsWith("#") ? c : c === "yellow" ? "#ffdd00" : c === "green" ? "#4ade80" : c === "cyan" ? "#38bdf8" : "#ffffff");
 
 // Berapa baris yang mungkin muncul sekaligus — harus sama dengan Pacing() di
 // engine (lambat/normal 2, padat 3; mode word selalu 1 kata per layar).
@@ -71,6 +71,7 @@ export default function PreviewPanel({
   subX, setSubX, subY, setSubY, blockH, centerAnchorY,
   watermark, moveWatermark, moveHeadline, wmOpen, watermarkPanel,
   platform, setPlatform, inUnsafe, onPlaceSafe, addLog, children,
+  part, grid, setGrid, alwaysGuides, setAlwaysGuides, showZones = true,
 }: {
   path: string; reframe: string; background: string; zoom: number; zone?: Zone;
   platform: string; setPlatform: (v: string) => void;
@@ -98,12 +99,18 @@ export default function PreviewPanel({
   watermarkPanel: React.ReactNode;
   addLog: (text: string) => void;
   children?: React.ReactNode;
+  // Halaman klip (DESIGN.md §4): pratinjau berdiri sendiri di kolom kanan,
+  // setelannya di laci "Pengaturan lanjutan". Dua instans, satu sumber state —
+  // karena itu kisi tinggal di halaman, bukan di sini.
+  part: "preview" | "settings";
+  grid: number; setGrid: (v: number) => void;
+  alwaysGuides: boolean; setAlwaysGuides: (v: boolean) => void;
+  /** Kotak centang "Tampilkan area yang tertutup UI aplikasi". */
+  showZones?: boolean;
 }) {
   const { t } = useI18n();
 
   const [previewOn, setPreviewOn] = useState(false);
-  const [alwaysGuides, setAlwaysGuides] = useState(false); // paksa grid tetap tampil
-  const [grid, setGrid] = useState<number>(20);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [duration, setDuration] = useState(0);
   // null = belum diperiksa. false = video tanpa trek suara.
@@ -169,11 +176,12 @@ export default function PreviewPanel({
   // dibuang lalu dimuat ulang sendiri. Ditunda 500 ms supaya path yang sedang
   // diketik tidak memicu satu permintaan per huruf.
   useEffect(() => {
+    if (part !== "preview") return; // instans setelan tidak memuat gambar
     resetPreview();
     if (!path) return;
     const timer = setTimeout(() => loadPreview(true), 500);
     return () => clearTimeout(timer);
-  }, [path, resetPreview, loadPreview]);
+  }, [path, resetPreview, loadPreview, part]);
 
   // Mesin seret ada di ./drag — satu untuk ketiga lapis, dan halaman watermark
   // memakai yang sama.
@@ -209,10 +217,9 @@ export default function PreviewPanel({
   const colorHex = hex(subColor);
   const highlightHex = hex(subHighlight);
 
-  return (
-    <div className="sub-layout">
-      {/* Kiri: bingkai preview. Bingkainya selalu ada — walau frame video
-          belum dimuat — supaya posisi subtitle tetap bisa diatur lebih dulu. */}
+  if (part === "preview") {
+    return (
+      <div className="sub-layout pv-only">
       <div className="sub-preview">
         <div className="preview9x16" ref={boxRef}>
           {previewOn ? (
@@ -224,7 +231,7 @@ export default function PreviewPanel({
               <div className="pe-title">{t("emptyFrame")}</div>
             </div>
           )}
-          {zone && (
+          {zone && showZones && (
             <>
               <div className="safezone" style={{ top: 0, left: 0, right: 0, height: `${zone.top * 100}%` }}>
                 <span>{t("zoneTop")}</span>
@@ -323,13 +330,18 @@ export default function PreviewPanel({
               Array.from({ length: maxLines }, (_, i) => {
                 const line = t(SAMPLE_LINES[i]);
                 const isLast = i === maxLines - 1;
-                if (subMode !== "karaoke" || !isLast) return <div key={i}>{line}</div>;
-                // Karaoke: kata terakhir yang sedang disorot.
+                if ((subMode !== "karaoke" && subMode !== "highlight") || !isLast) return <div key={i}>{line}</div>;
+                // Kata terakhir yang sedang diucapkan: karaoke berganti warna,
+                // "sorot kata" berdiri di atas blok warna (sama dengan blockTag
+                // di engine/internal/subtitle).
                 const words = line.split(" ");
                 const tail = words.pop();
+                const on = subMode === "highlight"
+                  ? { background: highlightHex, color: "#15181D", textShadow: "none", padding: "0 0.18em", borderRadius: "0.12em" }
+                  : { color: highlightHex };
                 return (
                   <div key={i}>
-                    {words.join(" ")} <span style={{ color: highlightHex }}>{tail}</span>
+                    {words.join(" ")} <span style={on}>{tail}</span>
                   </div>
                 );
               })
@@ -338,49 +350,59 @@ export default function PreviewPanel({
         </div>
 
       </div>
+        <div className="pv-controls">
+        {/* Kendali pratinjau tinggal DI SINI, bukan di bawah bingkainya.
+            Alasannya tinggi, bukan kerapian: kolom pratinjau dan kotak log
+            berbagi satu jatah tinggi, jadi tiap piksel yang dipakai bilah ini
+            di bawah bingkai diambil langsung dari kotak log. Kolom setelan
+            punya ruang sisa di dasarnya; bilah ini mengisinya. */}
+        {/* Kendali preview ditaruh DI BAWAH gambar: tombolnya mengubah gambar
+            itu, jadi urutan bacanya lebih masuk akal daripada di atas. */}
+        <div className="preview-actions">
+          {!previewOn ? (
+            <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
+              {previewBusy ? t("loadingPreview") : <><Eye className="ico" aria-hidden="true" /> {t("loadPreview")}</>}
+            </button>
+          ) : (
+            <>
+              <button className="ghost tiny icon-only" disabled={previewBusy}
+                title={t("reloadPreview")} aria-label={t("reloadPreview")} onClick={() => loadPreview()}>
+                <RotateCw className="ico" aria-hidden="true" />
+              </button>
+              <button className="ghost tiny icon-only" onClick={resetPreview}
+                title={t("resetPreview")} aria-label={t("resetPreview")}>
+                <X className="ico" aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
 
-      {/* Kanan: setelan dalam kelompok bernama, dan tiap kelompok memakai kisi
-          TIGA KOLOM yang sama.
-
-          Sebelumnya tiap baris flex membagi lebarnya sendiri, jadi baris berisi
-          dua kendali melebar sementara baris berisi tiga menyempit — tepi
-          kanannya bergerigi dan tidak ada satu pun yang sejajar. Dengan kisi,
-          kolomnya ditentukan sekali dan semua kendali berdiri di garis yang
-          sama, berapa pun isinya. */}
-      <div className="sub-settings">
+        {/* Penggeser waktu SATU baris: dulu label di atas + penggeser di bawah
+            memakan 67 px, dan tiap piksel di kolom ini diambil dari bingkai
+            pratinjaunya sendiri. Angkanya pindah ke ujung kanan barisnya. */}
+        {/* SELALU dirender, dimatikan sebelum pratinjau termuat: baris ini dulu
+            muncul bersama gambar pertama, dan kemunculannya menggeser seluruh
+            kolom 22 px tepat saat pengguna sedang menatap gambar itu. */}
+        <div className="frame-time" title={t("previewTime", { t: previewTime.toFixed(1) })}>
+          <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
+            disabled={!previewOn}
+            aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
+            value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
+          <span className="meta">{previewOn ? `${previewTime.toFixed(1)}s` : "–"}</span>
+        </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="sub-settings adv-settings">
         {/* Kelompok subtitle, penempatan, dan bingkai MENGHILANG selagi watermark
             terbuka. Bukan disembunyikan supaya rapi — kolom ini tidak punya sisa
             tinggi sama sekali, jadi dua kelompok besar tidak bisa berdiri
             bersama tanpa membuatnya bergulir. */}
         {!wmOpen && <>
         <div className="group">
-        {/* "Advanced" (DESIGN.md §6): sorot, kotak latar, dan kisi jarang
-            diubah, jadi tertutup secara bawaan. Popover, bukan accordion:
-            accordion yang dibuka menambah satu baris dan kolom ini tidak punya
-            sisa tinggi — terukur 76 px lebih di 1240x860 sebelum baris itu
-            dipindah ke sini. */}
-        <div className="group-title with-action" role="heading" aria-level={3}>
-          <span>{t("groupSubtitle")}</span>
-          <Popover width={380} align="right" buttonClass="ghost tiny" label={t("advanced")}>
-            {() => (
-              <div className="grid3 pop-grid">
-                {/* Warna sorot hanya berarti pada gaya yang menyorot; alasannya
-                    tertulis di sebelahnya, bukan cuma diredupkan. */}
-                <div className="field"><label title={subMode === "normal" ? t("highlightWhy") : undefined}>{t("highlightColor")}</label>
-                  <Select value={subHighlight} onChange={setSubHighlight} disabled={subMode === "normal"} options={[
-                    { value: "yellow", label: t("colorYellow") }, { value: "white", label: t("colorWhite") },
-                    { value: "green", label: t("colorGreen") }, { value: "cyan", label: t("colorCyan") },
-                  ]} />
-                  {subMode === "normal" && <div className="meta">{t("highlightWhy")}</div>}</div>
-                <div className="field field-check">
-                  <label className="chk"><input type="checkbox" checked={subBox}
-                    onChange={(e) => setSubBox(e.target.checked)} /> {t("boxBackground")}</label>
-                </div>
-                <GridPicker grid={grid} setGrid={setGrid} always={alwaysGuides} setAlways={setAlwaysGuides} />
-              </div>
-            )}
-          </Popover>
-        </div>
+        <div className="group-title" role="heading" aria-level={3}>{t("groupSubtitle")}</div>
         <div className="grid3">
           <div className="field"><label>{t("font")}
             {/* Font manual yang ditolak: lambang di label, bukan kalimat merah
@@ -421,6 +443,7 @@ export default function PreviewPanel({
           <div className="field"><label>{t("subStyle")} <Tip text={t("subStyleTip")} /></label>
             <Select value={subMode} onChange={setSubMode} options={[
               { value: "normal", label: t("subNormal") },
+              { value: "highlight", label: t("subHighlight") },
               { value: "karaoke", label: t("subKaraoke") },
               { value: "word", label: t("subWord") },
             ]} /></div>
@@ -432,6 +455,18 @@ export default function PreviewPanel({
             ]} /></div>
           <div className="field"><label>{t("outline")}</label>
             <Stepper value={subOutline} onChange={setSubOutline} min={0} max={12} /></div>
+          {/* Warna sorot hanya berarti pada gaya yang menyorot; alasannya
+              tertulis di ⓘ, bukan cuma diredupkan. */}
+          <div className="field"><label>{t("highlightColor")} {subMode === "normal" && <Tip text={t("highlightWhy")} />}</label>
+            <Select value={subHighlight} onChange={setSubHighlight} disabled={subMode === "normal"} options={[
+              { value: "#FFD400", label: t("colorYellow") }, { value: "#FFFFFF", label: t("colorWhite") },
+              { value: "#55E08A", label: t("colorGreen") }, { value: "#FF8A3D", label: t("colorOrange") },
+            ]} /></div>
+          <div className="field field-check">
+            <label className="chk"><input type="checkbox" checked={subBox}
+              onChange={(e) => setSubBox(e.target.checked)} /> {t("boxBackground")}</label>
+          </div>
+          <GridPicker grid={grid} setGrid={setGrid} always={alwaysGuides} setAlways={setAlwaysGuides} />
 
         </div>
         </div>
@@ -472,47 +507,6 @@ export default function PreviewPanel({
         </>}
 
         {watermarkPanel}
-
-        {/* Kendali pratinjau tinggal DI SINI, bukan di bawah bingkainya.
-            Alasannya tinggi, bukan kerapian: kolom pratinjau dan kotak log
-            berbagi satu jatah tinggi, jadi tiap piksel yang dipakai bilah ini
-            di bawah bingkai diambil langsung dari kotak log. Kolom setelan
-            punya ruang sisa di dasarnya; bilah ini mengisinya. */}
-        {/* Kendali preview ditaruh DI BAWAH gambar: tombolnya mengubah gambar
-            itu, jadi urutan bacanya lebih masuk akal daripada di atas. */}
-        <div className="preview-actions">
-          {!previewOn ? (
-            <button className="ghost" disabled={!path || previewBusy} onClick={() => loadPreview()}>
-              {previewBusy ? t("loadingPreview") : <><Eye className="ico" aria-hidden="true" /> {t("loadPreview")}</>}
-            </button>
-          ) : (
-            <>
-              <button className="ghost tiny icon-only" disabled={previewBusy}
-                title={t("reloadPreview")} aria-label={t("reloadPreview")} onClick={() => loadPreview()}>
-                <RotateCw className="ico" aria-hidden="true" />
-              </button>
-              <button className="ghost tiny icon-only" onClick={resetPreview}
-                title={t("resetPreview")} aria-label={t("resetPreview")}>
-                <X className="ico" aria-hidden="true" />
-              </button>
-            </>
-          )}
-        </div>
-
-        {/* Penggeser waktu SATU baris: dulu label di atas + penggeser di bawah
-            memakan 67 px, dan tiap piksel di kolom ini diambil dari bingkai
-            pratinjaunya sendiri. Angkanya pindah ke ujung kanan barisnya. */}
-        {/* SELALU dirender, dimatikan sebelum pratinjau termuat: baris ini dulu
-            muncul bersama gambar pertama, dan kemunculannya menggeser seluruh
-            kolom 22 px tepat saat pengguna sedang menatap gambar itu. */}
-        <div className="frame-time" title={t("previewTime", { t: previewTime.toFixed(1) })}>
-          <input type="range" min={0} max={Math.max(1, Math.floor(duration))} step={1}
-            disabled={!previewOn}
-            aria-label={t("previewTime", { t: previewTime.toFixed(1) })}
-            value={previewTime} onChange={(e) => setPreviewTime(Number(e.target.value))} />
-          <span className="meta">{previewOn ? `${previewTime.toFixed(1)}s` : "–"}</span>
-        </div>
-      </div>
     </div>
   );
 }

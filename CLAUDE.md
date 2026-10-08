@@ -301,6 +301,13 @@ Sekarang di sini, dan berlaku untuk SETIAP perubahan tampilan.
 
 ### 1. Jendela tidak boleh bergulir. Titik.
 
+> **Pengecualian: halaman Video clips (`/`)** — keputusan pemilik 9 Oktober
+> 2026, `DESIGN.md` ("Video Clips"). Halaman itu tiga layar (Atur klip →
+> Sedang diproses → Hasil klip) di dalam `.screen.scroll` yang BOLEH bergulir
+> ke bawah; kepala halaman dan pratinjau menempel (`position: sticky`). Rail
+> kiri tetap. Halaman lain tetap tunduk pada aturan di bawah ini, dan
+> `measure-ui` mencatat halaman klip sebagai `-`.
+
 Yang boleh bergulir hanya **kotak yang memang daftar**: kotak log, daftar
 berita, daftar paragraf. Selain itu — kolom setelan, panel, halaman — harus
 MUAT. Kalau tidak muat, yang dibuang isinya, bukan syaratnya.

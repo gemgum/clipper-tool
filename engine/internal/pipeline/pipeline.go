@@ -141,6 +141,11 @@ func (p *Pipeline) Run(ctx context.Context, jobID, input, workDir, outDir string
 
 	// 4-5. Pemilihan momen. Mesin dipilih pengguna dan TIDAK diganti diam-diam:
 	// bila mesin yang dipilih gagal, job ikut gagal dengan pesan akar masalah.
+	//
+	// Tahapnya diumumkan SEBELUM mesinnya disiapkan: menyiapkan mesin (mis.
+	// Ollama tanpa model itu) bisa gagal, dan tanpa kabar ini GUI mengira job
+	// berhenti di transkripsi — kartu tahap yang salah ikut memerah.
+	emit(onProgress, Progress{Stage: "scoring", Value: 0.55})
 	var selected []types.Clip
 	var sel momentSelector
 	engineName := ""
