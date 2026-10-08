@@ -60,13 +60,20 @@ type Server struct {
 
 func NewServer(mgr *job.Manager, l config.Layout) *Server {
 	paths := config.ResolvePaths(l, config.DefaultOptions())
-	return &Server{
+	s := &Server{
 		mgr:    mgr,
 		layout: l,
 		paths:  paths,
 		ff:     ffmpeg.New(paths.FFmpeg, paths.FFprobe),
 		cards:  card.New(capture.New(paths.Chrome), paths.FontsDir),
 	}
+	// Hasil pembuat berita, caption, dan watermark bertahan setelah aplikasi
+	// ditutup (riwayat bersama, DESIGN-Clipper-Lanjutan §6).
+	runs := filepath.Join(paths.DataDir, "runs")
+	s.posts.persistTo(filepath.Join(runs, "post"))
+	s.captions.persistTo(filepath.Join(runs, "caption"))
+	s.watermarks.persistTo(filepath.Join(runs, "watermark"))
+	return s
 }
 
 // applyPaths membaca ulang letak program setelah pengguna menunjuknya sendiri.

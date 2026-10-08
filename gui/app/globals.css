@@ -2925,3 +2925,44 @@ a.rail-status + .rail-tools { margin-top: 0; }
 p.ai-line { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; font-size: 14px; }
 p.ai-line code { font-family: var(--font-mono); font-size: 13px; color: var(--text-2); }
 p.ai-line a { margin-left: auto; font-size: 13.5px; font-weight: 600; color: var(--accent); }
+
+/* ================= Riwayat — DESIGN-Clipper-Lanjutan §6 ================= */
+.hi-body { padding: 24px 32px 0; display: flex; flex-direction: column; gap: 20px; }
+.hi-job { padding: 20px 22px !important; }
+.hi-job.running { border-color: var(--accent-line); }
+.hi-job.failed { border-color: var(--bad-line); }
+.hi-head { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+.hi-head .btn-ghost, .hi-head button { min-height: 38px; padding: 0 15px; font-size: 13.5px; flex: none; }
+.hi-title { margin: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+.hi-head .meta { margin: 3px 0 0; }
+.hi-why { margin: 4px 0 0; font-size: 13.5px; color: var(--bad-text); }
+.hi-badge {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase;
+  padding: 4px 10px; border-radius: 5px; color: var(--accent-ink); background: var(--accent-soft); flex: none;
+}
+.hi-badge.cards { color: var(--good-ink); background: var(--good-soft); }
+.hi-badge.failed { color: var(--bad-text); background: var(--bad-soft); }
+.hi-progress { flex: 0 1 220px; min-width: 160px; }
+.hi-progress .meta { margin-top: 6px !important; }
+.hi-clips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.hi-clip { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.hi-clip.on { border-color: var(--accent); box-shadow: 0 0 0 3px rgb(47 91 234 / 12%); }
+.hi-clip.failed { border-color: var(--bad-line); }
+.hi-thumb { position: relative; aspect-ratio: 9 / 16; background: #3a2f28; }
+.hi-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hi-pick { position: absolute; top: 9px; left: 9px; width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
+.hi-clip-body { padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.hi-clip-title { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.35; flex: 1;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.hi-clip-body .meta { margin: 0; }
+.hi-clip-body .btn-ghost { min-height: 33px; font-size: 12.5px; }
+.hi-legend { margin-top: 16px; padding: 13px 16px; background: var(--panel2); border: 1px solid var(--border); border-radius: var(--r-sm);
+  display: flex; flex-wrap: wrap; gap: 18px; font-size: 12.5px; color: var(--text-2); }
+.hi-legend b { color: var(--text); }
+.hi-card-thumb { width: 54px; height: 96px; object-fit: cover; border-radius: 6px; flex: none; background: var(--sunken); }
+.hi-files { list-style: none; margin: 14px 0 0; padding: 0; }
+.hi-files li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 14px; }
+.hi-files .btn-ghost { flex: none; min-height: 34px; padding: 0 14px; }
+.hi-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+/* Kotak centang tidak ikut aturan input selebar kolom. */
+.hi-head > input[type="checkbox"], .hi-pick { width: 20px; height: 20px; min-height: 0; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }

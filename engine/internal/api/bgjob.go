@@ -2,8 +2,14 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -48,6 +54,67 @@ type bgStore[T any] struct {
 	prefix string // awalan id, mis. "post" → post_0001
 	jobs   map[string]*bgJob[T]
 	subs   map[chan bgJob[T]]struct{}
+	// dir: folder tempat job yang SELESAI ditulis (<DataDir>/runs/<awalan>).
+	// Kosong = tidak disimpan (test). Riwayat bersama (DESIGN-Clipper-Lanjutan
+	// §6) butuh hasil pembuat berita, caption, dan watermark bertahan setelah
+	// aplikasi ditutup — sebelumnya hanya klip & kartu yang bertahan.
+	dir string
+}
+
+// persistTo membaca job yang tersimpan di dir lalu menyimpan job berikutnya
+// ke sana. Nomor id melanjutkan yang terbesar supaya tidak ada yang tertimpa.
+func (p *bgStore[T]) persistTo(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.init()
+	p.dir = dir
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var j bgJob[T]
+		if json.Unmarshal(raw, &j) != nil || j.ID == "" {
+			continue
+		}
+		// Job yang tersimpan saat "running" mati bersama aplikasinya.
+		if j.Status == "running" {
+			j.Status, j.Stage = "error", "error"
+			if j.Error == "" {
+				j.Error = "the app was closed while this job was running"
+			}
+		}
+		jj := j
+		p.jobs[j.ID] = &jj
+		if i := strings.LastIndexByte(j.ID, '_'); i >= 0 {
+			if n, err := strconv.Atoi(j.ID[i+1:]); err == nil && n > p.seq {
+				p.seq = n
+			}
+		}
+	}
+}
+
+// save menulis satu job ke dir (ditulis ke berkas sementara lalu diganti nama,
+// supaya aplikasi yang mati di tengah tidak meninggalkan JSON setengah jadi).
+func (p *bgStore[T]) save(j bgJob[T]) {
+	if p.dir == "" {
+		return
+	}
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return
+	}
+	raw, err := json.Marshal(j)
+	if err != nil {
+		return
+	}
+	tmp := filepath.Join(p.dir, j.ID+".json.tmp")
+	if os.WriteFile(tmp, raw, 0o644) == nil {
+		_ = os.Rename(tmp, filepath.Join(p.dir, j.ID+".json"))
+	}
 }
 
 func (p *bgStore[T]) init() {
@@ -131,7 +198,9 @@ func (p *bgStore[T]) get(id string) (bgJob[T], bool) {
 	return *j, true
 }
 
-// snapshot mengembalikan seluruh job, terbaru dulu.
+// snapshot mengembalikan seluruh job, terbaru dulu. Diurutkan menurut waktu
+// dibuat: urutan map Go acak, jadi membalik hasil iterasinya (cara lama) tidak
+// pernah menjamin "terbaru dulu".
 func (p *bgStore[T]) snapshot() []bgJob[T] {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -139,9 +208,7 @@ func (p *bgStore[T]) snapshot() []bgJob[T] {
 	for _, j := range p.jobs {
 		out = append(out, *j)
 	}
-	for i, k := 0, len(out)-1; i < k; i, k = i+1, k-1 {
-		out[i], out[k] = out[k], out[i]
-	}
+	sort.Slice(out, func(a, b int) bool { return out[a].CreatedAt.After(out[b].CreatedAt) })
 	return out
 }
 
@@ -178,6 +245,9 @@ func (p *bgStore[T]) finish(id string, ctx context.Context, res T, err error) {
 			j.Result = &res
 		}
 	})
+	if j, ok := p.get(id); ok {
+		p.save(j)
+	}
 }
 
 // stream mengalirkan kemajuan SELURUH job dalam satu store lewat SSE.

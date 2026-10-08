@@ -1,290 +1,340 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// Riwayat hasil — DESIGN-Clipper-Lanjutan.md §6 (9 Oktober 2026). SATU daftar
+// untuk kelima alat, disaring per alat lewat chip. Pekerjaan yang berjalan di
+// atas (bisa dibatalkan), yang gagal menyebut tahap & sebabnya dengan jalan
+// keluar, dan skor klip diberi keterangan arti — bukan singkatan terpotong.
+//
+// Sumbernya endpoint yang sudah ada: /api/jobs (klip), /api/cards (kartu),
+// /api/posts (artikel), /api/captions, /api/watermark. Ketiga yang terakhir
+// kini tersimpan di disk (<DataDir>/runs), jadi bertahan setelah aplikasi
+// ditutup.
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Download, FileText, History, Trash2 } from "lucide-react";
 import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { CheckSquare, Square, Trash2, Download, History } from "lucide-react";
-import { eng, engineURL } from "../engine";
 import Alerts from "../alerts";
+import { eng, engineURL } from "../engine";
 import { useI18n } from "../i18n";
-import ClipCard, { type Clip } from "../clip-card";
-import DragRow from "../drag-row";
+import type { MessageKey } from "../i18n";
 
-// Riwayat keluaran.
-//
-// KLIP berjajar menyamping per job: satu job bisa berisi sepuluh klip, dan
-// sepuluh kartu bertumpuk berarti job kedua sudah di luar layar sebelum job
-// pertama selesai dibaca. KARTU BERITA mengalir ke bawah dalam kisi — jumlahnya
-// tidak dikelompokkan apa pun, jadi satu baris mendatar cuma menyisakan panel
-// kosong selebar layar (terlihat di potret 6 Agustus 2026).
-//
-// Memilih: klik = pilih ini saja, Ctrl/Cmd+klik = tambah/lepas, Shift+klik =
-// rentang. Sama seperti pemilih berkas mana pun — itu yang tangan orang sudah
-// tahu tanpa diberi tahu.
+type Clip = { id: string; job_id: string; start: number; end: number; duration: number; score: number; title: string; status: string; error?: string };
+type Job = { id: string; status: string; stage: string; progress: number; error?: string; created_at: string; updated_at?: string; input?: string; source?: string; clips?: Clip[] };
+type Card = { id: string; made: string; bytes: number; file: string; zip: string; title?: string; source?: string; ratio?: string };
+type BG<T> = { id: string; status: string; stage: string; progress: number; error?: string; created_at: string; result?: T };
+type PostRes = { draft?: { title?: string; words?: number }; basket?: unknown; sources?: unknown[] };
+type CapRes = { files: { name: string; txt?: string; error?: string }[] };
+type WmRes = { files: { name: string; output?: string; error?: string }[] };
 
-type Job = {
-  id: string; status: string; created_at: string; source?: string; clips?: Clip[];
+type Kind = "clips" | "cards" | "writer" | "captions" | "watermark";
+type Entry = {
+  key: string; kind: Kind; status: string; created: string; title: string;
+  job?: Job; card?: Card; post?: BG<PostRes>; cap?: BG<CapRes>; wm?: BG<WmRes>;
 };
-type Card = {
-  id: string; made: string; bytes: number; file: string; zip: string; caption?: string;
+
+const KIND_LABEL: Record<Kind, MessageKey> = {
+  clips: "hiKindClips", cards: "hiKindCards", writer: "hiKindWriter", captions: "hiKindCaptions", watermark: "hiKindWatermark",
 };
+// Tahap engine → tahap yang dikenali operator (sama dengan layar proses klip).
+const STAGE_LABEL: Record<string, MessageKey> = {
+  extracting: "stageTranscribe", transcribing: "stageTranscribe", correcting: "stagePick",
+  segmenting: "stagePick", scoring: "stagePick", rendering: "stageRender",
+};
+const base = (p = "") => p.split(/[\\/]/).pop() || p;
+const fmtMin = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+const band = (s: number) => (s >= 75 ? "strong" : s >= 60 ? "medium" : "plain");
 
 export default function HistoryPage() {
   const { t, lang } = useI18n();
   const [jobs, setJobs] = useState<Job[] | null>(null);
-  const [error, setError] = useState("");
-  // Kunci pilihan: "<jobId>/<clipId>" untuk klip, "card/<id>" untuk kartu.
+  const [cards, setCards] = useState<Card[]>([]);
+  const [posts, setPosts] = useState<BG<PostRes>[]>([]);
+  const [caps, setCaps] = useState<BG<CapRes>[]>([]);
+  const [wms, setWms] = useState<BG<WmRes>[]>([]);
+  const [filter, setFilter] = useState<Kind | "all" | "failed">("all");
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState<"clips" | "cards">("clips");
-  const [cards, setCards] = useState<Card[] | null>(null);
-  // Titik jangkar untuk Shift+klik.
-  const lastPick = useRef<string>("");
 
   const load = useCallback(() => {
-    fetch(eng(`/api/jobs`))
-      .then((r) => r.json())
-      .then((d: Job[]) => setJobs(Array.isArray(d)
-        ? d.slice().sort((a, b) => (a.created_at < b.created_at ? 1 : -1)) : []))
-      .catch(() => { setError(t("engineUnreachable", { url: engineURL() })); setJobs([]); });
+    const get = (p: string) => fetch(eng(p)).then((r) => r.json());
+    get("/api/jobs").then((d) => setJobs(Array.isArray(d) ? d : [])).catch(() => { setError(t("engineUnreachable", { url: engineURL() })); setJobs([]); });
+    get("/api/cards").then((d) => setCards(Array.isArray(d) ? d : [])).catch(() => {});
+    get("/api/posts").then((d) => setPosts(d.posts || [])).catch(() => {});
+    get("/api/captions").then((d) => setCaps(d.captions || [])).catch(() => {});
+    get("/api/watermark").then((d) => setWms(d.jobs || [])).catch(() => {});
   }, [t]);
-
-  const loadCards = useCallback(() => {
-    fetch(eng(`/api/cards`))
-      .then((r) => r.json())
-      .then((d: Card[]) => setCards(Array.isArray(d) ? d : []))
-      .catch(() => setCards([]));
-  }, []);
-
   useEffect(load, [load]);
-  useEffect(loadCards, [loadCards]);
+  // Yang berjalan diperbarui tiap 4 detik selama masih ada.
+  const anyRunning = (jobs || []).some((j) => j.status === "running" || j.status === "queued")
+    || [...posts, ...caps, ...wms].some((j) => j.status === "running");
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = setInterval(load, 4000);
+    return () => clearInterval(id);
+  }, [anyRunning, load]);
+
+  const entries = useMemo<Entry[]>(() => {
+    const out: Entry[] = [];
+    (jobs || []).forEach((j) => out.push({ key: `job/${j.id}`, kind: "clips", status: j.status, created: j.created_at, title: base(j.input || j.source || j.id), job: j }));
+    cards.forEach((c) => out.push({ key: `card/${c.id}`, kind: "cards", status: "done", created: c.made, title: c.title || c.id, card: c }));
+    posts.forEach((p) => out.push({ key: `post/${p.id}`, kind: "writer", status: p.status, created: p.created_at, title: p.result?.draft?.title || p.id, post: p }));
+    caps.forEach((c) => out.push({ key: `cap/${c.id}`, kind: "captions", status: c.status, created: c.created_at, title: (c.result?.files || []).map((f) => f.name).join(", ") || c.id, cap: c }));
+    wms.forEach((w) => out.push({ key: `wm/${w.id}`, kind: "watermark", status: w.status, created: w.created_at, title: (w.result?.files || []).map((f) => f.name).join(", ") || w.id, wm: w }));
+    return out.sort((a, b) => (a.created < b.created ? 1 : -1));
+  }, [jobs, cards, posts, caps, wms]);
+
+  const isRunning = (e: Entry) => e.status === "running" || e.status === "queued";
+  const isFailed = (e: Entry) => e.status === "error";
+  const count = (f: typeof filter) => entries.filter((e) => f === "all" ? true : f === "failed" ? isFailed(e) : e.kind === f && !isFailed(e)).length;
+  const shown = entries.filter((e) => filter === "all" ? true : filter === "failed" ? isFailed(e) : e.kind === filter && !isFailed(e));
+  const running = shown.filter(isRunning);
+  const rest = shown.filter((e) => !isRunning(e) && e.status !== "canceled");
 
   const when = (iso: string) => {
-    try { return new Date(iso).toLocaleString(lang === "id" ? "id-ID" : "en-GB"); } catch { return iso; }
+    try { return new Date(iso).toLocaleString(lang === "id" ? "id-ID" : "en-GB", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" }); } catch { return iso; }
+  };
+  const took = (a: string, b?: string) => {
+    const s = (Date.parse(b || "") - Date.parse(a)) / 1000;
+    return s > 0 ? t("hiTook", { m: Math.max(1, Math.round(s / 60)) }) : "";
+  };
+  const eta = (e: Entry) => {
+    const p = e.job?.progress ?? e.post?.progress ?? e.cap?.progress ?? e.wm?.progress ?? 0;
+    const el = (Date.now() - Date.parse(e.created)) / 1000;
+    const rem = p > 0.05 ? (el * (1 - p)) / p : -1;
+    return { pct: Math.round(p * 100), text: rem < 0 ? t("etaUnknown") : rem < 60 ? t("etaUnderMin") : t("etaAbout", { n: Math.round(rem / 60) }) };
   };
 
-  const key = (jobId: string, clipId: string) => `${jobId}/${clipId}`;
+  const cancel = async (e: Entry) => {
+    const url = e.kind === "clips" ? `/api/jobs/${e.job!.id}/cancel` : e.kind === "writer" ? `/api/posts/${e.post!.id}/cancel`
+      : e.kind === "captions" ? `/api/captions/${e.cap!.id}/cancel` : `/api/watermark/${e.wm!.id}/cancel`;
+    await fetch(eng(url), { method: "POST", headers: { "content-type": "application/json" } }).catch(() => {});
+    load();
+  };
+  const retry = async (e: Entry) => {
+    try {
+      const res = await fetch(eng(`/api/jobs/${e.job!.id}/retry`), { method: "POST", headers: { "content-type": "application/json" } });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error);
+      load();
+    } catch (err: any) { setError(err.message); }
+  };
 
-  // Urutan tampil semua yang bisa dipilih di tab yang sedang terbuka —
-  // dibutuhkan Shift+klik, yang artinya "semua yang ADA DI ANTARA keduanya".
-  const order = useMemo(() => (
-    tab === "cards"
-      ? (cards || []).map((c) => `card/${c.id}`)
-      : (jobs || []).flatMap((j) => (j.clips || []).slice()
-          .sort((a, b) => b.score - a.score).map((c) => key(j.id, c.id)))
-  ), [tab, cards, jobs]);
-
-  // pick menerjemahkan klik + tombol penyertanya jadi pilihan baru.
-  const pick = useCallback((k: string, e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
-    setPicked((prev) => {
-      if (e.shiftKey && lastPick.current) {
-        const a = order.indexOf(lastPick.current), b = order.indexOf(k);
-        if (a >= 0 && b >= 0) {
-          const next = new Set(prev);
-          order.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => next.add(x));
-          return next;
-        }
-      }
-      if (e.ctrlKey || e.metaKey) {
-        const next = new Set(prev);
-        if (next.has(k)) next.delete(k); else next.add(k);
-        return next;
-      }
-      // Klik polos pada satu-satunya yang terpilih = lepas; selain itu pilih
-      // hanya yang ini. Tanpa aturan pertama tidak ada cara melepas pilihan
-      // terakhir tanpa memakai tombol penyertanya.
-      if (prev.size === 1 && prev.has(k)) return new Set();
-      return new Set([k]);
-    });
-    lastPick.current = k;
-  }, [order]);
-
-  const toggle = (k: string) => setPicked((p) => {
-    const n = new Set(p);
-    if (n.has(k)) n.delete(k); else n.add(k);
-    lastPick.current = k;
-    return n;
+  const toggle = (k: string) => setPicked((p) => { const n = new Set(p); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const toggleAll = (keys: string[]) => setPicked((p) => {
+    const n = new Set(p); const on = keys.every((k) => n.has(k));
+    keys.forEach((k) => (on ? n.delete(k) : n.add(k))); return n;
   });
-
-  // Pilih-semua bekerja PER KELOMPOK dan bersifat toggle.
-  const toggleAll = (keys: string[]) => {
-    const allOn = keys.length > 0 && keys.every((k) => picked.has(k));
-    setPicked((p) => {
-      const n = new Set(p);
-      keys.forEach((k) => (allOn ? n.delete(k) : n.add(k)));
-      return n;
-    });
+  const zipURL = (keys: string[]) => {
+    const q = new URLSearchParams();
+    keys.forEach((k) => (k.startsWith("card/") ? q.append("card", k.slice(5)) : q.append("clip", k)));
+    return eng(`/api/download?${q.toString()}`);
   };
-
-  // Penghapusan dijalankan BERURUTAN, bukan serentak: tiap permintaan membuang
-  // berkas di disk, dan sepuluh penghapusan sekaligus tidak lebih cepat — hanya
-  // lebih sulit dilaporkan kalau salah satunya gagal.
   const removePicked = async () => {
     if (picked.size === 0 || !confirm(t("historyConfirm", { n: picked.size }))) return;
-    setBusy(true);
-    setError("");
+    setBusy(true); setError("");
     for (const k of picked) {
-      const url = k.startsWith("card/")
-        ? `/api/cards/${k.slice(5)}`
-        : `/api/jobs/${k.split("/")[0]}/clips/${k.split("/")[1]}`;
-      try {
-        const res = await fetch(eng(url), { method: "DELETE" });
-        if (!res.ok) setError((await res.json()).error || t("historyDeleteFailed"));
-      } catch (e: any) { setError(e.message); }
+      const url = k.startsWith("card/") ? `/api/cards/${k.slice(5)}` : `/api/jobs/${k.split("/")[0]}/clips/${k.split("/")[1]}`;
+      try { const res = await fetch(eng(url), { method: "DELETE" }); if (!res.ok) setError((await res.json()).error || t("historyDeleteFailed")); }
+      catch (err: any) { setError(err.message); }
     }
-    setPicked(new Set());
-    setBusy(false);
-    load();
-    loadCards();
+    setPicked(new Set()); setBusy(false); load();
   };
 
-  // Unduh SATU zip berisi semua yang dicentang (engine: /api/download).
-  // Bukan sederet tautan: browser bertanya "izinkan mengunduh banyak berkas?"
-  // pada yang kedua, dan WebView2 kadang diam-diam menolak sisanya.
-  const downloadURL = useMemo(() => {
-    const q = new URLSearchParams();
-    picked.forEach((k) => (k.startsWith("card/") ? q.append("card", k.slice(5)) : q.append("clip", k)));
-    return eng(`/api/download?${q.toString()}`);
-  }, [picked]);
-
-  const size = (b: number) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.round(b / 1e3)} kB`);
-
-  const pickProps = (k: string) => ({
-    onClick: (e: React.MouseEvent) => {
-      // Tombol & tautan di dalam kartu tetap milik mereka sendiri.
-      if ((e.target as HTMLElement).closest("button, a, video, input")) return;
-      pick(k, e);
-    },
-  });
+  const chips: (Kind | "all" | "failed")[] = ["all", "clips", "cards", "writer", "captions", "watermark", "failed"];
 
   return (
-    <div className="screen">
-      <PageHeader title={t("tabHistory")} subtitle={t("subHistory")} />
+    <div className="screen scroll clips-v2 history-v2">
+      <PageHeader title={t("tabHistory")} subtitle={t("hiSub")}>
+        {picked.size > 0 && (
+          <>
+            <button type="button" className="danger" onClick={removePicked} disabled={busy}><Trash2 className="ico" aria-hidden="true" /> {t("hiDeletePicked", { n: picked.size })}</button>
+            <a className="btn-primary big" href={zipURL([...picked])}><Download className="ico" aria-hidden="true" /> {t("hiDownloadPicked", { n: picked.size })}</a>
+          </>
+        )}
+      </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
-      <div className="screen-body one">
-        <div className="screen-main">
-          {/* Satu bilah: pemilih jenis keluaran DI KIRI, aksi atas pilihan di
-              kanan. Aksinya SELALU dirender (dimatikan saat tidak ada yang
-              dipilih) — bilah yang muncul-hilang mendorong seluruh daftar turun
-              tepat saat pengguna sedang mengklik isinya. */}
-          <div className="panel seg-panel">
-            <div className="seg">
-              <button className={tab === "clips" ? "active" : ""} onClick={() => setTab("clips")}>
-                {t("tabResults")}{jobs ? ` (${jobs.length})` : ""}
-              </button>
-              <button className={tab === "cards" ? "active" : ""} onClick={() => setTab("cards")}>
-                {t("tabNews")}{cards ? ` (${cards.length})` : ""}
-              </button>
-            </div>
-            <span className="meta pick-count">{t("historyPicked", { n: picked.size })}</span>
-            <button className="ghost tiny" disabled={picked.size === 0}
-              onClick={() => setPicked(new Set())}>{t("historyClearPick")}</button>
-            <a className={"btn-dl" + (picked.size === 0 ? " off" : "")}
-              href={picked.size === 0 ? undefined : downloadURL}
-              aria-disabled={picked.size === 0}>
-              <Download className="ico" aria-hidden="true" /> {t("historyDownload")}
-            </a>
-            <button className="danger" disabled={busy || picked.size === 0} onClick={removePicked}>
-              <Trash2 className="ico" aria-hidden="true" /> {busy ? t("historyDeleting") : t("historyDelete")}
+      <div className="hi-body">
+        <div className="nc-chips" role="group" aria-label={t("tabHistory")}>
+          {chips.map((c) => (
+            <button key={c} type="button" className={"chip-btn" + (filter === c ? " on" : "")} aria-pressed={filter === c}
+              onClick={() => setFilter(c)}>
+              {c === "all" ? t("ncAll") : c === "failed" ? t("hiFailed") : t(KIND_LABEL[c])} {count(c)}
             </button>
-          </div>
+          ))}
+        </div>
 
-          {tab === "cards" ? (
-            cards === null ? (
-              <div className="panel"><div className="meta">{t("loading")}</div></div>
-            ) : cards.length === 0 ? (
-              <div className="panel"><div className="meta">{t("cardHistoryEmpty")}</div></div>
-            ) : (
-              <div className="panel">
-                <div className="run-head">
-                  <div className="run-when"><div className="run-title">{t("cardHistory")}</div></div>
-                  <span className="meta">{cards.length}</span>
-                  <button className="ghost tiny" onClick={() => toggleAll(order)}>
-                    {order.every((k) => picked.has(k))
-                      ? <><CheckSquare className="ico" aria-hidden="true" /> {t("historyNone")}</>
-                      : <><Square className="ico" aria-hidden="true" /> {t("historyAll")}</>}
-                  </button>
+        {jobs !== null && shown.length === 0 && (
+          <section className="card">
+            <EmptyState icon={History} title={t("historyEmpty")} description={t("historyEmptyHint")}
+              action={<div className="hi-links">
+                <Link className="btn-link" href="/">{t("tabClips")}</Link><Link className="btn-link" href="/news">{t("tabNews")}</Link>
+                <Link className="btn-link" href="/writer">{t("tabWriter")}</Link><Link className="btn-link" href="/captions">{t("tabCaptions")}</Link>
+                <Link className="btn-link" href="/watermark">{t("tabWatermark")}</Link>
+              </div>} />
+          </section>
+        )}
+
+        {running.map((e) => {
+          const s = eta(e);
+          const stage = e.job?.stage || e.post?.stage || e.cap?.stage || e.wm?.stage || "";
+          return (
+            <article key={e.key} className="card hi-job running">
+              <div className="hi-head">
+                <span className={"hi-badge " + e.kind}>{t(KIND_LABEL[e.kind])}</span>
+                <div className="grow">
+                  <p className="hi-title">{e.title}</p>
+                  <p className="meta">{t("hiStarted", { t: when(e.created) })}{STAGE_LABEL[stage] ? ` · ${t(STAGE_LABEL[stage]).toLowerCase()}` : ""}</p>
                 </div>
-                {/* Kisi yang mengalir ke bawah — kartu berikutnya turun satu
-                    baris, bukan hilang di kanan layar. */}
-                <div className="card-grid">
-                  {cards.map((c) => {
-                    const k = `card/${c.id}`;
-                    const on = picked.has(k);
-                    return (
-                      <div className={"card-tile" + (on ? " on" : "")} key={c.id} {...pickProps(k)}>
-                        <button className="strip-pick" aria-pressed={on}
-                          aria-label={t(on ? "historyDeselect" : "historySelect")}
-                          onClick={() => toggle(k)}>
-                          {on ? <CheckSquare className="ico" aria-hidden="true" /> : <Square className="ico" aria-hidden="true" />}
-                        </button>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={eng(c.file)} alt="" loading="lazy" />
-                        <div className="card-tile-foot">
-                          <span className="meta">{when(c.made)} · {size(c.bytes)}</span>
-                          <a className="dl" href={eng(c.zip)} title={t("downloadZip")} aria-label={t("downloadZip")}>
-                            <Download className="ico" aria-hidden="true" />
-                          </a>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="hi-progress">
+                  <div className="bar slim" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.pct}><div style={{ width: `${s.pct}%` }} /></div>
+                  <p className="meta">{s.pct}% · {s.text}</p>
                 </div>
+                <button type="button" className="danger" onClick={() => cancel(e)}>{t("cancelRun")}</button>
               </div>
-            )
-          ) : jobs === null ? (
-            <div className="panel"><div className="meta">{t("loading")}</div></div>
-          ) : jobs.length === 0 ? (
-            <div className="panel"><EmptyState icon={History} title={t("historyEmpty")} description={t("historyEmptyHint")}
-              action={<a className="btn-link" href="/">{t("historyGoClips")}</a>} /></div>
-          ) : (
-            jobs.map((j) => {
-              const clips = (j.clips || []).slice().sort((a, b) => b.score - a.score);
-              const ks = clips.map((c) => key(j.id, c.id));
-              const allOn = ks.length > 0 && ks.every((k) => picked.has(k));
-              return (
-                <div className="panel" key={j.id}>
-                  <div className="run-head">
-                    <div className={`req-dot ${j.status === "done" ? "on" : j.status === "error" ? "off" : "idle"}`} />
-                    <div className="run-when">
-                      {/* Tanggal & waktu jadi JUDUL barisnya: itu yang dicari
-                          orang saat menelusuri riwayat, bukan nama berkasnya. */}
-                      <div className="run-title">{when(j.created_at)}</div>
-                      <div className="req-path" title={j.source}>{j.source || "–"}</div>
-                    </div>
-                    <span className="meta">{t("clipCount", { n: clips.length })} · {j.status}</span>
-                    {clips.length > 0 && (
-                      <button className="ghost tiny" onClick={() => toggleAll(ks)}>
-                        {allOn ? <CheckSquare className="ico" aria-hidden="true" /> : <Square className="ico" aria-hidden="true" />}
-                        {allOn ? t("historyNone") : t("historyAll")}
-                      </button>
-                    )}
-                  </div>
+            </article>
+          );
+        })}
 
-                  {clips.length > 0 && (
-                    <DragRow>
+        {rest.map((e) => {
+          if (isFailed(e)) {
+            const stage = e.job?.stage ? STAGE_LABEL[e.job.stage] : undefined;
+            const why = e.job?.error || e.post?.error || e.cap?.error || e.wm?.error || "";
+            return (
+              <article key={e.key} className="card hi-job failed">
+                <div className="hi-head">
+                  <span className="hi-badge failed">{t("hiFailedBadge")}</span>
+                  <div className="grow">
+                    <p className="hi-title">{t(KIND_LABEL[e.kind])} · {when(e.created)}</p>
+                    <p className="hi-why">{stage ? t("hiStoppedAt", { stage: t(stage).toLowerCase(), why }) : why}</p>
+                  </div>
+                  <Link className="btn-ghost" href="/requirements">{t("hiOpenSettings")}</Link>
+                  {e.kind === "clips" && <button type="button" className="dark" onClick={() => retry(e)}>{t("hiRetry")}</button>}
+                </div>
+              </article>
+            );
+          }
+          if (e.kind === "clips") {
+            const j = e.job!;
+            const clips = (j.clips || []).slice().sort((a, b) => b.score - a.score);
+            const keys = clips.filter((c) => c.status !== "failed").map((c) => `${j.id}/${c.id}`);
+            const allOn = keys.length > 0 && keys.every((k) => picked.has(k));
+            return (
+              <article key={e.key} className="card hi-job">
+                <div className="hi-head">
+                  <span className="hi-badge clips">{t("hiKindClips")}</span>
+                  <div className="grow">
+                    <p className="hi-title">{e.title}</p>
+                    <p className="meta">{[when(e.created), took(j.created_at, j.updated_at), (clips.length === 1 ? t("nClipsOne") : t("nClipsLine", { n: clips.length }))].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  {keys.length > 0 && (
+                    <>
+                      <label className="chk"><input type="checkbox" checked={allOn} onChange={() => toggleAll(keys)} /> {t("hiPickAll")}</label>
+                      <a className="btn-ghost" href={zipURL(keys)}>{t("hiDownloadAll")}</a>
+                    </>
+                  )}
+                </div>
+                {clips.length > 0 && (
+                  <>
+                    <div className="hi-clips">
                       {clips.map((c) => {
-                        const k = key(j.id, c.id);
-                        const on = picked.has(k);
+                        const k = `${j.id}/${c.id}`;
+                        const file = eng(`/api/jobs/${j.id}/clips/${c.id}/file`);
                         return (
-                          <div className={"strip-item" + (on ? " on" : "")} key={c.id} {...pickProps(k)}>
-                            <button className="strip-pick" aria-pressed={on}
-                              aria-label={t(on ? "historyDeselect" : "historySelect")}
-                              onClick={() => toggle(k)}>
-                              {on ? <CheckSquare className="ico" aria-hidden="true" /> : <Square className="ico" aria-hidden="true" />}
-                            </button>
-                            <ClipCard c={c} />
+                          <div key={c.id} className={"hi-clip" + (picked.has(k) ? " on" : "") + (c.status === "failed" ? " failed" : "")}>
+                            <div className="hi-thumb">
+                              {c.status !== "failed" && <video src={file + "#t=1"} preload="metadata" muted />}
+                              {c.status !== "failed" && (
+                                <input type="checkbox" className="hi-pick" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={t("hiPickClip", { n: c.id })} />
+                              )}
+                              <span className={"g-score " + band(c.score)}>{c.score}</span>
+                              <span className="g-dur">{Math.round(c.duration)}s</span>
+                            </div>
+                            <div className="hi-clip-body">
+                              <p className="hi-clip-title" title={c.title}>{c.status === "failed" ? `${t("clipFailed")}: ${c.error || ""}` : (c.title || t("noTitle"))}</p>
+                              <p className="meta">{t("hiMinute", { a: fmtMin(c.start), b: fmtMin(c.end) })}</p>
+                              {c.status !== "failed" && (
+                                <div className="g-actions">
+                                  <a className="btn-ghost" href={file} download={`${c.id}.mp4`}>{t("hiVideo")}</a>
+                                  <a className="btn-ghost" href={file + "?variant=txt"} download={`${c.id}.txt`}>{t("hiText")}</a>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       })}
-                    </DragRow>
-                  )}
+                    </div>
+                    <div className="hi-legend">
+                      <span><b>{t("hiLegendScore")}</b> {t("hiLegendScoreText")}</span>
+                      <span><b>{t("hiLegendHook")}</b> {t("hiLegendHookText")}</span>
+                      <span><b>{t("hiLegendEmotion")}</b> {t("hiLegendEmotionText")}</span>
+                      <span><b>{t("hiLegendClear")}</b> {t("hiLegendClearText")}</span>
+                    </div>
+                  </>
+                )}
+              </article>
+            );
+          }
+          if (e.kind === "cards") {
+            const c = e.card!;
+            const k = `card/${c.id}`;
+            return (
+              <article key={e.key} className="card hi-job">
+                <div className="hi-head">
+                  <input type="checkbox" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={t("hiPickClip", { n: c.id })} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img className="hi-card-thumb" src={eng(c.file)} alt="" loading="lazy" />
+                  <span className="hi-badge cards">{t("hiKindCards")}</span>
+                  <div className="grow">
+                    <p className="hi-title">{e.title}</p>
+                    <p className="meta">{[when(e.created), c.source, t("hiCardMeta", { ratio: c.ratio || "9:16" })].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  <a className="btn-ghost" href={eng(c.file)} download={`${c.id}.png`}><Download className="ico" aria-hidden="true" /> {t("downloadClip")}</a>
                 </div>
-              );
-            })
-          )}
-        </div>
+              </article>
+            );
+          }
+          if (e.kind === "writer") {
+            const p = e.post!;
+            return (
+              <article key={e.key} className="card hi-job">
+                <div className="hi-head">
+                  <span className="hi-badge writer">{t("hiKindWriter")}</span>
+                  <div className="grow">
+                    <p className="hi-title">{e.title}</p>
+                    <p className="meta">{[when(e.created), p.result?.draft?.words ? t("hiWords", { n: p.result.draft.words }) : ""].filter(Boolean).join(" · ")}</p>
+                  </div>
+                  <a className="btn-ghost" href={eng(`/api/posts/${p.id}/file?name=article`)} download><FileText className="ico" aria-hidden="true" /> {t("downloadClip")}</a>
+                </div>
+              </article>
+            );
+          }
+          const files = (e.cap?.result?.files || e.wm?.result?.files || []) as { name: string; error?: string }[];
+          const id = e.cap?.id || e.wm?.id || "";
+          const path = e.kind === "captions" ? "captions" : "watermark";
+          return (
+            <article key={e.key} className="card hi-job">
+              <div className="hi-head">
+                <span className={"hi-badge " + e.kind}>{t(KIND_LABEL[e.kind])}</span>
+                <div className="grow">
+                  <p className="hi-title">{t("hiVideos", { n: files.length })}</p>
+                  <p className="meta">{when(e.created)}</p>
+                </div>
+              </div>
+              <ul className="hi-files">
+                {files.map((f, i) => (
+                  <li key={i}>
+                    <span className="grow">{f.name}</span>
+                    {f.error ? <span className="hi-why">{f.error}</span>
+                      : <a className="btn-ghost" href={eng(`/api/${path}/${id}/file?i=${i}`)} download>{t("downloadClip")}</a>}
+                  </li>
+                ))}
+              </ul>
+            </article>
+          );
+        })}
       </div>
     </div>
   );
