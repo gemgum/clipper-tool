@@ -87,11 +87,13 @@ func cutAtWord(s string, max int) (string, bool) {
 	return strings.TrimRight(cut, " ,;:-"), true
 }
 
-func cardPrompt(kind, lang string) (string, map[string]any) {
-	language := "Indonesian"
-	if lang == "en" {
-		language = "English"
-	}
+// cardPrompt: tulisan SELALU memakai bahasa artikelnya, bukan bahasa
+// antarmuka (`lang` hanya untuk teks tetap kartu). Diuji 9 Oktober 2026:
+// artikel Indonesia dengan antarmuka EN menghasilkan caption Inggris, padahal
+// postingannya untuk pembaca artikel itu — dan pagar fakta mencocokkan nama
+// serta angka paling tepat dalam bahasa sumbernya.
+func cardPrompt(kind, _ string) (string, map[string]any) {
+	language := "the same language as the article"
 	str := map[string]any{"type": "string"}
 	switch kind {
 	case KindSummary:
