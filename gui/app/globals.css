@@ -2966,3 +2966,39 @@ p.ai-line a { margin-left: auto; font-size: 13.5px; font-weight: 600; color: var
 .hi-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 /* Kotak centang tidak ikut aturan input selebar kolom. */
 .hi-head > input[type="checkbox"], .hi-pick { width: 20px; height: 20px; min-height: 0; flex: none; margin: 0; padding: 0; accent-color: var(--accent); }
+
+/* ================= Tulis artikel — DESIGN-Clipper-Lanjutan §3 ================= */
+.wr-body { display: flex; flex-wrap: wrap; gap: 26px; align-items: flex-start; padding: 26px 32px 0; }
+.wr-side { flex: 0 1 400px; min-width: 320px; display: flex; flex-direction: column; gap: 16px; }
+.wr-side .card { padding: 20px; }
+.wr-empty { margin: 0; padding: 18px; background: var(--panel2); border: 1px dashed var(--border-strong); border-radius: var(--r-sm); font-size: 13.5px; color: var(--text-2); text-align: center; }
+.wr-sources { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.wr-sources li { display: flex; gap: 11px; padding: 11px; border: 1px solid var(--border); border-radius: var(--r-sm); align-items: flex-start; }
+.wr-sources li.skipped { border-color: var(--bad-line); background: var(--bad-soft); }
+.wr-sources li.skipped .meta { color: var(--bad-text); }
+.wr-no { width: 24px; height: 24px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-ink); font-size: 12.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex: none; }
+.wr-title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.wr-sources .meta, .wr-suggest .meta { margin: 4px 0 0; }
+.wr-sources button { min-height: 28px; width: 28px; padding: 0; flex: none; }
+.wr-gap { margin-top: 16px !important; }
+.wr-full { margin: 8px 0 0; }
+.wr-search { margin-bottom: 8px; }
+.wr-suggest { list-style: none; margin: 0; padding: 0; max-height: 520px; overflow-y: auto; }
+.wr-suggest li { display: flex; gap: 11px; padding: 10px 0; border-bottom: 1px solid var(--border); align-items: center; }
+.wr-suggest button { min-height: 32px; padding: 0 12px; font-size: 13px; flex: none; }
+.wr-thumb { width: 44px; height: 44px; border-radius: 7px; background: var(--sunken); flex: none; overflow: hidden; }
+.wr-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.wr-article { flex: 999 1 460px; min-width: 0; padding: 28px 32px !important; }
+.wr-article .card-head .btn-ghost, .wr-article .card-head button { flex: none; min-height: 36px; padding: 0 14px; font-size: 13.5px; }
+.wr-note { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 22px !important; }
+.wr-h { margin: 18px 0 14px; font-size: 25px; font-weight: 700; line-height: 1.25; }
+.wr-p { margin: 0 0 14px; font-size: 15.5px; line-height: 1.75; }
+.wr-p.lead { font-weight: 600; }
+.src-chip { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--accent-soft); padding: 2px 5px; border-radius: 4px; margin-left: 3px; vertical-align: super; line-height: 1; text-decoration: none; }
+a.src-chip:hover { background: var(--accent); color: var(--on-accent); }
+.wr-foot { border-top: 1px solid var(--border); padding-top: 18px; margin-top: 10px; }
+.wr-foot-h { margin: 0 0 10px; font-size: 13px; font-weight: 700; letter-spacing: 1px; color: var(--text-2); text-transform: uppercase; }
+.wr-foot p { margin: 0 0 7px; font-size: 13.5px; color: var(--text-2); line-height: 1.45; }
+.wr-foot b { color: var(--text); }
+.wr-running { display: flex; flex-direction: column; gap: 10px; padding: 24px 0; }
+.wr-tech { padding: 20px 32px 0; }

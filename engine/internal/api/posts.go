@@ -161,6 +161,21 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 	}
 	var path, mime string
 	switch r.URL.Query().Get("name") {
+	case "docx":
+		// Dibuat saat diminta dari draf yang tersimpan (DESIGN-Clipper-Lanjutan §3).
+		heading := "Sources"
+		if lang(r) == "id" {
+			heading = "Sumber"
+		}
+		raw, err := writer.Docx(j.Result.Draft, j.Result.Sources, heading)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+		w.Header().Set("Content-Disposition", `attachment; filename="article.docx"`)
+		_, _ = w.Write(raw)
+		return
 	case "", "article":
 		path, mime = j.Result.Post.Markdown, "text/markdown; charset=utf-8"
 	case "sources":
@@ -168,7 +183,7 @@ func (s *Server) postFile(w http.ResponseWriter, r *http.Request) {
 	case "image":
 		path, mime = j.Result.Post.Image, ""
 	default:
-		writeErr(w, 400, "unknown file: use name=article, name=sources or name=image")
+		writeErr(w, 400, "unknown file: use name=article, name=docx, name=sources or name=image")
 		return
 	}
 	if path == "" {

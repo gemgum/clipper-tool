@@ -1,27 +1,23 @@
 "use client";
 
-// Tab ketiga: penulis artikel (notes/38).
-//
-// Bentuknya menyalin halaman "/" apa adanya — dua kolom, panel bernama, tanpa
-// bilah atas: kiri yang DILIHAT (artikel hasil + log), kanan yang DIISI lalu
-// dijalankan (keranjang sumber, mesin AI, tombol Mulai).
+// Tab ketiga: penulis artikel (notes/38) — susunan DESIGN-Clipper-Lanjutan §3
+// (9 Oktober 2026): kiri sumber terpilih bernomor 1–5 + tempel link + berita
+// hari ini; kanan artikel hasil sebagai artikel sungguhan dengan penanda sumber
+// di akhir tiap kalimat. Mesin AI dari Pengaturan; log dilipat.
 //
 // Tab sendiri, bukan menumpang /news, karena aturannya berlawanan: di sana LLM
 // tidak boleh menulis satu kata pun, di sini ia memang menulis. Mencampurnya
 // cepat atau lambat membuat teks karangan keluar sebagai kutipan verbatim.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import NewsSkeleton from "../news-skeleton";
 import EmptyState from "../empty-state";
 import PageHeader from "../page-header";
-import { X, Copy, RotateCw, Check, Link2, FileText } from "lucide-react";
-import { eng, useWeb } from "../engine";
+import { X, Copy, FileText, Info, PenLine } from "lucide-react";
+import { eng } from "../engine";
 import { useI18n } from "../i18n";
-import { useCopyLink } from "../copy-link";
 import Alerts from "../alerts";
-import EnginePicker, { useEngines } from "../engine-picker";
 import LogPanel from "../log-panel";
-import RunPanel from "../run-panel";
+import { useAI } from "../ai";
 
 // Batas artikel sumber. Angkanya BUKAN tetap: tahap 2 mengirim seluruh fakta
 // dari semua sumber dalam satu panggilan, jadi model berjendela kecil menabrak
@@ -33,7 +29,8 @@ const MAX_SOURCES = 5;
 
 type Article = { title: string; url: string; source: string; image?: string; date?: string; domain?: string };
 type Violation = { kind: string; text: string; detail: string };
-type Draft = { title: string; lead: string; body: string[]; words: number; tags?: string[]; violations?: Violation[] };
+type Claim = { text: string; source: number; paragraph: number };
+type Draft = { title: string; lead: string; body: string[]; words: number; tags?: string[]; violations?: Violation[]; claims?: Claim[] };
 // SourceRef = sumber yang BENAR-BENAR dipakai job itu, dari engine. Bukan
 // keranjang di layar: keranjang masih bisa diubah setelah job jalan, dan kaki
 // artikel harus menyebut yang sama persis dengan yang ditulis ke artikel.md.
@@ -45,12 +42,11 @@ type PostJob = {
   progress: number;
   log?: string[];
   error?: string;
-  result?: { post: { dir: string; image?: string }; draft: Draft; sources?: SourceRef[] };
+  result?: { post: { dir: string; image?: string }; draft: Draft; sources?: SourceRef[]; basket?: { skipped?: { url: string; reason: string }[] } };
 };
 
 export default function WriterPage() {
   const { t, lang } = useI18n();
-  const web = useWeb();
 
   // --- keranjang sumber ---
   const [basket, setBasket] = useState<Article[]>([]);
@@ -60,18 +56,11 @@ export default function WriterPage() {
   const [listBusy, setListBusy] = useState(false);
 
   // --- mesin ---
-  //
-  // Kunci API TIDAK ada di sini: ia disetel sekali seumur pemasangan di halaman
-  // setelan, sedangkan mesin & model dipilih tiap kali bekerja (notes/39).
-  const { engines } = useEngines();
-  const [engine, setEngine] = useState("ollama");
-  const [model, setModel] = useState("");
-  // Mesin tahap MENULIS, terpisah bila diminta. Kedua tahap punya sifat yang
-  // berbeda tajam: membaca fakta itu lima panggilan menyalin-ulang yang murah,
-  // menulis cuma satu panggilan tapi di situlah mutu model terasa (notes/39).
-  const [splitEngines, setSplitEngines] = useState(false);
-  const [writeEngine, setWriteEngine] = useState("ollama");
-  const [writeModel, setWriteModel] = useState("");
+  // Dari Pengaturan: mesin global, atau pengecualian alat "writer" — itulah
+  // pengganti "pakai mesin lain untuk menulis" (DESIGN-Clipper-Lanjutan §11).
+  const ai = useAI("writer");
+  const engine = ai?.engine || "ollama";
+  const model = ai?.model || "";
 
   // --- job ---
   const [jobId, setJobId] = useState("");
@@ -140,8 +129,8 @@ export default function WriterPage() {
   // sekaligus. Tanpa mesin tulis terpisah, mesin bacanya yang dipakai.
   const [maxSources, setMaxSources] = useState(MAX_SOURCES);
   useEffect(() => {
-    const id = splitEngines ? writeEngine : engine;
-    const m = splitEngines ? writeModel : model;
+    const id = engine;
+    const m = model;
     if (!id) return;
     let alive = true;
     fetch(eng(`/api/posts/limits?engine=${encodeURIComponent(id)}&model=${encodeURIComponent(m)}`))
@@ -149,13 +138,9 @@ export default function WriterPage() {
       .then((d) => { if (alive && d?.max_sources > 0) setMaxSources(d.max_sources); })
       .catch(() => { /* batas bawaan tetap berlaku */ });
     return () => { alive = false; };
-  }, [engine, model, splitEngines, writeEngine, writeModel]);
+  }, [engine, model]);
 
-  const { copyLink, copied: copiedLink, busy: copyBusy } = useCopyLink({
-    onResolved: (from, to) =>
-      setItems((list) => list.map((a) => (a.url === from ? { ...a, url: to } : a))),
-    onError: setError,
-  });
+
 
   // addPasted menerima beberapa alamat sekaligus, satu per baris. Alamat yang
   // ditempel belum punya judul — engine yang membacanya nanti; di sini cukup
@@ -189,8 +174,8 @@ export default function WriterPage() {
           urls: basket.map((a) => a.url),
           engine,
           model,
-          write_engine: splitEngines ? writeEngine : "",
-          write_model: splitEngines ? writeModel : "",
+          write_engine: "",
+          write_model: "",
           lang,
         }),
       });
@@ -241,210 +226,166 @@ export default function WriterPage() {
     }
   };
 
+  const skipped = job?.result?.basket?.skipped ?? [];
+  const skipReason = (url: string) => skipped.find((s) => s.url === url)?.reason;
+  const full = basket.length >= maxSources;
+  const docxURL = jobId && draft ? eng(`/api/posts/${jobId}/file?name=docx`) : "";
+
   return (
-    <div className="screen">
-      <PageHeader title={t("tabWriter")} subtitle={t("subWriter")}>
-        <RunPanel
-          busy={busy} testing={false}
-          disabled={busy || basket.length === 0}
-          cancellable={busy && !!jobId}
-          onStart={start} onCancel={cancel}
-          progress={job?.progress ?? 0}
-        />
+    <div className="screen scroll clips-v2 writer-v2">
+      <PageHeader title={t("tabWriter")} subtitle={t("wrSub")}>
+        {busy ? (
+          <button type="button" className="danger" onClick={cancel}>{t("cancelRun")}</button>
+        ) : (
+          <button type="button" className="primary big" onClick={start} disabled={basket.length === 0}>
+            <PenLine className="ico" aria-hidden="true" /> {basket.length === 1 ? t("wrStartOne") : t("wrStart", { n: basket.length })}
+          </button>
+        )}
       </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
 
-      <div className="screen-body two">
-        {/* KIRI: yang dilihat. */}
-        <div className="screen-main">
-          <div className="panel post-panel">
-            <div className="group-title with-action" role="heading" aria-level={3}>
-              <span>{t("writerArticleTitle")}</span>
-              {draft && (
-                <span className="post-actions">
-                  <button className="ghost tiny" onClick={() => copy("title")}>
-                    <Copy className="ico" aria-hidden="true" /> {copied === "title" ? t("copied") : t("writerCopyTitle")}
-                  </button>
-                  <button className="ghost tiny" onClick={() => copy("body")}>
-                    <Copy className="ico" aria-hidden="true" /> {copied === "body" ? t("copied") : t("writerCopyBody")}
-                  </button>
-                </span>
-              )}
+      <div className="wr-body">
+        <section className="wr-side">
+          <div className="card">
+            <div className="card-head">
+              <h2>{t("wrPicked")}</h2>
+              <span className="meta">{t("wrCount", { n: basket.length, m: maxSources })}</span>
             </div>
-
-            {!draft ? (
-              busy ? <p className="stage">{t("writerRunning")}</p>
-                : <EmptyState icon={FileText} title={t("writerEmptyTitle")} description={t("writerEmpty", { max: maxSources })} />
+            {basket.length === 0 ? (
+              <p className="wr-empty">{t("wrEmptyBasket")}</p>
             ) : (
-              <div className="post-view">
-                {violations.length > 0 && (
-                  <div className="warnbox">
-                    <strong>{t("writerUnverified", { n: violations.length })}</strong>
-                    <div className="meta">{t("writerUnverifiedHint")}</div>
-                    <ul>
-                      {violations.map((v, i) => (
-                        <li key={i}><code>{v.kind}</code> {v.detail}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {job?.result?.post.image && (
-                  <img className="post-image" alt="" src={eng(`/api/posts/${job.id}/file?name=image`)} />
-                )}
-                <h2>{draft.title}</h2>
-                <p className="post-lead">{draft.lead}</p>
-                {draft.body.map((p, i) => <p key={i}>{p}</p>)}
-                {!!draft.tags?.length && <p className="post-tags">{draft.tags.join(" ")}</p>}
-                {used.length > 0 && (
-                  <div className="post-sources">
-                    <div className="meta">{t("writerSources")}</div>
-                    <ul>
-                      {used.map((s) => (
-                        <li key={s.url}>
-                          <a href={s.url} target="_blank" rel="noreferrer">{s.title || s.url}</a>
-                          {s.media && <span className="meta"> · {s.media}</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                <div className="meta post-foot">
-                  {t("writerWords", { n: draft.words })} ·{" "}
-                  {/* Mode web: foldernya di server — yang berguna adalah berkasnya. */}
-                  {web ? (
-                    <a className="dl" href={eng(`/api/posts/${job!.id}/file?name=article`)} download>{t("download")} .md</a>
-                  ) : t("writerFolder", { dir: job!.result!.post.dir })}
-                </div>
-              </div>
+              <ol className="wr-sources">
+                {basket.map((a, i) => {
+                  const why = skipReason(a.url);
+                  return (
+                    <li key={a.url} className={why ? "skipped" : ""}>
+                      <span className="wr-no">{i + 1}</span>
+                      <div className="grow">
+                        <p className="wr-title">{a.title}</p>
+                        <p className="meta">{why ? t("wrSkipped", { why }) : (a.source || a.domain)}</p>
+                      </div>
+                      <button type="button" className="icon-only ghost tiny" aria-label={t("wrRemoveSource", { n: i + 1 })}
+                        onClick={() => toggle(a)} disabled={busy}><X className="ico" aria-hidden="true" /></button>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
-          </div>
-
-          <LogPanel logs={logs} />
-        </div>
-
-        {/* KANAN: yang diisi & dijalankan. */}
-        <div className="screen-col">
-          {/* Keranjang TIDAK berpanel sendiri.
-              Panel terpisah menghabiskan 69 px hanya untuk judul, padding, dan
-              jaraknya — dan kolom ini juga memuat daftar berita, mesin AI, serta
-              tombol Mulai. Terukur: keranjang berisi 5 sumber mendorong tombol
-              Mulai 188 px keluar jendela. Lagipula tempatnya memang di sini:
-              isinya persis apa yang baru dicentang dari daftar di bawahnya. */}
-          <div className="panel feed-panel">
-            <div className="group-title with-action" role="heading" aria-level={3}>
-              <span>{t("writerBasket", { n: basket.length, max: maxSources })}</span>
-              <button className="ghost tiny icon-only" disabled={listBusy}
-                title={t("reloadFeeds")} aria-label={t("reloadFeeds")}
-                onClick={() => loadList(typed.trim())}>
-                <RotateCw className="ico" aria-hidden="true" />
-              </button>
-            </div>
-
-            {basket.length > 0 && (
-              <div className="basket">
-                {basket.map((a) => (
-                  <div key={a.url} className="basket-item">
-                    <span className="basket-text">
-                      <span className="news-title">{a.title}</span>
-                      <span className="meta">{a.source}</span>
-                    </span>
-                    <button className="ghost tiny icon-only" title={t("writerRemove")} aria-label={t("writerRemove")}
-                      onClick={() => setBasket((cur) => cur.filter((x) => x.url !== a.url))}>
-                      <X className="ico" aria-hidden="true" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Tempel tautan: untuk artikel yang TIDAK ada di feed. Beberapa
-                sekaligus, satu per baris. */}
+            <label className="step-label wr-gap" htmlFor="wr-link">{t("wrPasteLabel")}</label>
             <div className="path-row">
-              <input
-                value={paste}
-                onChange={(e) => setPaste(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addPasted()}
-                placeholder={t("writerPastePlaceholder")}
-              />
-              <button onClick={addPasted} disabled={!paste.trim() || basket.length >= maxSources}>
-                {t("writerAddLinks")}
-              </button>
+              <input id="wr-link" type="url" value={paste} placeholder="https://..." onChange={(e) => setPaste(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") addPasted(); }} disabled={full} />
+              <button type="button" className="ghost" onClick={addPasted} disabled={!paste.trim() || full}>{t("wrAdd")}</button>
             </div>
+            {full && <p className="meta wr-full">{t("wrFull", { m: maxSources })}</p>}
+          </div>
 
-            <div className="search">
-              <input
-                value={typed}
-                onChange={(e) => setTyped(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && loadList(typed.trim())}
-                placeholder={t("searchPlaceholder")}
-                aria-label={t("search")}
-              />
-              <button className="ghost" onClick={() => loadList(typed.trim())} disabled={listBusy}>{t("search")}</button>
+          <div className="card">
+            <div className="card-head">
+              <h2>{t("wrToday")}</h2>
             </div>
-
-            {listBusy && items.length === 0 ? <NewsSkeleton /> : (
-            <div className="news-list">
-              {items.map((a) => (
-                <div key={a.url}
-                  className={"news-item" + (inBasket(a.url) ? " active" : "")}
-                  role="button" tabIndex={0}
-                  title={inBasket(a.url) ? t("writerRemove") : t("writerAddLinks")}
-                  onClick={() => toggle(a)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(a); }
-                  }}>
-                  {a.image && <img src={a.image} alt="" loading="lazy" />}
-                  <div className="news-text">
-                    <div className="news-title">{a.title}</div>
-                    <div className="news-foot">
-                      {/* Centang hijau = sudah di keranjang. Penanda, bukan
-                          tombol: yang menambah dan mengeluarkan adalah barisnya
-                          sendiri. */}
-                      {inBasket(a.url) && (
-                        <Check className="ico added-mark" aria-label={t("writerAdded")} />
-                      )}
-                      <span className="meta">{a.source} · {a.date || a.domain}</span>
-                      <button
-                        className={"copy-btn" + (copiedLink === a.url ? " ok" : "")}
-                        title={t("copyLinkTitle")} aria-label={t("copyLinkTitle")}
-                        disabled={copyBusy === a.url}
-                        onClick={(e) => { e.stopPropagation(); copyLink(a.url); }}>
-                        {copyBusy === a.url ? t("copyOpening")
-                          : copiedLink === a.url ? t("copied")
-                          : <><Link2 className="ico" aria-hidden="true" /> {t("copyLink")}</>}
-                      </button>
-                    </div>
+            <div className="path-row wr-search">
+              <input type="search" value={typed} placeholder={t("searchPlaceholder")} aria-label={t("ncSearchLabel")}
+                onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") loadList(typed.trim()); }} />
+              <button type="button" className="ghost" onClick={() => loadList(typed.trim())} disabled={listBusy}>{t("ncSearchBtn")}</button>
+            </div>
+            {listBusy && items.length === 0 && <p className="meta">{t("loadingNews")}</p>}
+            <ul className="wr-suggest">
+              {items.filter((a) => !inBasket(a.url)).slice(0, 12).map((a) => (
+                <li key={a.url}>
+                  <div className="wr-thumb">{a.image && /* eslint-disable-next-line @next/next/no-img-element */ <img src={a.image} alt="" loading="lazy" />}</div>
+                  <div className="grow">
+                    <p className="wr-title">{a.title}</p>
+                    <p className="meta">{a.source || a.domain}</p>
                   </div>
-                </div>
+                  <button type="button" className="ghost" onClick={() => toggle(a)} disabled={full || busy}
+                    title={full ? t("wrFull", { m: maxSources }) : undefined}>{t("wrAdd")}</button>
+                </li>
               ))}
-              {listBusy && <div className="meta feed-more">{t("loadingNews")}</div>}
+            </ul>
+          </div>
+        </section>
+
+        <section className="card wr-article">
+          <div className="card-head">
+            <h2>{t("wrResult")}</h2>
+            {draft && (
+              <>
+                <button type="button" className="ghost" onClick={() => copy("body")}><Copy className="ico" aria-hidden="true" /> {copied === "body" ? t("copied") : t("wrCopyText")}</button>
+                <a className="btn-ghost" href={docxURL} download="article.docx"><FileText className="ico" aria-hidden="true" /> {t("wrDocx")}</a>
+              </>
+            )}
+          </div>
+
+          {!draft && !busy && (
+            <EmptyState icon={FileText} title={t("writerEmptyTitle")} description={t("writerEmpty", { max: maxSources })} />
+          )}
+          {busy && (
+            <div className="wr-running" aria-live="polite">
+              <p className="hi-title">{t("writerRunning")}</p>
+              <div className="bar"><div style={{ width: `${Math.round((job?.progress || 0) * 100)}%` }} /></div>
+              <p className="meta">{Math.round((job?.progress || 0) * 100)}%</p>
             </div>
-            )}
-          </div>
+          )}
+          {draft && (
+            <>
+              <p className="note wr-note"><Info className="ico" aria-hidden="true" /> {t("wrMarkersNote")}</p>
+              {violations.length > 0 && (
+                <div className="nc-checks">
+                  <b>{t("writerUnverified", { n: violations.length })}</b>
+                  <ul>{violations.map((v, i) => <li key={i}><code>{v.text}</code> {v.detail}</li>)}</ul>
+                </div>
+              )}
+              <h3 className="wr-h">{draft.title}</h3>
+              {[draft.lead, ...draft.body].filter(Boolean).map((p, i) => (
+                <p key={i} className={"wr-p" + (i === 0 ? " lead" : "")}>
+                  {splitSentences(p).map((sen, k) => {
+                    const n = sourceOf(sen, draft.claims || []);
+                    const src = n > 0 ? used[n - 1] : undefined;
+                    return (
+                      <span key={k}>
+                        {k > 0 ? " " : ""}{sen}
+                        {n > 0 && (src?.url
+                          ? <a className="src-chip" href={src.url} target="_blank" rel="noreferrer" title={src.title}>{n}</a>
+                          : <sup className="src-chip">{n}</sup>)}
+                      </span>
+                    );
+                  })}
+                </p>
+              ))}
+              {used.length > 0 && (
+                <div className="wr-foot">
+                  <p className="wr-foot-h">{t("writerSources")}</p>
+                  {used.map((s, i) => (
+                    <p key={i}><b>{i + 1}.</b> {s.title}{s.media ? `, ${s.media}` : ""}</p>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      </div>
 
-          <div className="panel">
-            <div className="group-title" role="heading" aria-level={3}>{t("writerEngineTitle")}</div>
-            <EnginePicker
-              title={splitEngines ? t("writerStageRead") : undefined}
-              engines={engines} engine={engine} setEngine={setEngine}
-              model={model} setModel={setModel} busy={busy}
-            />
-            <label className="chk">
-              <input type="checkbox" checked={splitEngines} disabled={busy}
-                onChange={(e) => setSplitEngines(e.target.checked)} />
-              {t("writerSplitEngines")}
-            </label>
-            {splitEngines && (
-              <EnginePicker
-                title={t("writerStageWrite")}
-                engines={engines} engine={writeEngine} setEngine={setWriteEngine}
-                model={writeModel} setModel={setWriteModel} busy={busy}
-              />
-            )}
-          </div>
-
-        </div>
+      <div className="wr-tech">
+        <details className="card tech">
+          <summary>{t("techNotes")}</summary>
+          <LogPanel logs={logs} />
+        </details>
       </div>
     </div>
   );
+}
+
+// Sama dengan writer.SplitSentences / SourceOf di engine (docx.go): kalimat
+// dipecah di tanda akhir, dan kalimat diberi nomor sumber bila teks klaimnya
+// sama atau saling memuat. Nomor 1-based; klaim menyimpan sumber 0-based.
+function splitSentences(p: string): string[] {
+  return (p.match(/[^.!?]+[.!?]+["”’)]*\s*|[^.!?]+$/g) || []).map((s) => s.trim()).filter(Boolean);
+}
+function sourceOf(sentence: string, claims: Claim[]): number {
+  const norm = (s: string) => s.trim().replace(/^[.!?"”’ ]+|[.!?"”’ ]+$/g, "").toLowerCase();
+  const s = norm(sentence);
+  if (!s) return 0;
+  const c = claims.find((c) => { const ct = norm(c.text); return ct && (ct === s || s.includes(ct) || ct.includes(s)); });
+  return c ? c.source + 1 : 0;
 }
