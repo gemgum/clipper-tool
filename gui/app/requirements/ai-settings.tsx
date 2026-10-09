@@ -73,12 +73,16 @@ export default function AISettingsPanel() {
         <p className="step-hint flush">{t("setExceptionsHint")}</p>
         {data && tools.map((tool) => (
           <Fragment key={tool.id}>
-            <ExceptionRow name={tool.name} engines={engines} current={data.overrides[tool.id]}
-              allowHeuristic={tool.id === "clips"}
-              onSave={async (c) => setData(await saveAI(tool.id, c?.engine || "", c?.model || ""))} />
-            {tool.id === "clips" && data.transcriber && (
-              <TranscribeRow current={data.transcriber} engines={engines}
-                onSave={async (c) => setData(await saveAI("transcribe", c.engine, c.model))} />
+            {tool.id === "clips" ? (
+              <ClipsRow name={tool.name} engines={engines} current={data.overrides.clips} transcriber={data.transcriber}
+                onSave={async (c, tr) => {
+                  await saveAI("clips", c?.engine || "", c?.model || "");
+                  setData(await saveAI("transcribe", tr.engine, tr.model));
+                }} />
+            ) : (
+              <ExceptionRow name={tool.name} engines={engines} current={data.overrides[tool.id]}
+                allowHeuristic={false}
+                onSave={async (c) => setData(await saveAI(tool.id, c?.engine || "", c?.model || ""))} />
             )}
           </Fragment>
         ))}
@@ -163,69 +167,118 @@ function ExceptionRow({ name, engines, current, allowHeuristic, onSave }: {
   );
 }
 
-// Transkripsi job klip: whisper di mesin ini atau Google AI Studio (notes/43).
-// Kunci AI Studio tidak punya isian sendiri — dipakai kunci mesin Gemini.
-function TranscribeRow({ current, engines, onSave }: {
-  current: AISettings["transcriber"]; engines: EngineInfo[];
-  onSave: (c: { engine: string; model: string }) => Promise<void>;
+// Baris Video clips: mesin skor + transkripsi dalam SATU form (permintaan
+// pemilik 9 Oktober 2026) — keduanya setelan alat yang sama, dua tombol Save
+// untuk satu alat cuma membuat orang menekan yang salah.
+//
+// Transkripsi: whisper di mesin ini, Google AI Studio, atau mesin
+// OpenAI-compatible (notes/43). Kuncinya TIDAK diisi di sini: semua kunci di
+// satu form, Engines & keys (AI Studio = mesin "Google AI Studio (Gemini)").
+function ClipsRow({ name, engines, current, transcriber, onSave }: {
+  name: string; engines: EngineInfo[]; current: { engine: string; model: string } | null;
+  transcriber: AISettings["transcriber"];
+  onSave: (c: { engine: string; model: string } | null, tr: { engine: string; model: string }) => Promise<void>;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const [engine, setEngine] = useState<string>(current.engine);
-  const [model, setModel] = useState(current.model);
+  // "" = ikut mesin utama.
+  const [engine, setEngine] = useState(current?.engine || "");
+  const [model, setModel] = useState(current?.model || "");
   const [models, setModels] = useState<string[]>([]);
+  const [tEngine, setTEngine] = useState(transcriber.engine);
+  const [tModel, setTModel] = useState(transcriber.model);
+  const [tModels, setTModels] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  // Mesin OpenAI-compatible yang siap (endpoint /audio/transcriptions).
-  // Gemini lewat pilihan AI Studio, sebab jalur OpenAI-nya tanpa endpoint audio.
-  const audio = engines.filter((e) => e.kind === "openai" && e.id !== "gemini" && (e.ready || e.id === engine));
+
+  const fetchModels = (id: string, set: (m: string[]) => void) =>
+    fetch(eng(`/api/engines/${id}/models`)).then((r) => r.json()).then((d) => set(d.models || [])).catch(() => set([]));
   useEffect(() => {
-    if (!open || engine === "whisper") { setModels([]); return; }
-    const id = engine === "aistudio" ? "gemini" : engine;
-    fetch(eng(`/api/engines/${id}/models`)).then((r) => r.json()).then((d) => setModels(d.models || [])).catch(() => setModels([]));
+    if (!open || !engine || engine === "heuristic") { setModels([]); return; }
+    fetchModels(engine, setModels);
   }, [open, engine]);
-  const nameOf = (id: string) => id === "whisper" ? t("transcriberWhisper") : id === "aistudio" ? t("transcriberAIStudio")
-    : (engines.find((e) => e.id === id)?.name || id);
-  const label = current.engine === "whisper" ? nameOf("whisper")
-    : `${nameOf(current.engine)} · ${current.model || "whisper-1"}${current.key_set ? "" : " · " + (current.engine === "aistudio" ? t("aiStudioNoKey") : t("setNoKey"))}`;
+  useEffect(() => {
+    if (!open || tEngine === "whisper") { setTModels([]); return; }
+    fetchModels(tEngine === "aistudio" ? "gemini" : tEngine, setTModels);
+  }, [open, tEngine]);
+
+  const ready = engines.filter((e) => e.ready || e.id === engine);
+  // Gemini lewat pilihan AI Studio, sebab jalur OpenAI-nya tanpa endpoint audio.
+  const audio = engines.filter((e) => e.kind === "openai" && e.id !== "gemini" && (e.ready || e.id === tEngine));
+  const nameOf = (id: string) => engines.find((e) => e.id === id)?.name || id;
+  const tName = (id: string) => id === "whisper" ? t("transcriberWhisper") : id === "aistudio" ? t("transcriberAIStudio") : nameOf(id);
+  const engineLabel = current
+    ? `${current.engine === "heuristic" ? t("offlineHeuristic") : nameOf(current.engine)}${current.model ? " · " + current.model : ""}`
+    : t("setFollowMain");
+  const trLabel = transcriber.engine === "whisper" ? tName("whisper")
+    : `${tName(transcriber.engine)} · ${transcriber.model || "whisper-1"}${transcriber.key_set ? "" : " · " + (transcriber.engine === "aistudio" ? t("aiStudioNoKey") : t("setNoKey"))}`;
+
+  const begin = () => {
+    setEngine(current?.engine || ""); setModel(current?.model || "");
+    setTEngine(transcriber.engine); setTModel(transcriber.model); setError(""); setOpen(true);
+  };
+  const save = async () => {
+    setSaving(true); setError("");
+    try {
+      await onSave(engine ? { engine, model: engine === "heuristic" ? "" : model } : null, { engine: tEngine, model: tModel });
+      setOpen(false);
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
   return (
     <div className="set-row">
       <div className="set-main">
-        <p className="set-name" title={t("transcriberTip")}>{t("tabClips")} · {t("transcriber")}</p>
-        <p className={current.key_set ? "meta" : "set-err"}>{label}</p>
+        <p className="set-name">{name}</p>
+        <p className="meta">{engineLabel}</p>
+        <p className={transcriber.key_set ? "meta" : "set-err"} title={t("transcriberTip")}>{t("transcriber")}: {trLabel}</p>
         {open && (
-          <div className="ai-chooser">
-            <div className="field">
-              <label>{t("transcriber")}</label>
-              <select value={engine} onChange={(e) => { setEngine(e.target.value); setModel(""); }}>
-                <option value="whisper">{t("transcriberWhisper")}</option>
-                <option value="aistudio">{t("transcriberAIStudio")}</option>
-                {audio.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              </select>
-            </div>
-            {engine !== "whisper" && (
+          <>
+            <div className="ai-chooser">
+              <div className="field">
+                <label>{t("setEngineLabel")}</label>
+                <select value={engine} onChange={(e) => { setEngine(e.target.value); setModel(""); }}>
+                  <option value="">{t("setFollowMain")}</option>
+                  {ready.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  <option value="heuristic">{t("offlineHeuristic")}</option>
+                </select>
+              </div>
               <div className="field">
                 <label>{t("setModelLabel")}</label>
-                <input list="models-transcribe" value={model} placeholder={engine === "aistudio" ? "gemini-3.5-flash" : "whisper-1"}
-                  title={engine === "aistudio" ? undefined : t("transcribeModelTip")} onChange={(e) => setModel(e.target.value)} />
-                <datalist id="models-transcribe">{models.map((m) => <option key={m} value={m} />)}</datalist>
+                <input list="models-clips" value={model} disabled={!engine || engine === "heuristic"}
+                  placeholder={engines.find((e) => e.id === engine)?.model || ""} onChange={(e) => setModel(e.target.value)} />
+                <datalist id="models-clips">{models.map((m) => <option key={m} value={m} />)}</datalist>
               </div>
-            )}
-            <div className="ai-chooser-actions">
-              <button type="button" className="primary" disabled={saving} onClick={async () => {
-                setSaving(true); setError("");
-                try { await onSave({ engine, model }); setOpen(false); } catch (e: any) { setError(e.message); }
-                finally { setSaving(false); }
-              }}>{t("save")}</button>
+            </div>
+            <div className="ai-chooser">
+              <div className="field">
+                <label title={t("transcriberTip")}>{t("transcriber")}</label>
+                <select value={tEngine} onChange={(e) => { setTEngine(e.target.value); setTModel(""); }}>
+                  <option value="whisper">{t("transcriberWhisper")}</option>
+                  <option value="aistudio">{t("transcriberAIStudio")}</option>
+                  {audio.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>{t("setModelLabel")}</label>
+                <input list="models-transcribe" value={tModel} disabled={tEngine === "whisper"}
+                  placeholder={tEngine === "aistudio" ? "gemini-3.5-flash" : tEngine === "whisper" ? "" : "whisper-1"}
+                  title={tEngine === "aistudio" || tEngine === "whisper" ? undefined : t("transcribeModelTip")}
+                  onChange={(e) => setTModel(e.target.value)} />
+                <datalist id="models-transcribe">{tModels.map((m) => <option key={m} value={m} />)}</datalist>
+              </div>
+            </div>
+            <div className="ai-chooser-actions end">
+              <button type="button" className="primary" disabled={saving} onClick={save}>{t("save")}</button>
               <button type="button" className="ghost" onClick={() => setOpen(false)}>{t("cancel")}</button>
             </div>
             {error && <p className="set-err">{error}</p>}
-          </div>
+          </>
         )}
       </div>
       {!open && (
         <div className="set-actions">
-          <button type="button" className="ghost" onClick={() => { setEngine(current.engine); setModel(current.model); setOpen(true); }}>{t("setChange")}</button>
+          <button type="button" className="ghost" onClick={begin}>{t("setChange")}</button>
         </div>
       )}
     </div>

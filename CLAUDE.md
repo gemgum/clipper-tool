@@ -395,6 +395,8 @@ pilihannya. Rinciannya di `notes/29`.
 - **Semua yang lain dalam bahasa Inggris**: nama folder, berkas, paket, fungsi,
   variabel, konstanta, nama test, field JSON API, nama event SSE, nilai flag CLI,
   dan seluruh pesan yang dilihat pengguna.
+- **Jangan `window.confirm/alert/prompt`** — kotaknya milik browser ("localhost
+  says…"), tidak ikut tema. Konfirmasi lewat `useConfirm()` (`gui/app/confirm.tsx`).
 - Teks antarmuka GUI lewat kamus `gui/app/i18n.tsx` (EN sumber kebenaran; kunci
   bahasa Inggris wajib punya pasangan Indonesia, dijaga oleh TypeScript).
 - Teks yang engine tulis ke kartu (tanggal, kaki kartu, berkas pendamping)

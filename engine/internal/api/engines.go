@@ -79,7 +79,7 @@ var engineDefs = []engineDef{
 		KeysURL: "https://platform.openai.com/api-keys",
 	},
 	{
-		ID: "gemini", Name: "Gemini", Kind: kindOpenAI, Path: "/v1beta/openai",
+		ID: "gemini", Name: "Google AI Studio (Gemini)", Kind: kindOpenAI, Path: "/v1beta/openai",
 		Base: "https://generativelanguage.googleapis.com", Model: "gemini-3.7-flash",
 		EnvKey: "GEMINI_API_KEY", EnvBase: "GEMINI_BASE_URL", EnvModel: "GEMINI_MODEL",
 		KeysURL: "https://aistudio.google.com/apikey",

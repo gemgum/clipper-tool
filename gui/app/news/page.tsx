@@ -48,13 +48,17 @@ type CardItem = { id: string; made: string; bytes: number; file: string; zip: st
 
 const EMPTY: Article = { title: "", summary: "", url: "", image: "", images: [], source: "", domain: "", date: "", published: "" };
 
-// Empat preset tampilan (§5.2) — warnanya ditetapkan engine (card.Request.theme);
+// Preset tampilan (§5.2 + empat tambahan pemilik 9 Oktober 2026) — warnanya ditetapkan engine (card.Request.theme);
 // di sini hanya contoh warnanya untuk kotak pilihan.
 const THEMES = [
   { id: "dark", key: "ncThemeDark", swatch: "#15181D", style: "dark" },
   { id: "light", key: "ncThemeLight", swatch: "#FFFFFF", style: "light" },
   { id: "photo", key: "ncThemePhoto", swatch: "#3C2A1E", style: "dark" },
   { id: "paper", key: "ncThemePaper", swatch: "#F2EBDD", style: "light" },
+  { id: "navy", key: "ncThemeNavy", swatch: "#0F2747", style: "dark" },
+  { id: "red", key: "ncThemeRed", swatch: "#7F1714", style: "dark" },
+  { id: "forest", key: "ncThemeForest", swatch: "#163A2D", style: "dark" },
+  { id: "plum", key: "ncThemePlum", swatch: "#2E1F4A", style: "dark" },
 ] as const;
 const RATIOS = [
   { id: "9:16", key: "ncRatioStory", w: 1080, h: 1920 },
@@ -483,7 +487,8 @@ export default function News() {
               <p className="step-label nc-gap">{t("ncAlign")}</p>
               <div className="nc-align">
                 <Segmented label={t("ncAlign")} value={align} onChange={setAlign}
-                  options={[{ value: "left", name: t("ncAlignLeft") }, { value: "center", name: t("ncAlignCenter") }]} />
+                  options={[{ value: "left", name: t("ncAlignLeft") }, { value: "center", name: t("ncAlignCenter") },
+                    { value: "right", name: t("ncAlignRight") }, { value: "justify", name: t("ncAlignJustify") }]} />
               </div>
             </section>
 

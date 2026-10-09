@@ -10,6 +10,7 @@
 // keadaan kosong (nama, kunci, alamat, model bawaan) untuk gateway lain yang
 // bicara /chat/completions.
 
+import { useConfirm } from "../confirm";
 import { useEffect, useState } from "react";
 import { Plug } from "lucide-react";
 import { eng } from "../engine";
@@ -23,6 +24,7 @@ const NEW = "__new";
 export default function EngineSettings() {
   const { engines, reload } = useEngines();
   const { t } = useI18n();
+  const [ask, confirmEl] = useConfirm();
   const [id, setId] = useState("");
   const [name, setName] = useState("");
   const [key, setKey] = useState("");
@@ -73,7 +75,7 @@ export default function EngineSettings() {
   };
 
   const remove = async () => {
-    if (!e?.user || !window.confirm(t("engineRemoveConfirm", { name: e.name }))) return;
+    if (!e?.user || !(await ask(t("engineRemoveConfirm", { name: e.name }), t("engineRemove")))) return;
     try {
       await post("/api/engines/delete", { id: e.id });
       setId(""); reload();
@@ -99,6 +101,7 @@ export default function EngineSettings() {
 
   return (
     <div className="engine-form">
+      {confirmEl}
       <div className="engine-form-pick">
         <div className="field grow">
           <label>{t("setEngineLabel")}</label>

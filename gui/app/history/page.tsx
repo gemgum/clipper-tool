@@ -9,10 +9,11 @@
 // /api/posts (artikel), /api/captions, /api/watermark. Ketiga yang terakhir
 // kini tersimpan di disk (<DataDir>/runs), jadi bertahan setelah aplikasi
 // ditutup.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Download, FileText, History, Trash2 } from "lucide-react";
 import EmptyState from "../empty-state";
+import { useConfirm } from "../confirm";
 import PageHeader from "../page-header";
 import Alerts from "../alerts";
 import { eng, engineURL } from "../engine";
@@ -56,6 +57,11 @@ export default function HistoryPage() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [ask, confirmEl] = useConfirm();
+  // Pratinjau kartu ukuran penuh: <dialog> bawaan (Esc & fokus diurus browser).
+  const zoomRef = useRef<HTMLDialogElement>(null);
+  const [zoom, setZoom] = useState("");
+  const openZoom = (src: string) => { setZoom(src); zoomRef.current?.showModal(); };
 
   const load = useCallback(() => {
     const get = (p: string) => fetch(eng(p)).then((r) => r.json());
@@ -137,7 +143,7 @@ export default function HistoryPage() {
 
   // Hapus satu entri riwayat (yang sudah berhenti). Berkas hasilnya tidak ikut.
   const removeEntry = async (e: Entry) => {
-    if (!confirm(t("hiConfirmDelete"))) return;
+    if (!(await ask(t("hiConfirmDelete")))) return;
     const url = e.kind === "clips" ? `/api/jobs/${e.job!.id}` : e.kind === "cards" ? `/api/cards/${e.card!.id}`
       : e.kind === "writer" ? `/api/posts/${e.post!.id}` : e.kind === "captions" ? `/api/captions/${e.cap!.id}` : `/api/watermark/${e.wm!.id}`;
     try { const res = await fetch(eng(url), { method: "DELETE" }); if (!res.ok) setError(await failText(res)); }
@@ -156,7 +162,7 @@ export default function HistoryPage() {
     return eng(`/api/download?${q.toString()}`);
   };
   const removePicked = async () => {
-    if (picked.size === 0 || !confirm(t("historyConfirm", { n: picked.size }))) return;
+    if (picked.size === 0 || !(await ask(t("historyConfirm", { n: picked.size })))) return;
     setBusy(true); setError("");
     for (const k of picked) {
       const url = k.startsWith("card/") ? `/api/cards/${k.slice(5)}` : `/api/jobs/${k.split("/")[0]}/clips/${k.split("/")[1]}`;
@@ -179,6 +185,13 @@ export default function HistoryPage() {
         )}
       </PageHeader>
       <Alerts items={[error && { kind: "error" as const, text: error }]} />
+
+      {confirmEl}
+      <dialog ref={zoomRef} className="hi-zoom" onClick={(e) => { if (e.target === e.currentTarget) zoomRef.current?.close(); }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {zoom && <img src={zoom} alt={t("hiPreview")} />}
+        <button type="button" className="ghost" onClick={() => zoomRef.current?.close()}>{t("close")}</button>
+      </dialog>
 
       <div className="hi-body">
         <div className="nc-chips" role="group" aria-label={t("tabHistory")}>
@@ -309,8 +322,10 @@ export default function HistoryPage() {
               <article key={e.key} className="card hi-job">
                 <div className="hi-head">
                   <input type="checkbox" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={t("hiPickClip", { n: c.id })} />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img className="hi-card-thumb" src={eng(c.file)} alt="" loading="lazy" />
+                  <button type="button" className="hi-card-zoom" onClick={() => openZoom(eng(c.file))} aria-label={t("hiPreview")} title={t("hiPreview")}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img className="hi-card-thumb" src={eng(c.file)} alt="" loading="lazy" />
+                  </button>
                   <span className="hi-badge cards">{t("hiKindCards")}</span>
                   <div className="grow">
                     <p className="hi-title">{e.title}</p>

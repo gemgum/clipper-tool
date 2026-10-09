@@ -5,8 +5,9 @@ dikerjakan Gemini lewat Google AI Studio. Dipilih per job, bukan cadangan.
 
 ## Cara memakai
 
-- `.env`: `AI_STUDIO_KEY=<kunci>` (wajib), `AI_STUDIO_MODEL=` (opsional,
-  bawaan `gemini-3.5-flash`).
+- Kunci & model diisi DI APLIKASI: Settings → Exceptions → Video clips
+  (mesin, transkripsi, model, API key dalam satu form). Bawaan model
+  `gemini-3.5-flash`.
 - CLI: `clipper run video.mp4 -transcriber aistudio`.
 - API: `"transcriber": "aistudio"` di `options` job (`whisper` = bawaan).
 - `GET /api/requirements` membawa `ai_studio: {key_set, model}`; kuncinya
@@ -37,8 +38,9 @@ dikerjakan Gemini lewat Google AI Studio. Dipilih per job, bukan cadangan.
   `httpx.Retry`.
 - Kunci cache transkrip memakai model `aistudio:<model>`; cache whisper lama
   tetap terpakai (kuncinya tidak berubah).
-- Kunci: `AI_STUDIO_KEY`, bila kosong dipakai `GEMINI_API_KEY` (kunci mesin
-  Gemini di Engines & Keys — sumber kuncinya sama, aistudio.google.com).
+- Kunci: satu, kunci mesin "Google AI Studio (Gemini)" (`GEMINI_API_KEY`).
+  `AI_STUDIO_KEY` di `.env` DIBUANG 9 Oktober 2026 — pemilik: semua kunci AI
+  diisi manual di aplikasi, bukan lewat env.
 - Bawaan job klip dipilih di Settings → Exceptions → "Video clips ·
   Transcription" (`CLIPPER_TRANSCRIBER` + `AI_STUDIO_MODEL` di `.env`, 9 Oktober
   2026). Job yang mengirim `transcriber` sendiri tetap menang.

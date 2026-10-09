@@ -2810,6 +2810,8 @@ button.theme-tile.on { border: 2px solid var(--accent); padding: 9px; box-shadow
 .ai-chooser { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-top: 12px; }
 .ai-chooser .field { flex: 1 1 200px; margin: 0; }
 .ai-chooser-actions { display: flex; gap: 8px; }
+/* Baris Video clips: dua baris isian sama lebar, tombol di baris sendiri. */
+.ai-chooser-actions.end { justify-content: flex-end; margin-top: 12px; }
 .ai-chooser-actions button { min-height: 44px; }
 .set-ok, .set-err { margin: 12px 0 0; font-size: 13.5px; }
 .set-ok { color: var(--good-text); }
@@ -2853,6 +2855,18 @@ p.ai-line a { margin-left: auto; font-size: 13.5px; font-weight: 600; color: var
   display: flex; flex-wrap: wrap; gap: 18px; font-size: 12.5px; color: var(--text-2); }
 .hi-legend b { color: var(--text); }
 .hi-card-thumb { width: 54px; height: 96px; object-fit: cover; border-radius: 6px; flex: none; background: var(--sunken); }
+button.hi-card-zoom { padding: 0; border: 0; background: none; border-radius: 6px; cursor: zoom-in; flex: none; line-height: 0; }
+button.hi-card-zoom:hover .hi-card-thumb { outline: 2px solid var(--accent); }
+/* Pratinjau penuh: tinggi jendela jadi batas, kartu dimuat utuh (9:16 / 4:5 / 1:1). */
+dialog.hi-zoom { padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); max-width: 92vw; }
+dialog.hi-zoom::backdrop { background: rgb(0 0 0 / 60%); }
+/* Konfirmasi milik aplikasi (confirm.tsx), pengganti window.confirm(). */
+dialog.app-confirm { width: min(420px, 92vw); padding: 22px 22px 18px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); color: var(--text); box-shadow: var(--e-3, 0 12px 32px rgb(0 0 0 / 25%)); }
+dialog.app-confirm::backdrop { background: rgb(0 0 0 / 50%); }
+dialog.app-confirm p { margin: 0 0 18px; font-size: 15px; line-height: 1.45; }
+.app-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+dialog.hi-zoom[open] { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+dialog.hi-zoom img { display: block; max-height: calc(100vh - 140px); max-width: 100%; object-fit: contain; border-radius: 8px; }
 .hi-files { list-style: none; margin: 14px 0 0; padding: 0; }
 .hi-files li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); font-size: 14px; }
 .hi-files .btn-ghost { flex: none; min-height: 34px; padding: 0 14px; }

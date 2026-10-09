@@ -90,7 +90,7 @@ type MomentReasons struct {
 // perpindahan diam-diam ke mesin lain (lihat notes/12).
 func (c *Client) Complete(ctx context.Context, system, user string, maxTokens int) (string, error) {
 	if c.APIKey == "" {
-		return "", fmt.Errorf("the Claude API key is empty: set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+		return "", fmt.Errorf("the Claude API key is empty: paste it under Settings → Engines & keys")
 	}
 	if maxTokens <= 0 {
 		maxTokens = 4096
@@ -171,7 +171,7 @@ func truncate(s string, n int) string {
 // batas waktu. Lihat pick.go untuk alasannya.
 func (c *Client) PickMoments(ctx context.Context, cands []types.Candidate, offset, maxClips int, contentLang string) ([]Pick, error) {
 	if c.APIKey == "" {
-		return nil, fmt.Errorf("the Claude API key is empty: set it in the AI engine panel (GUI) or ANTHROPIC_API_KEY in .env")
+		return nil, fmt.Errorf("the Claude API key is empty: paste it under Settings → Engines & keys")
 	}
 	text, err := c.Complete(ctx, PickSystemPrompt(maxClips, contentLang), PickUserPrompt(cands, offset), 4096)
 	if err != nil {

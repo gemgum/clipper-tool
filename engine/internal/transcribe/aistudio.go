@@ -57,19 +57,17 @@ func AIStudioFromEnv() *AIStudio {
 	if model == "" {
 		model = AIStudioDefaultModel
 	}
-	// Kunci AI Studio = kunci mesin Gemini di halaman Engines & Keys (halaman
-	// kuncinya sama: aistudio.google.com/apikey), jadi cukup diisi sekali di sana.
-	key := strings.TrimSpace(os.Getenv("AI_STUDIO_KEY"))
-	if key == "" {
-		key = strings.TrimSpace(os.Getenv("GEMINI_API_KEY"))
-	}
-	return &AIStudio{Key: key, Model: model}
+	// Kuncinya SATU: yang diisi tangan di aplikasi (Settings → Video clips, atau
+	// mesin "Google AI Studio (Gemini)" di Engines & Keys — keduanya menyimpan
+	// GEMINI_API_KEY). Tidak ada lagi AI_STUDIO_KEY yang hanya bisa diisi lewat
+	// .env (permintaan pemilik 9 Oktober 2026: semua kunci AI diisi manual).
+	return &AIStudio{Key: strings.TrimSpace(os.Getenv("GEMINI_API_KEY")), Model: model}
 }
 
 // Available memastikan kuncinya ada SEBELUM audio diekstrak.
 func (a *AIStudio) Available() error {
 	if a.Key == "" {
-		return fmt.Errorf("AI Studio has no API key yet: add a Gemini key on the Engines & Keys page")
+		return fmt.Errorf("AI Studio has no API key yet: paste the Google AI Studio API key under Settings → Engines & keys → Google AI Studio (Gemini)")
 	}
 	return nil
 }

@@ -207,6 +207,11 @@ const (
 	ThemeLight = "light"
 	ThemePhoto = "photo"
 	ThemePaper = "paper"
+	// Tambahan pemilik 9 Oktober 2026 (empat preset §5.2 dirasa kurang).
+	ThemeNavy   = "navy"
+	ThemeRed    = "red"
+	ThemeForest = "forest"
+	ThemePlum   = "plum"
 )
 
 // themeColors = warna satu tampilan jadi. Panel = latar kartu, Title = judul
@@ -224,6 +229,11 @@ var themeTable = map[string]themeColors{
 	ThemeLight: {Panel: "#FFFFFF", Title: "#15181D", Body: "#5A6472", Badge: "#15181D", OnBadge: "#FFFFFF", Footer: "#8A93A1"},
 	ThemePhoto: {Panel: "#3C2A1E", Title: "#FFF6EC", Body: "#DEC9B4", Badge: "#E8A33D", OnBadge: "#2A1C12", Footer: "#B49C84"},
 	ThemePaper: {Panel: "#F2EBDD", Title: "#2A2318", Body: "#5E5444", Badge: "#2A2318", OnBadge: "#F2EBDD", Footer: "#8C8070"},
+	// Di luar §5.2. Kontras teks isi di atas panel terhitung ≥ 7:1 (WCAG AAA).
+	ThemeNavy:   {Panel: "#0F2747", Title: "#FFFFFF", Body: "#C9D6EA", Badge: "#FFD400", OnBadge: "#0F2747", Footer: "#8FA3C0"},
+	ThemeRed:    {Panel: "#7F1714", Title: "#FFFFFF", Body: "#F3D6D2", Badge: "#FFFFFF", OnBadge: "#7F1714", Footer: "#E0A9A2"},
+	ThemeForest: {Panel: "#163A2D", Title: "#F4FAF6", Body: "#C6DCCF", Badge: "#E8C547", OnBadge: "#163A2D", Footer: "#8FB0A0"},
+	ThemePlum:   {Panel: "#2E1F4A", Title: "#FFFFFF", Body: "#D5CCEA", Badge: "#F5C2E7", OnBadge: "#2E1F4A", Footer: "#A79BC4"},
 }
 
 // themePhotoPct: tinggi area foto per rasio saat tampilan jadi dipakai.

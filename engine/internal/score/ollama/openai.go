@@ -419,6 +419,16 @@ func readReply(resp *http.Response) (openAIResp, []byte, error) {
 	var parsed openAIResp
 	if !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		raw, _ := io.ReadAll(resp.Body)
+		// Gemini (jalur OpenAI-nya) membungkus galat dalam ARRAY:
+		// [{"error": {...}}]. Tanpa ini kuota habis (429) terbaca sebagai
+		// "cannot unmarshal array" dan pesan aslinya terkubur.
+		if t := bytes.TrimSpace(raw); len(t) > 0 && t[0] == '[' {
+			var list []openAIResp
+			if err := json.Unmarshal(t, &list); err != nil || len(list) == 0 {
+				return parsed, raw, fmt.Errorf("unexpected reply shape")
+			}
+			return list[0], raw, nil
+		}
 		return parsed, raw, json.Unmarshal(raw, &parsed)
 	}
 	var content strings.Builder

@@ -29,7 +29,7 @@ export default function SetupPanel({
   durationPreset, setDurationPreset, maxClips, setMaxClips, saveMode, setSaveMode,
   engine, setEngine, llmModel, setLlmModel,
   transcriptFix, setTranscriptFix, terms, setTerms, addLog,
-  testing, setTesting, transcriber, setTranscriber, aiStudioReady, hideClips,
+  testing, setTesting, transcriber, hideClips,
 }: {
   model: string; setModel: (v: string) => void;
   models: WhisperModel[];
@@ -47,10 +47,8 @@ export default function SetupPanel({
   addLog: (text: string) => void;
   /** Dititipkan halaman: tombol Mulai di panel sebelah ikut mati selama uji. */
   testing: boolean; setTesting: (v: boolean) => void;
-  /** "whisper" (lokal) atau "aistudio" (Google AI Studio, notes/43). */
-  transcriber: string; setTranscriber: (v: string) => void;
-  /** null = belum diketahui; false = AI_STUDIO_KEY belum diisi. */
-  aiStudioReady: boolean | null;
+  /** Mesin transkripsi dari Pengaturan; model whisper hanya berlaku untuk "whisper". */
+  transcriber: string;
   /** Halaman klip baru: jumlah, panjang, dan versi simpan ada di kartu 4. */
   hideClips?: boolean;
 }) {
@@ -186,14 +184,8 @@ export default function SetupPanel({
       <div className="group">
         <div className="group-title" role="heading" aria-level={3}>{t("groupEngine")}</div>
         <div className="grid3">
-          <div className="field"><label>{t("transcriber")} <Tip text={t("transcriberTip")} />
-            {transcriber === "aistudio" && aiStudioReady === false && <Warn>{t("aiStudioNoKey")}</Warn>}</label>
-            <Select value={transcriber} onChange={setTranscriber} options={[
-              { value: "whisper", label: t("transcriberWhisper") },
-              { value: "aistudio", label: t("transcriberAIStudio") },
-            ]} /></div>
           <div className="field"><label>{t("whisperModel")}</label>
-            <Select value={model} onChange={setModel} disabled={transcriber === "aistudio"} options={models.map((m) => ({
+            <Select value={model} onChange={setModel} disabled={transcriber !== "whisper"} options={models.map((m) => ({
               value: m.name, label: m.name,
               note: m.downloaded ? m.size : t("modelNotDownloaded"),
             }))} /></div>

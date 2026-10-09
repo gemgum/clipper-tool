@@ -23,7 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Play, SlidersHorizontal } from "lucide-react";
 import PageHeader from "./page-header";
-import { useAI } from "./ai";
+import { useAI, useAISettings } from "./ai";
 import { useI18n } from "./i18n";
 import Alerts from "./alerts";
 import { eng, engineURL, isWeb, useWeb } from "./engine";
@@ -68,7 +68,6 @@ export default function Home() {
   const [durationPreset, setDurationPreset] = useState("auto");
   // Nilai bawaan DESIGN.md §13. Isian tersimpan (useRestore) tetap menang.
   const [maxClips, setMaxClips] = useState(15);
-  const [transcriber, setTranscriber] = useState("whisper");
   const [models, setModels] = useState<WhisperModel[]>([]);
 
   // Subtitle
@@ -153,12 +152,14 @@ export default function Home() {
   const [grid, setGrid] = useState<number>(20);
   const [alwaysGuides, setAlwaysGuides] = useState(false);
   const [showZones, setShowZones] = useState(true);
-  const [aiStudioReady, setAiStudioReady] = useState<boolean | null>(null);
   const advRef = useRef<HTMLDetailsElement | null>(null);
   const router = useRouter();
   // Mesin AI dari Pengaturan (global, atau pengecualian alat "clips"). Ia
   // MENANG atas isian lama yang tersimpan: pemilihnya sudah tidak ada di sini.
   const ai = useAI("clips");
+  // Transkripsi juga dari Pengaturan (baris Video clips), tidak dipilih di
+  // sini lagi: job tidak mengirim "transcriber", engine memakai setelan itu.
+  const transcriber = useAISettings().data?.transcriber?.engine ?? "whisper";
   useEffect(() => {
     if (!ai) return;
     setEngine(ai.engine);
@@ -207,11 +208,6 @@ export default function Home() {
       else if (fontFromPreset.current && !f.some((x) => x.name === fontFromPreset.current)) setFontManual(true);
     }).catch(() => {});
   }, [addLog, t]);
-
-  useEffect(() => {
-    fetch(eng(`/api/requirements`)).then((r) => r.json())
-      .then((d) => setAiStudioReady(!!d?.ai_studio?.key_set)).catch(() => {});
-  }, []);
 
   // Font manual divalidasi di engine (format + benar-benar terpasang), ditunda
   // 400 ms supaya tidak memanggil fc-match tiap huruf yang diketik.
@@ -324,7 +320,7 @@ export default function Home() {
   useKeep("clips", {
     path, outputDir, model, resolution, quality, reframe, background, zoom, fps,
     durationPreset, maxClips, saveMode, transcriptFix, terms,
-    engine, llmModel, transcriber,
+    engine, llmModel,
     subFont, subSize, subX, subY, subColor, subOutline, subBox, subMode, subHighlight, subSpeed,
     watermark,
   });
@@ -348,7 +344,6 @@ export default function Home() {
     set(setTerms, v.terms);
     set(setEngine, v.engine);
     set(setLlmModel, v.llmModel);
-    set(setTranscriber, v.transcriber);
     set(setSubFont, v.subFont);
     set(setSubSize, v.subSize);
     set(setSubX, v.subX);
@@ -432,7 +427,7 @@ export default function Home() {
         body: JSON.stringify({
           source: { type: "path", value: path },
           options: {
-            whisper_model: model, transcriber, resolution, quality, reframe, background,
+            whisper_model: model, resolution, quality, reframe, background,
             zoom: Number(zoom), fps: Number(fps),
             // Satu kotak model untuk semua mesin; pipeline membaca yang
             // sesuai dengan mesin yang dipilih.
@@ -793,7 +788,7 @@ export default function Home() {
                 transcriptFix={transcriptFix} setTranscriptFix={setTranscriptFix}
                 terms={terms} setTerms={setTerms} addLog={addLog}
                 testing={testing} setTesting={setTesting}
-                transcriber={transcriber} setTranscriber={setTranscriber} aiStudioReady={aiStudioReady}
+                transcriber={transcriber}
               />
               <PreviewPanel
                 part="settings" grid={grid} setGrid={setGrid} alwaysGuides={alwaysGuides} setAlwaysGuides={setAlwaysGuides}
